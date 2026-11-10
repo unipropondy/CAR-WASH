@@ -773,81 +773,295 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* 5. ROW 3: PAYMENT CHANNEL MIX | KEY METRICS | PAYMENT BREAKDOWN */}
       {/* ============================================================== */}
       <View style={styles.rowThreeContainer}>
-        {/* Card 1: Payment Channel Mix */}
-        <View style={styles.rowThreeCard}>
+        {/* Card 1: Payment Channel Mix (Infographic Template) */}
+        <View style={[styles.rowThreeCard, { flex: 1.15, minWidth: 360 }]}>
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardTitle}>Payment Channel Mix</Text>
               <Text style={styles.cardSubtitle}>Revenue distribution by mode</Text>
             </View>
+            <View style={styles.metricLiveChip}>
+              <View style={styles.metricLiveDot} />
+              <Text style={styles.metricLiveText}>LIVE</Text>
+            </View>
           </View>
 
           <View style={styles.channelMixBody}>
-            {/* Centered Donut Chart */}
-            <View style={styles.centeredDonutBox}>
-              {Platform.OS === 'web' ? (
-                <svg width="130" height="130" viewBox="0 0 130 130" style={{ display: 'block', margin: '0 auto' }}>
-                  <circle cx="65" cy="65" r="50" fill="none" stroke="#F1F5F9" strokeWidth="13" />
-                  {(() => {
-                    const radius = 50;
-                    const circumference = 2 * Math.PI * radius; // 314.16
-                    let accumulatedPercent = 0;
-                    const paletteMap: Record<string, string> = {
-                      MEMBER: '#7C3AED',
-                      CASH: '#ED0712',
-                      PAYNOW: '#059669',
-                      CREDIT: '#2563EB',
-                      ONLINE: '#0284C7',
-                    };
-                    return payMixList.map((c, i) => {
-                      const color = paletteMap[c.paymentChannel] || PAYMENT_PALETTE[c.paymentChannel] || '#ED0712';
-                      const pct = Math.max(0, Math.min(100, c.revenuePercentage || 0));
-                      const strokeDash = (pct / 100) * circumference;
-                      const offset = -((accumulatedPercent / 100) * circumference);
-                      accumulatedPercent += pct;
-                      return (
-                        <circle
-                          key={c.paymentChannel || i}
-                          cx="65"
-                          cy="65"
-                          r={radius}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth="13"
-                          strokeDasharray={`${strokeDash} ${circumference}`}
-                          strokeDashoffset={offset}
-                          transform="rotate(-90 65 65)"
-                        />
-                      );
-                    });
-                  })()}
-                </svg>
-              ) : null}
-              <View style={styles.channelDonutCenter}>
-                <Text style={styles.channelTotalLabel}>Total</Text>
-                <Text style={styles.channelTotalVal}>${summary.totalRevenue.toFixed(2)}</Text>
-              </View>
-            </View>
+            {/* Infographic Stepped Circular Chart */}
+            {Platform.OS === 'web' && payMixList.length > 0 ? (
+              <View style={styles.infographicSvgContainer}>
+                {(() => {
+                  const cx = 210;
+                  const cy = 150;
+                  const rInner = 44;
+                  const rMid = 68;
 
-            {/* Breakdown List shown UNDER the diagram */}
-            <View style={styles.channelMixListWrap}>
+                  // Infographic palette matching reference image
+                  const colorPalette: Record<string, { outer: string; inner: string }> = {
+                    CASH:   { outer: '#7C3AED', inner: '#8B5CF6' }, // Deep Purple / Violet
+                    CREDIT: { outer: '#EC4899', inner: '#F472B6' }, // Hot Pink / Magenta
+                    MEMBER: { outer: '#F59E0B', inner: '#FBBF24' }, // Amber / Golden Yellow
+                    PAYNOW: { outer: '#F43F5E', inner: '#FB7185' }, // Coral / Bright Pink
+                    ONLINE: { outer: '#6366F1', inner: '#818CF8' }, // Indigo
+                  };
+
+                  const fallbackPalette = [
+                    { outer: '#7C3AED', inner: '#8B5CF6' },
+                    { outer: '#EC4899', inner: '#F472B6' },
+                    { outer: '#F59E0B', inner: '#FBBF24' },
+                    { outer: '#F43F5E', inner: '#FB7185' },
+                    { outer: '#06B6D4', inner: '#22D3EE' },
+                  ];
+
+                  const toRad = (deg: number) => (deg * Math.PI) / 180;
+                  const polarToXY = (r: number, deg: number) => ({
+                    x: cx + r * Math.cos(toRad(deg)),
+                    y: cy + r * Math.sin(toRad(deg)),
+                  });
+
+                  const describeArc = (rIn: number, rOut: number, a1: number, a2: number) => {
+                    const diff = a2 - a1;
+                    const safeA2 = diff >= 359.99 ? a1 + 359.99 : a2;
+                    const p1 = polarToXY(rOut, a1);
+                    const p2 = polarToXY(rOut, safeA2);
+                    const p3 = polarToXY(rIn, safeA2);
+                    const p4 = polarToXY(rIn, a1);
+                    const largeArc = diff > 180 ? 1 : 0;
+                    return `M ${p1.x} ${p1.y} A ${rOut} ${rOut} 0 ${largeArc} 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${rIn} ${rIn} 0 ${largeArc} 0 ${p4.x} ${p4.y} Z`;
+                  };
+
+                  const totalPct = payMixList.reduce((acc, cur) => acc + (cur.revenuePercentage || 0), 0) || 100;
+                  let curAngle = -90;
+
+                  const computedSlices = payMixList.map((item, idx) => {
+                    const pct = Math.max(0, item.revenuePercentage || 0);
+                    const span = (pct / totalPct) * 360;
+                    const startA = curAngle;
+                    const endA = curAngle + span;
+                    curAngle += span;
+
+                    const midA = (startA + endA) / 2;
+                    const c = colorPalette[item.paymentChannel] || fallbackPalette[idx % fallbackPalette.length];
+
+                    // Stepped outer radius: larger share steps further out, matching the reference infographic
+                    const rOut = 95 + (pct >= 40 ? 16 : pct >= 20 ? 10 : pct >= 10 ? 5 : 0);
+
+                    const gap = span > 8 ? 2 : 0;
+                    const safeStartA = startA + gap;
+                    const safeEndA = endA - gap;
+
+                    return {
+                      item,
+                      pct,
+                      startA: safeStartA,
+                      endA: safeEndA,
+                      midA,
+                      rOut,
+                      color: c.outer,
+                      innerColor: c.inner,
+                    };
+                  });
+
+                  return (
+                    <svg width="100%" height="300" viewBox="0 0 420 300" style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}>
+                      <defs>
+                        <linearGradient id="centerCircleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#FF2A85" />
+                          <stop offset="100%" stopColor="#C026D3" />
+                        </linearGradient>
+                        <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="rgba(236,72,153,0.3)" />
+                        </filter>
+                      </defs>
+
+                      {/* 1. Outer Stepped Arc Slices */}
+                      {computedSlices.map((s, idx) => {
+                        const d = describeArc(rMid + 2, s.rOut, s.startA, s.endA);
+                        return (
+                          <path
+                            key={`outer-${idx}`}
+                            d={d}
+                            fill={s.color}
+                            stroke="#FFFFFF"
+                            strokeWidth="1.5"
+                          />
+                        );
+                      })}
+
+                      {/* 2. Inner Arc Band with slight transparency */}
+                      {computedSlices.map((s, idx) => {
+                        const d = describeArc(rInner, rMid, s.startA, s.endA);
+                        return (
+                          <path
+                            key={`inner-${idx}`}
+                            d={d}
+                            fill={s.innerColor}
+                            opacity="0.9"
+                            stroke="#FFFFFF"
+                            strokeWidth="1.5"
+                          />
+                        );
+                      })}
+
+                      {/* 3. Icons inside Inner Arc Ring */}
+                      {computedSlices.map((s, idx) => {
+                        const iconPos = polarToXY((rInner + rMid) / 2, s.midA);
+                        const ch = s.item.paymentChannel;
+
+                        return (
+                          <g key={`icon-${idx}`} transform={`translate(${iconPos.x}, ${iconPos.y})`}>
+                            {ch === 'CASH' && (
+                              <g>
+                                <rect x="-6" y="-4.5" width="12" height="9" rx="1.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+                                <circle cx="0" cy="0" r="1.8" fill="#FFFFFF" />
+                              </g>
+                            )}
+                            {ch === 'CREDIT' && (
+                              <g>
+                                <rect x="-7" y="-5" width="14" height="10" rx="1.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+                                <line x1="-7" y1="-1" x2="7" y2="-1" stroke="#FFFFFF" strokeWidth="1.5" />
+                                <rect x="-4.5" y="1" width="2.5" height="1.8" rx="0.5" fill="#FFFFFF" />
+                              </g>
+                            )}
+                            {ch === 'MEMBER' && (
+                              <g>
+                                <circle cx="0" cy="0" r="5.5" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
+                                <circle cx="0" cy="0" r="3" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
+                                <circle cx="0" cy="0" r="1" fill="#FFFFFF" />
+                              </g>
+                            )}
+                            {ch === 'PAYNOW' && (
+                              <g>
+                                <rect x="-5" y="-5" width="4" height="4" fill="#FFFFFF" />
+                                <rect x="1" y="-5" width="4" height="4" fill="#FFFFFF" />
+                                <rect x="-5" y="1" width="4" height="4" fill="#FFFFFF" />
+                                <rect x="1.5" y="1.5" width="3" height="3" fill="#FFFFFF" />
+                              </g>
+                            )}
+                            {ch !== 'CASH' && ch !== 'CREDIT' && ch !== 'MEMBER' && ch !== 'PAYNOW' && (
+                              <g>
+                                <circle cx="0" cy="0" r="3.5" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
+                                <path d="M-5 0 L5 0 M0 -5 L0 5" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
+                              </g>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* 4. Center Concentric Rings Badge */}
+                      <circle cx={cx} cy={cy} r="41" fill="#FFFFFF" stroke="#F1F5F9" strokeWidth="3" filter="url(#softGlow)" />
+                      <circle cx={cx} cy={cy} r="35" fill="url(#centerCircleGrad)" stroke="#FFFFFF" strokeWidth="2.5" />
+                      <text x={cx} y={cy - 9} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize="8.5" fontWeight="800" letterSpacing="0.8">
+                        TOTAL
+                      </text>
+                      <text x={cx} y={cy + 6} textAnchor="middle" fill="#FFFFFF" fontSize="15" fontWeight="900">
+                        ${summary.totalRevenue.toFixed(0)}
+                      </text>
+                      <text x={cx} y={cy + 17} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize="7.5" fontWeight="700">
+                        REVENUE
+                      </text>
+
+                      {/* 5. Leader Lines & Callout Labels */}
+                      {computedSlices.map((s, idx) => {
+                        const startPt = polarToXY(s.rOut + 3, s.midA);
+                        const isRight = Math.cos(toRad(s.midA)) >= 0;
+                        const isTop = Math.sin(toRad(s.midA)) < 0;
+
+                        const kneeX = startPt.x + (isRight ? 20 : -20);
+                        const kneeY = startPt.y + (isTop ? -14 : 14);
+                        const endX = kneeX + (isRight ? 26 : -26);
+                        const endY = kneeY;
+
+                        const textX = endX + (isRight ? 8 : -8);
+                        const textAnchor = isRight ? 'start' : 'end';
+
+                        return (
+                          <g key={`callout-${idx}`}>
+                            <path
+                              d={`M ${startPt.x} ${startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
+                              fill="none"
+                              stroke={s.color}
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <circle
+                              cx={endX}
+                              cy={endY}
+                              r="3.2"
+                              fill="#FFFFFF"
+                              stroke={s.color}
+                              strokeWidth="2"
+                            />
+                            <text
+                              x={textX}
+                              y={endY - 3}
+                              textAnchor={textAnchor}
+                              fill={s.color}
+                              fontSize="15"
+                              fontWeight="900"
+                              fontFamily="system-ui, -apple-system, sans-serif"
+                            >
+                              {s.pct}%
+                            </text>
+                            <text
+                              x={textX}
+                              y={endY + 11}
+                              textAnchor={textAnchor}
+                              fill="#0F172A"
+                              fontSize="10.5"
+                              fontWeight="800"
+                              fontFamily="system-ui, -apple-system, sans-serif"
+                            >
+                              {s.item.paymentChannelName || s.item.paymentChannel}
+                            </text>
+                            <text
+                              x={textX}
+                              y={endY + 22}
+                              textAnchor={textAnchor}
+                              fill="#64748B"
+                              fontSize="9"
+                              fontWeight="600"
+                              fontFamily="system-ui, -apple-system, sans-serif"
+                            >
+                              ${s.item.totalAmount.toFixed(0)} · {s.item.transactionCount || 0}tx
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  );
+                })()}
+              </View>
+            ) : null}
+
+            {/* Breakdown Pill Cards underneath */}
+            <View style={styles.channelInfographicGridWrap}>
               {payMixList.length > 0 ? (
                 payMixList.map((c) => {
-                  const paletteMap: Record<string, string> = {
-                    MEMBER: '#7C3AED',
-                    CASH: '#ED0712',
-                    PAYNOW: '#059669',
-                    CREDIT: '#2563EB',
-                    ONLINE: '#0284C7',
+                  const colorMap: Record<string, string> = {
+                    CASH: '#7C3AED',
+                    CREDIT: '#EC4899',
+                    MEMBER: '#F59E0B',
+                    PAYNOW: '#F43F5E',
+                    ONLINE: '#6366F1',
                   };
-                  const color = paletteMap[c.paymentChannel] || PAYMENT_PALETTE[c.paymentChannel] || '#ED0712';
+                  const color = colorMap[c.paymentChannel] || '#7C3AED';
                   return (
-                    <View key={c.paymentChannel} style={styles.channelMixItemRow}>
-                      <View style={styles.channelItemLeft}>
+                    <View key={c.paymentChannel} style={[styles.channelInfographicCard, { borderTopColor: color }]}>
+                      <View style={styles.channelInfographicCardTop}>
                         <View style={[styles.channelDot, { backgroundColor: color }]} />
-                        <Text style={styles.channelLabelText}>{c.paymentChannelName || c.paymentChannel}</Text>
+                        <Text style={styles.channelInfographicCardTitle} numberOfLines={1}>
+                          {c.paymentChannelName || c.paymentChannel}
+                        </Text>
+                        <Text style={[styles.channelInfographicCardPct, { color }]}>
+                          {c.revenuePercentage}%
+                        </Text>
                       </View>
-                      <Text style={styles.channelPctText}>{c.revenuePercentage}% (${c.totalAmount.toFixed(0)})</Text>
+                      <View style={styles.channelInfographicCardBottom}>
+                        <Text style={styles.channelInfographicCardAmt}>${c.totalAmount.toFixed(0)}</Text>
+                        <Text style={styles.channelInfographicCardTxn}>{c.transactionCount || 0} orders</Text>
+                      </View>
                     </View>
                   );
                 })
@@ -2145,6 +2359,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingTop: 6,
+  },
+  infographicSvgContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 4,
+  },
+  channelInfographicGridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    width: '100%',
+    marginTop: 10,
+  },
+  channelInfographicCard: {
+    flex: 1,
+    minWidth: 120,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    borderTopWidth: 3,
+  },
+  channelInfographicCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  channelInfographicCardTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    flex: 1,
+  },
+  channelInfographicCardPct: {
+    fontSize: 11.5,
+    fontWeight: '900',
+  },
+  channelInfographicCardBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  channelInfographicCardAmt: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  channelInfographicCardTxn: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
   },
   channelMixRow: {
     flexDirection: 'row',
