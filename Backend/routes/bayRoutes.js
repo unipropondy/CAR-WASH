@@ -10,6 +10,7 @@ const {
   assignBay,
   releaseBay,
   updateLayout,
+  deleteBay,
 } = require('../controllers/bayMasterController');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'car-wash-secret-key-fallback';
