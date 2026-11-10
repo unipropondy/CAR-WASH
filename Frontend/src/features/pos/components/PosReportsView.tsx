@@ -787,14 +787,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
 
           <View style={styles.channelMixBody}>
-            {/* Infographic Stepped Circular Chart */}
+            {/* Infographic Stepped Circular Chart (Reduced & Moved to Top Side) */}
             {Platform.OS === 'web' && payMixList.length > 0 ? (
               <View style={styles.infographicSvgContainer}>
                 {(() => {
-                  const cx = 300;
-                  const cy = 190;
-                  const rInner = 56;
-                  const rMid = 86;
+                  const cx = 280;
+                  const cy = 135;
+                  const rInner = 44;
+                  const rMid = 68;
 
                   // Infographic gradient & color definitions matching reference
                   const channelStyles: Record<
@@ -871,21 +871,20 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     payMixList.reduce((acc, cur) => acc + (cur.revenuePercentage || 0), 0) || 100;
                   let curAngle = -75; // Pinwheel start angle matching reference layout
 
-                  // Dynamic stepped outer radii offsets matching reference infographic tiers
+                  // Stepped outer radii offsets (scaled compactly)
                   const getStepRadius = (idx: number, count: number) => {
-                    if (count === 1) return 150;
-                    if (count === 2) return idx === 0 ? 156 : 132;
+                    if (count === 1) return 122;
+                    if (count === 2) return idx === 0 ? 126 : 106;
                     if (count === 3) {
-                      // 3 slices: Hero, Recessed tier, Medium tier
-                      const tiers = [156, 126, 144];
+                      const tiers = [126, 102, 116];
                       return tiers[idx % 3];
                     }
                     if (count === 4) {
-                      const tiers = [156, 122, 148, 134];
+                      const tiers = [126, 98, 118, 108];
                       return tiers[idx % 4];
                     }
                     // 5 or more slices
-                    const tiers = [156, 120, 150, 130, 160];
+                    const tiers = [126, 96, 120, 104, 128];
                     return tiers[idx % tiers.length];
                   };
 
@@ -908,12 +907,19 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     const safeStartA = startA + gap;
                     const safeEndA = endA - gap;
 
-                    // Compute preliminary leader line coordinates
-                    const startPt = polarToXY(rOut + 4, midA);
+                    // Compute leader line coordinates with ample top clearance
+                    const startPt = polarToXY(rOut + 3, midA);
                     const isRight = Math.cos(toRad(midA)) >= 0;
-                    const diagDist = 26;
-                    const rawKneeX = startPt.x + Math.cos(toRad(midA)) * diagDist;
-                    const rawKneeY = startPt.y + Math.sin(toRad(midA)) * diagDist;
+                    const isTop = Math.sin(toRad(midA)) < 0;
+
+                    const diagDist = 20;
+                    let rawKneeX = startPt.x + Math.cos(toRad(midA)) * diagDist;
+                    let rawKneeY = startPt.y + Math.sin(toRad(midA)) * diagDist;
+
+                    // Top slice leader line: pull up above the circle to avoid text overlap
+                    if (isTop && Math.sin(toRad(midA)) < -0.35) {
+                      rawKneeY = Math.min(rawKneeY, startPt.y - 18);
+                    }
 
                     return {
                       item,
@@ -926,6 +932,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       idx,
                       startPt,
                       isRight,
+                      isTop,
                       rawKneeX,
                       rawKneeY,
                     };
@@ -934,9 +941,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   // Collision relaxation for leader line callouts
                   const relaxSide = (slices: typeof computedSlices) => {
                     slices.sort((a, b) => a.rawKneeY - b.rawKneeY);
-                    const minY = 38;
-                    const maxY = 342;
-                    const minGap = 52;
+                    const minY = 16;
+                    const maxY = 248;
+                    const minGap = 42;
 
                     for (let i = 0; i < slices.length; i++) {
                       if (slices[i].rawKneeY < minY) slices[i].rawKneeY = minY;
@@ -964,8 +971,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   return (
                     <svg
                       width="100%"
-                      height="380"
-                      viewBox="0 0 600 380"
+                      height="270"
+                      viewBox="0 0 560 270"
                       style={{
                         display: 'block',
                         margin: '0 auto',
@@ -985,15 +992,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                         {/* Drop shadow for center white ring */}
                         <filter id="centerRingShadow" x="-30%" y="-30%" width="160%" height="160%">
-                          <feDropShadow dx="0" dy="4" stdDeviation="7" floodColor="rgba(0, 0, 0, 0.14)" />
+                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(0, 0, 0, 0.14)" />
                         </filter>
                         {/* Drop shadow for center pink button */}
                         <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
-                          <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="rgba(230, 0, 103, 0.45)" />
+                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(230, 0, 103, 0.45)" />
                         </filter>
                         {/* Soft drop shadow for outer 3D slices */}
                         <filter id="segmentShadow" x="-15%" y="-15%" width="130%" height="130%">
-                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(0, 0, 0, 0.10)" />
+                          <feDropShadow dx="0" dy="2.5" stdDeviation="4" floodColor="rgba(0, 0, 0, 0.10)" />
                         </filter>
 
                         {/* Center Pink Button Gradient */}
@@ -1045,7 +1052,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                               d={dMain}
                               fill={`url(#${s.style.gradId})`}
                               stroke="#FFFFFF"
-                              strokeWidth="3.2"
+                              strokeWidth="2.8"
                               strokeLinejoin="round"
                               filter="url(#segmentShadow)"
                             />
@@ -1062,7 +1069,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                               d={dArcLine}
                               fill="none"
                               stroke="rgba(255, 255, 255, 0.42)"
-                              strokeWidth="1.4"
+                              strokeWidth="1.2"
                             />
                           </g>
                         );
@@ -1070,11 +1077,11 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                       {/* 2. WHITE INWARD CHEVRONS & HIGH-DEFINITION VECTOR ICONS */}
                       {computedSlices.map((s) => {
-                        const rIcon = (rInner + rMid) / 2; // 71px
+                        const rIcon = (rInner + rMid) / 2; // 56px
                         const iconPos = polarToXY(rIcon, s.midA);
                         const tipPt = polarToXY(rInner, s.midA);
-                        const lPt = polarToXY(rInner + 4.5, s.midA - 2.8);
-                        const rPt = polarToXY(rInner + 4.5, s.midA + 2.8);
+                        const lPt = polarToXY(rInner + 4, s.midA - 2.8);
+                        const rPt = polarToXY(rInner + 4, s.midA + 2.8);
                         const ch = s.item.paymentChannel.toUpperCase();
 
                         return (
@@ -1089,7 +1096,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             <g transform={`translate(${iconPos.x}, ${iconPos.y})`}>
                               {/* 1. Target with Dart (MEMBER or fallback idx 0) */}
                               {(ch.includes('MEMBER') || s.idx === 0) && (
-                                <g transform="scale(0.95)">
+                                <g transform="scale(0.8)">
                                   <circle cx="0" cy="0" r="8" fill="none" stroke="#FFFFFF" strokeWidth="2" />
                                   <circle cx="0" cy="0" r="4.2" fill="none" stroke="#FFFFFF" strokeWidth="1.7" />
                                   <circle cx="0" cy="0" r="1.6" fill="#FFFFFF" />
@@ -1099,7 +1106,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                               {/* 2. Magnifying Glass with Dollar Sign (PAYNOW or fallback idx 1) */}
                               {(ch.includes('PAYNOW') || s.idx === 1) && !ch.includes('MEMBER') && (
-                                <g transform="scale(0.95)">
+                                <g transform="scale(0.8)">
                                   <circle cx="-1.5" cy="-1.5" r="6.2" fill="none" stroke="#FFFFFF" strokeWidth="2" />
                                   <line x1="3.5" y1="3.5" x2="8" y2="8" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
                                   <text x="-1.5" y="1.2" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="900" fontFamily="sans-serif">$</text>
@@ -1108,7 +1115,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                               {/* 3. Ascending 3-Column Bar Chart (CASH or fallback idx 2) */}
                               {(ch.includes('CASH') || s.idx === 2) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && (
-                                <g transform="scale(0.95)">
+                                <g transform="scale(0.8)">
                                   <line x1="-7" y1="6.5" x2="7" y2="6.5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
                                   <rect x="-6" y="1.5" width="3" height="5" fill="#FFFFFF" rx="0.5" />
                                   <rect x="-1" y="-2" width="3" height="8.5" fill="#FFFFFF" rx="0.5" />
@@ -1118,7 +1125,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                               {/* 4. Interlocking Gears (CREDIT or fallback idx 3) */}
                               {(ch.includes('CARD') || ch.includes('CREDIT') || s.idx === 3) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && (
-                                <g transform="scale(0.95)">
+                                <g transform="scale(0.8)">
                                   <circle cx="-2.5" cy="2.5" r="4.5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" strokeDasharray="2.5 1.8" />
                                   <circle cx="-2.5" cy="2.5" r="1.5" fill="#FFFFFF" />
                                   <circle cx="3.8" cy="-3" r="3.4" fill="none" stroke="#FFFFFF" strokeWidth="1.4" strokeDasharray="2.2 1.5" />
@@ -1128,7 +1135,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                               {/* 5. Globe Grid (ONLINE or other) */}
                               {!ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && !ch.includes('CARD') && !ch.includes('CREDIT') && (
-                                <g transform="scale(0.95)">
+                                <g transform="scale(0.8)">
                                   <circle cx="0" cy="0" r="7" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
                                   <ellipse cx="0" cy="0" rx="3.2" ry="7" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
                                   <line x1="-7" y1="0" x2="7" y2="0" stroke="#FFFFFF" strokeWidth="1.4" />
@@ -1140,36 +1147,36 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       })}
 
                       {/* 3. THICK WHITE CIRCULAR RING (Elevated 3D Depth) */}
-                      <circle cx={cx} cy={cy} r="56" fill="#FFFFFF" filter="url(#centerRingShadow)" />
-                      <circle cx={cx} cy={cy} r="56" fill="none" stroke="#F1F5F9" strokeWidth="1.8" />
+                      <circle cx={cx} cy={cy} r="44" fill="#FFFFFF" filter="url(#centerRingShadow)" />
+                      <circle cx={cx} cy={cy} r="44" fill="none" stroke="#F1F5F9" strokeWidth="1.5" />
 
                       {/* 4. ATTRACTIVE PINK GRADIENT CENTER CIRCLE WITH 3D SHINE */}
-                      <circle cx={cx} cy={cy} r="42" fill="url(#pinkCenterGrad)" stroke="#FFFFFF" strokeWidth="2.4" filter="url(#buttonShadow)" />
+                      <circle cx={cx} cy={cy} r="33" fill="url(#pinkCenterGrad)" stroke="#FFFFFF" strokeWidth="2.2" filter="url(#buttonShadow)" />
                       {/* Glossy top-dome reflection overlay */}
                       <path
-                        d={`M ${cx - 32} ${cy - 8} A 34 34 0 0 1 ${cx + 32} ${cy - 8} A 32 15 0 0 0 ${cx - 32} ${cy - 8} Z`}
+                        d={`M ${cx - 25} ${cy - 6} A 26 26 0 0 1 ${cx + 25} ${cy - 6} A 25 12 0 0 0 ${cx - 25} ${cy - 6} Z`}
                         fill="url(#glossHighlight)"
                       />
 
                       {/* Center Disc Typography */}
                       <text
                         x={cx}
-                        y={cy - 10}
+                        y={cy - 8}
                         textAnchor="middle"
                         fill="rgba(255, 255, 255, 0.92)"
-                        fontSize="8.5"
+                        fontSize="7.5"
                         fontWeight="800"
-                        letterSpacing="1.5"
+                        letterSpacing="1.4"
                         fontFamily="system-ui, -apple-system, sans-serif"
                       >
                         TOTAL
                       </text>
                       <text
                         x={cx}
-                        y={cy + 7}
+                        y={cy + 6}
                         textAnchor="middle"
                         fill="#FFFFFF"
-                        fontSize="18"
+                        fontSize="15"
                         fontWeight="900"
                         fontFamily="system-ui, -apple-system, sans-serif"
                       >
@@ -1177,12 +1184,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       </text>
                       <text
                         x={cx}
-                        y={cy + 19}
+                        y={cy + 16}
                         textAnchor="middle"
                         fill="rgba(255, 255, 255, 0.88)"
-                        fontSize="7.5"
+                        fontSize="6.5"
                         fontWeight="700"
-                        letterSpacing="1.2"
+                        letterSpacing="1.1"
                         fontFamily="system-ui, -apple-system, sans-serif"
                       >
                         REVENUE
@@ -1192,11 +1199,11 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       {computedSlices.map((s) => {
                         const kneeX = s.rawKneeX;
                         const kneeY = s.rawKneeY;
-                        const horizLen = 32;
+                        const horizLen = 26;
                         const endX = kneeX + (s.isRight ? horizLen : -horizLen);
                         const endY = kneeY;
 
-                        const textX = endX + (s.isRight ? 10 : -10);
+                        const textX = endX + (s.isRight ? 8 : -8);
                         const textAnchor = s.isRight ? 'start' : 'end';
 
                         return (
@@ -1206,7 +1213,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                               d={`M ${s.startPt.x} ${s.startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
                               fill="none"
                               stroke={s.style.primary}
-                              strokeWidth="1.8"
+                              strokeWidth="1.6"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
@@ -1215,19 +1222,19 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             <circle
                               cx={endX}
                               cy={endY}
-                              r="3.8"
+                              r="3.5"
                               fill="#FFFFFF"
                               stroke={s.style.primary}
-                              strokeWidth="2.2"
+                              strokeWidth="2"
                             />
 
                             {/* Dynamic Percentage */}
                             <text
                               x={textX}
-                              y={endY - 5}
+                              y={endY - 4}
                               textAnchor={textAnchor}
                               fill={s.style.primary}
-                              fontSize="20"
+                              fontSize="17"
                               fontWeight="900"
                               fontFamily="system-ui, -apple-system, sans-serif"
                             >
@@ -1237,10 +1244,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             {/* Payment Mode Title */}
                             <text
                               x={textX}
-                              y={endY + 12}
+                              y={endY + 10}
                               textAnchor={textAnchor}
                               fill="#0F172A"
-                              fontSize="12"
+                              fontSize="11.5"
                               fontWeight="800"
                               letterSpacing="0.4"
                               fontFamily="system-ui, -apple-system, sans-serif"
@@ -1251,10 +1258,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             {/* Revenue Amount & Transaction Count */}
                             <text
                               x={textX}
-                              y={endY + 26}
+                              y={endY + 22}
                               textAnchor={textAnchor}
                               fill="#64748B"
-                              fontSize="10"
+                              fontSize="9.5"
                               fontWeight="600"
                               fontFamily="system-ui, -apple-system, sans-serif"
                             >
@@ -1269,7 +1276,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
             ) : null}
 
-            {/* Breakdown Cards underneath */}
+            {/* Breakdown Cards underneath (3 Columns Grid - 3 Rows Per Card) */}
             <View style={styles.channelInfographicGridWrap}>
               {payMixList.length > 0 ? (
                 payMixList.map((c) => {
@@ -1283,18 +1290,23 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   const color = colorMap[c.paymentChannel] || '#7C3AED';
                   return (
                     <View key={c.paymentChannel} style={[styles.channelInfographicCard, { borderTopColor: color }]}>
-                      <View style={styles.channelInfographicCardTop}>
+                      {/* Row 1: Mode Dot + Full Payment Name */}
+                      <View style={styles.channelCardRow1}>
                         <View style={[styles.channelDot, { backgroundColor: color }]} />
-                        <Text style={styles.channelInfographicCardTitle} numberOfLines={1}>
+                        <Text style={styles.channelCardTitle} numberOfLines={1}>
                           {c.paymentChannelName || c.paymentChannel}
                         </Text>
-                        <Text style={[styles.channelInfographicCardPct, { color }]}>
+                      </View>
+                      {/* Row 2: Total Revenue Amount */}
+                      <View style={styles.channelCardRow2}>
+                        <Text style={styles.channelCardAmt}>${c.totalAmount.toFixed(0)}</Text>
+                      </View>
+                      {/* Row 3: Percentage & Orders Count */}
+                      <View style={styles.channelCardRow3}>
+                        <Text style={[styles.channelCardPct, { color }]}>
                           {c.revenuePercentage}%
                         </Text>
-                      </View>
-                      <View style={styles.channelInfographicCardBottom}>
-                        <Text style={styles.channelInfographicCardAmt}>${c.totalAmount.toFixed(0)}</Text>
-                        <Text style={styles.channelInfographicCardTxn}>{c.transactionCount || 0} orders</Text>
+                        <Text style={styles.channelCardTxn}>{c.transactionCount || 0} orders</Text>
                       </View>
                     </View>
                   );
@@ -2589,63 +2601,69 @@ const styles = StyleSheet.create({
   channelMixBody: {
     flex: 1,
     flexDirection: 'column',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     width: '100%',
-    paddingTop: 6,
+    paddingTop: 2,
   },
   infographicSvgContainer: {
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 4,
+    marginVertical: 0,
   },
   channelInfographicGridWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     width: '100%',
-    marginTop: 10,
+    marginTop: 6,
+    justifyContent: 'flex-start',
   },
   channelInfographicCard: {
-    flex: 1,
-    minWidth: 95,
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: '30%',
+    minWidth: 110,
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
     borderWidth: 1,
-    borderColor: '#EDF2F7',
+    borderColor: '#E2E8F0',
     borderTopWidth: 3,
   },
-  channelInfographicCardTop: {
+  channelCardRow1: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 6,
+    marginBottom: 3,
   },
-  channelInfographicCardTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#334155',
+  channelCardTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1E293B',
     flex: 1,
   },
-  channelInfographicCardPct: {
-    fontSize: 11.5,
-    fontWeight: '900',
+  channelCardRow2: {
+    marginBottom: 2,
   },
-  channelInfographicCardBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  channelInfographicCardAmt: {
-    fontSize: 12.5,
+  channelCardAmt: {
+    fontSize: 15,
     fontWeight: '900',
     color: '#0F172A',
   },
-  channelInfographicCardTxn: {
+  channelCardRow3: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  channelCardPct: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  channelCardTxn: {
     fontSize: 10,
     fontWeight: '600',
     color: '#64748B',
