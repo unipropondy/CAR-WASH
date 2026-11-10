@@ -498,84 +498,90 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       </View>
 
       {/* ============================================================== */}
-      {/* 4. ROW 2: SERVICE DISTRIBUTION | WASH TREND | BAY UTILIZATION */}
+      {/* 4. ROW 2: BAY UTILIZATION | WASH TREND | SERVICE DISTRIBUTION */}
       {/* ============================================================== */}
       <View style={styles.threeCardsRow}>
-        {/* Card 1: Service Distribution */}
+        {/* Card 1: Bay Utilization (Moved to Left Side) */}
         <View style={styles.cardFlexOne}>
           <View style={styles.cardHeaderRow}>
             <View>
-              <Text style={styles.cardTitle}>Service Distribution</Text>
-              <Text style={styles.cardSubtitle}>Wash services by count</Text>
+              <Text style={styles.cardTitle}>Bay Utilization</Text>
+              <Text style={styles.cardSubtitle}>Service bay usage & availability</Text>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
           </View>
 
-          {/* Horseshoe Multi-Arc Radial SVG Chart */}
-          <View style={styles.concentricChartWrap}>
-            {Platform.OS === 'web' ? (
-              <svg width="200" height="180" viewBox="0 0 200 180" style={{ display: 'block', margin: '0 auto' }}>
-                {serviceDistributionList.slice(0, 4).map((item, idx) => {
-                  const r = 78 - idx * 15;
-                  const trackColor = idx === 0 ? '#FEE2E2' : idx === 1 ? '#FEE2E2' : idx === 2 ? '#FEF3C7' : '#EDE9FE';
-                  const strokeColor = SERVICE_PALETTE[idx % SERVICE_PALETTE.length];
-                  const pct = Math.min(100, Math.max(0, item.washSharePercentage || 0));
-                  const arcSpan = 270;
-                  const endAngle = -135 + (arcSpan * pct) / 100;
-                  return (
-                    <React.Fragment key={idx}>
-                      <path d={describeArc(100, 95, r, -135, 135)} fill="none" stroke={trackColor} strokeWidth="8" strokeLinecap="round" />
-                      {pct > 0 && (
-                        <path d={describeArc(100, 95, r, -135, endAngle)} fill="none" stroke={strokeColor} strokeWidth="8" strokeLinecap="round" />
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </svg>
-            ) : null}
+          <View style={styles.verticalDiagramCardContent}>
+            {/* Centered Donut Gauge */}
+            <View style={styles.centeredDonutBox}>
+              {Platform.OS === 'web' ? (
+                <svg width="120" height="120" viewBox="0 0 120 120" style={{ display: 'block', margin: '0 auto' }}>
+                  <circle cx="60" cy="60" r="48" fill="none" stroke="#FEE2E2" strokeWidth="12" />
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="48"
+                    fill="none"
+                    stroke="#EF4444"
+                    strokeWidth="12"
+                    strokeLinecap="round"
+                    strokeDasharray="301.6"
+                    strokeDashoffset={301.6 * (1 - Math.min(100, Math.max(0, calculatedUtilizationPct)) / 100)}
+                    transform="rotate(-90 60 60)"
+                  />
+                </svg>
+              ) : null}
 
-            {/* Center Content */}
-            <View style={styles.centerRingOverlay}>
-              <View style={styles.centerRedCarIcon}>
-                {renderSvg(20, '0 0 24 24', [
-                  { d: 'M5 11l2-4h10l2 4', stroke: '#ED0712', strokeWidth: 2 },
-                  { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#ED0712', strokeWidth: 2 },
-                  { d: 'M7 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                  { d: 'M17 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                ])}
-              </View>
-              <Text style={styles.centerWashesVal}>{totalWashesCount.toLocaleString()}</Text>
-              <Text style={styles.centerWashesLabel}>Total Washes</Text>
-              <View style={styles.centerBadgeGreen}>
-                <Text style={styles.centerBadgeGreenText}>{selectedPeriodTab}</Text>
+              <View style={styles.donutCenterLabel}>
+                <Text style={styles.donutPctText}>{calculatedUtilizationPct}%</Text>
+                <Text style={styles.donutSubText}>Utilization</Text>
               </View>
             </View>
-          </View>
 
-          {/* Breakdown List */}
-          <View style={styles.serviceBreakdownList}>
-            {serviceDistributionList.length > 0 ? (
-              serviceDistributionList.slice(0, 4).map((item, idx) => (
-                <View key={item.packageId || idx} style={styles.serviceBreakdownItem}>
-                  <View style={styles.serviceItemLeft}>
-                    <View style={[styles.serviceColorDot, { backgroundColor: SERVICE_PALETTE[idx % SERVICE_PALETTE.length] }]} />
-                    <Text style={styles.serviceNameText} numberOfLines={1}>{item.packageName}</Text>
-                  </View>
-                  <View style={styles.serviceItemRight}>
-                    <Text style={styles.serviceCountText}>{item.totalWashes.toLocaleString()}</Text>
-                    <View style={styles.serviceBadgeGreen}>
-                      <Text style={styles.serviceBadgeGreenText}>{item.washSharePercentage}%</Text>
-                    </View>
-                  </View>
+            {/* Stats Breakdown shown UNDER the diagram */}
+            <View style={styles.breakdownListUnder}>
+              <View style={styles.underItemRow}>
+                <View style={styles.bayStatLeft}>
+                  {renderSvg(16, '0 0 24 24', [
+                    { d: 'M5 11l2-4h10l2 4', stroke: '#EF4444', strokeWidth: 2 },
+                    { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#EF4444', strokeWidth: 2 },
+                  ])}
+                  <Text style={styles.bayStatLabel}>Total Bays</Text>
                 </View>
-              ))
-            ) : (
-              <Text style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', marginVertical: 12 }}>
-                No services recorded for this period
-              </Text>
-            )}
+                <Text style={styles.bayStatVal}>{totalBaysCount}</Text>
+              </View>
+
+              <View style={styles.underItemRow}>
+                <View style={styles.bayStatLeft}>
+                  {renderSvg(16, '0 0 24 24', [{ d: 'M5 3l14 9-14 9V3z', stroke: '#22C55E', strokeWidth: 2, fill: '#22C55E' }])}
+                  <Text style={styles.bayStatLabel}>Bays in Use</Text>
+                </View>
+                <Text style={styles.bayStatVal}>{inUseBaysCount}</Text>
+              </View>
+
+              <View style={styles.underItemRow}>
+                <View style={styles.bayStatLeft}>
+                  {renderSvg(16, '0 0 24 24', [{ d: 'M6 4h4v16H6zM14 4h4v16h-4z', stroke: '#F59E0B', strokeWidth: 2, fill: '#F59E0B' }])}
+                  <Text style={styles.bayStatLabel}>Bays Idle</Text>
+                </View>
+                <Text style={styles.bayStatVal}>{idleBaysCount}</Text>
+              </View>
+
+              <View style={styles.bayStatDivider} />
+
+              <View style={styles.underItemRow}>
+                <View style={styles.bayStatLeft}>
+                  {renderSvg(16, '0 0 24 24', [
+                    { d: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z', stroke: '#0F172A', strokeWidth: 2 },
+                    { d: 'M12 6v6l4 2', stroke: '#0F172A', strokeWidth: 2 },
+                  ])}
+                  <Text style={styles.bayStatLabel}>Avg. Service Time</Text>
+                </View>
+                <Text style={styles.bayStatValBold}>{averageBayServiceMinutes} min</Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -684,87 +690,81 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
 
-        {/* Card 3: Bay Utilization */}
+        {/* Card 3: Service Distribution (Moved to Right Side) */}
         <View style={styles.cardFlexOne}>
           <View style={styles.cardHeaderRow}>
             <View>
-              <Text style={styles.cardTitle}>Bay Utilization</Text>
-              <Text style={styles.cardSubtitle}>Service bay usage & availability</Text>
+              <Text style={styles.cardTitle}>Service Distribution</Text>
+              <Text style={styles.cardSubtitle}>Wash services by count</Text>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
           </View>
 
-          <View style={styles.verticalDiagramCardContent}>
-            {/* Centered Donut Gauge */}
-            <View style={styles.centeredDonutBox}>
-              {Platform.OS === 'web' ? (
-                <svg width="120" height="120" viewBox="0 0 120 120" style={{ display: 'block', margin: '0 auto' }}>
-                  <circle cx="60" cy="60" r="48" fill="none" stroke="#FEE2E2" strokeWidth="12" />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="48"
-                    fill="none"
-                    stroke="#EF4444"
-                    strokeWidth="12"
-                    strokeLinecap="round"
-                    strokeDasharray="301.6"
-                    strokeDashoffset={301.6 * (1 - Math.min(100, Math.max(0, calculatedUtilizationPct)) / 100)}
-                    transform="rotate(-90 60 60)"
-                  />
-                </svg>
-              ) : null}
+          {/* Horseshoe Multi-Arc Radial SVG Chart */}
+          <View style={styles.concentricChartWrap}>
+            {Platform.OS === 'web' ? (
+              <svg width="200" height="180" viewBox="0 0 200 180" style={{ display: 'block', margin: '0 auto' }}>
+                {serviceDistributionList.slice(0, 4).map((item, idx) => {
+                  const r = 78 - idx * 15;
+                  const trackColor = idx === 0 ? '#FEE2E2' : idx === 1 ? '#FEE2E2' : idx === 2 ? '#FEF3C7' : '#EDE9FE';
+                  const strokeColor = SERVICE_PALETTE[idx % SERVICE_PALETTE.length];
+                  const pct = Math.min(100, Math.max(0, item.washSharePercentage || 0));
+                  const arcSpan = 270;
+                  const endAngle = -135 + (arcSpan * pct) / 100;
+                  return (
+                    <React.Fragment key={idx}>
+                      <path d={describeArc(100, 95, r, -135, 135)} fill="none" stroke={trackColor} strokeWidth="8" strokeLinecap="round" />
+                      {pct > 0 && (
+                        <path d={describeArc(100, 95, r, -135, endAngle)} fill="none" stroke={strokeColor} strokeWidth="8" strokeLinecap="round" />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </svg>
+            ) : null}
 
-              <View style={styles.donutCenterLabel}>
-                <Text style={styles.donutPctText}>{calculatedUtilizationPct}%</Text>
-                <Text style={styles.donutSubText}>Utilization</Text>
+            {/* Center Content */}
+            <View style={styles.centerRingOverlay}>
+              <View style={styles.centerRedCarIcon}>
+                {renderSvg(20, '0 0 24 24', [
+                  { d: 'M5 11l2-4h10l2 4', stroke: '#ED0712', strokeWidth: 2 },
+                  { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#ED0712', strokeWidth: 2 },
+                  { d: 'M7 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
+                  { d: 'M17 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
+                ])}
+              </View>
+              <Text style={styles.centerWashesVal}>{totalWashesCount.toLocaleString()}</Text>
+              <Text style={styles.centerWashesLabel}>Total Washes</Text>
+              <View style={styles.centerBadgeGreen}>
+                <Text style={styles.centerBadgeGreenText}>{selectedPeriodTab}</Text>
               </View>
             </View>
+          </View>
 
-            {/* Stats Breakdown shown UNDER the diagram */}
-            <View style={styles.breakdownListUnder}>
-              <View style={styles.underItemRow}>
-                <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [
-                    { d: 'M5 11l2-4h10l2 4', stroke: '#EF4444', strokeWidth: 2 },
-                    { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#EF4444', strokeWidth: 2 },
-                  ])}
-                  <Text style={styles.bayStatLabel}>Total Bays</Text>
+          {/* Breakdown List */}
+          <View style={styles.serviceBreakdownList}>
+            {serviceDistributionList.length > 0 ? (
+              serviceDistributionList.slice(0, 4).map((item, idx) => (
+                <View key={item.packageId || idx} style={styles.serviceBreakdownItem}>
+                  <View style={styles.serviceItemLeft}>
+                    <View style={[styles.serviceColorDot, { backgroundColor: SERVICE_PALETTE[idx % SERVICE_PALETTE.length] }]} />
+                    <Text style={styles.serviceNameText} numberOfLines={1}>{item.packageName}</Text>
+                  </View>
+                  <View style={styles.serviceItemRight}>
+                    <Text style={styles.serviceCountText}>{item.totalWashes.toLocaleString()}</Text>
+                    <View style={styles.serviceBadgeGreen}>
+                      <Text style={styles.serviceBadgeGreenText}>{item.washSharePercentage}%</Text>
+                    </View>
+                  </View>
                 </View>
-                <Text style={styles.bayStatVal}>{totalBaysCount}</Text>
-              </View>
-
-              <View style={styles.underItemRow}>
-                <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [{ d: 'M5 3l14 9-14 9V3z', stroke: '#22C55E', strokeWidth: 2, fill: '#22C55E' }])}
-                  <Text style={styles.bayStatLabel}>Bays in Use</Text>
-                </View>
-                <Text style={styles.bayStatVal}>{inUseBaysCount}</Text>
-              </View>
-
-              <View style={styles.underItemRow}>
-                <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [{ d: 'M6 4h4v16H6zM14 4h4v16h-4z', stroke: '#F59E0B', strokeWidth: 2, fill: '#F59E0B' }])}
-                  <Text style={styles.bayStatLabel}>Bays Idle</Text>
-                </View>
-                <Text style={styles.bayStatVal}>{idleBaysCount}</Text>
-              </View>
-
-              <View style={styles.bayStatDivider} />
-
-              <View style={styles.underItemRow}>
-                <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [
-                    { d: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z', stroke: '#0F172A', strokeWidth: 2 },
-                    { d: 'M12 6v6l4 2', stroke: '#0F172A', strokeWidth: 2 },
-                  ])}
-                  <Text style={styles.bayStatLabel}>Avg. Service Time</Text>
-                </View>
-                <Text style={styles.bayStatValBold}>{averageBayServiceMinutes} min</Text>
-              </View>
-            </View>
+              ))
+            ) : (
+              <Text style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', marginVertical: 12 }}>
+                No services recorded for this period
+              </Text>
+            )}
           </View>
         </View>
       </View>
