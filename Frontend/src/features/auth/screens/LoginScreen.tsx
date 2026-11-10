@@ -134,6 +134,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
     // ── Backoffice credential check (runs BEFORE the regular API login) ──
     if (trimmedId === BACKOFFICE_USER_ID && password === BACKOFFICE_PASSWORD) {
+      useAuthStore.getState().setUser({
+        userId: '8C026364-77E7-4002-803B-9BBE187C60BD',
+        userCode: 'U_00000065',
+        userName: '123',
+        userGroupId: 'E6EAA22D-44ED-420F-96CA-5468F0D25DB4',
+        userGroupCode: 'ADMIN',
+        userGroupName: 'ADMIN',
+      });
       onBackofficeAccess?.();
       return;
     }

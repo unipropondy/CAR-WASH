@@ -1142,6 +1142,244 @@ async function getOrderHistory(req, res) {
   }
 }
 
+/**
+ * 8. GET /api/carwash/audit
+ * Retrieve complete audit logs across all orders with order & customer details
+ * Query params: ?search=...&startDate=...&endDate=...&status=...
+ */
+async function getAllOrderAuditLogs(req, res) {
+  try {
+    const { search, startDate, endDate, status, limit = 100 } = req.query || {};
+    const pool = await getPool();
+    const request = pool.request();
+
+    let query = `
+      SELECT TOP (@limit)
+        h.HistoryId,
+        h.OrderId,
+        o.OrderNo,
+        o.CustomerName,
+        o.VehicleNumber,
+        o.TotalAmount,
+        o.BayId,
+        p.PackageName,
+        h.OldStatusCode,
+        h.NewStatusCode,
+        h.Remarks,
+        h.ChangedBy,
+        h.ChangedDate
+      FROM dbo.CarWashOrderStatusHistory h
+      LEFT JOIN dbo.CarWashOrder o ON h.OrderId = o.OrderId
+      LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+      WHERE 1=1
+    `;
+
+    request.input('limit', sql.Int, parseInt(limit, 10));
+
+    if (search && search.trim()) {
+      request.input('search', sql.NVarChar(100), `%${search.trim()}%`);
+      query += ` AND (o.OrderNo LIKE @search OR o.CustomerName LIKE @search OR o.VehicleNumber LIKE @search OR h.ChangedBy LIKE @search OR h.Remarks LIKE @search)`;
+    }
+
+    if (startDate) {
+      request.input('startDate', sql.Date, startDate);
+      query += ` AND CAST(h.ChangedDate AS DATE) >= @startDate`;
+    }
+
+    if (endDate) {
+      request.input('endDate', sql.Date, endDate);
+      query += ` AND CAST(h.ChangedDate AS DATE) <= @endDate`;
+    }
+
+    if (status && !isNaN(parseInt(status, 10))) {
+      request.input('statusCode', sql.Int, parseInt(status, 10));
+      query += ` AND h.NewStatusCode = @statusCode`;
+    }
+
+    query += ` ORDER BY h.ChangedDate DESC, h.HistoryId DESC;`;
+
+    const result = await request.query(query);
+
+    const logs = result.recordset.map((row) => ({
+      historyId: row.HistoryId,
+      orderId: row.OrderId,
+      orderNo: row.OrderNo || `CW-${row.OrderId}`,
+      customerName: row.CustomerName || 'Walk-in',
+      vehicleNumber: row.VehicleNumber || '-',
+      totalAmount: row.TotalAmount != null ? Number(row.TotalAmount) : 0,
+      bayId: row.BayId,
+      packageName: row.PackageName || 'Car Wash',
+      oldStatusCode: row.OldStatusCode,
+      oldStatusName: row.OldStatusCode ? (STATUS_NAMES[row.OldStatusCode] || `STATUS_${row.OldStatusCode}`) : 'INITIAL',
+      newStatusCode: row.NewStatusCode,
+      newStatusName: STATUS_NAMES[row.NewStatusCode] || `STATUS_${row.NewStatusCode}`,
+      remarks: row.Remarks || '',
+      changedBy: row.ChangedBy || 'SYSTEM',
+      changedDate: row.ChangedDate,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      data: logs,
+    });
+  } catch (err) {
+    console.error('[getAllOrderAuditLogs Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve audit logs from database',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 9. GET /api/carwash/export
+ * Export Car Wash orders data as CSV or JSON
+ * Query params: ?format=csv|json&startDate=...&endDate=...&status=...
+ */
+async function exportCarWashData(req, res) {
+  try {
+    const { format = 'csv', startDate, endDate, status } = req.query || {};
+    const pool = await getPool();
+    const request = pool.request();
+
+    let query = `
+      SELECT 
+        o.OrderId,
+        o.OrderNo,
+        o.CustomerName,
+        o.VehicleNumber,
+        o.MobileNumber,
+        vt.VehicleTypeName,
+        p.PackageName,
+        c.CategoryName AS ServiceCategory,
+        o.PackagePrice,
+        o.GSTAmount,
+        o.TotalAmount,
+        o.CurrencyCode,
+        RTRIM(o.PayMode) AS PayMode,
+        o.PaymentStatus,
+        o.PaymentReference,
+        o.StatusCode,
+        CASE o.StatusCode
+          WHEN 10 THEN 'DETAILS_SAVED'
+          WHEN 20 THEN 'PAYMENT_PENDING'
+          WHEN 30 THEN 'PAID'
+          WHEN 40 THEN 'BAY_ASSIGNED'
+          WHEN 50 THEN 'IN_SERVICE'
+          WHEN 60 THEN 'COMPLETED'
+          WHEN 70 THEN 'CLOSED'
+          WHEN 80 THEN 'CANCELLED'
+          ELSE 'UNKNOWN'
+        END AS StatusName,
+        o.BayId,
+        o.OrderSource,
+        o.CreatedDate,
+        o.PaidDate,
+        o.StartedDate,
+        o.CompletedDate,
+        o.ClosedDate
+      FROM dbo.CarWashOrder o
+      LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
+      LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+      LEFT JOIN dbo.ServiceCategoryMaster c ON o.ServiceCategoryId = c.ServiceCategoryId
+      WHERE 1=1
+    `;
+
+    if (startDate) {
+      request.input('startDate', sql.Date, startDate);
+      query += ` AND CAST(o.CreatedDate AS DATE) >= @startDate`;
+    }
+    if (endDate) {
+      request.input('endDate', sql.Date, endDate);
+      query += ` AND CAST(o.CreatedDate AS DATE) <= @endDate`;
+    }
+    if (status) {
+      request.input('status', sql.NVarChar(30), status);
+      query += ` AND (o.PaymentStatus = @status OR o.StatusCode = TRY_CAST(@status AS INT))`;
+    }
+
+    query += ` ORDER BY o.OrderId DESC;`;
+
+    const result = await request.query(query);
+
+    if (format === 'json') {
+      return res.status(200).json({
+        success: true,
+        count: result.recordset.length,
+        data: result.recordset,
+      });
+    }
+
+    // CSV format output
+    const headers = [
+      'Order ID',
+      'Order No',
+      'Customer Name',
+      'Vehicle Number',
+      'Contact',
+      'Vehicle Type',
+      'Service Package',
+      'Category',
+      'Net Amount',
+      'GST',
+      'Total Amount',
+      'Currency',
+      'Pay Mode',
+      'Payment Status',
+      'Status',
+      'Bay',
+      'Source',
+      'Created Date',
+      'Paid Date',
+      'Completed Date'
+    ];
+
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = result.recordset.map((r) => [
+      escapeCsv(r.OrderId),
+      escapeCsv(r.OrderNo),
+      escapeCsv(r.CustomerName),
+      escapeCsv(r.VehicleNumber),
+      escapeCsv(r.MobileNumber),
+      escapeCsv(r.VehicleTypeName),
+      escapeCsv(r.PackageName),
+      escapeCsv(r.ServiceCategory),
+      escapeCsv(r.PackagePrice ? Number(r.PackagePrice).toFixed(2) : '0.00'),
+      escapeCsv(r.GSTAmount ? Number(r.GSTAmount).toFixed(2) : '0.00'),
+      escapeCsv(r.TotalAmount ? Number(r.TotalAmount).toFixed(2) : '0.00'),
+      escapeCsv(r.CurrencyCode || 'SGD'),
+      escapeCsv(r.PayMode || '-'),
+      escapeCsv(r.PaymentStatus || 'PENDING'),
+      escapeCsv(r.StatusName),
+      escapeCsv(r.BayId ? `Bay ${r.BayId}` : '-'),
+      escapeCsv(r.OrderSource || 'POS'),
+      escapeCsv(r.CreatedDate ? new Date(r.CreatedDate).toISOString() : ''),
+      escapeCsv(r.PaidDate ? new Date(r.PaidDate).toISOString() : ''),
+      escapeCsv(r.CompletedDate ? new Date(r.CompletedDate).toISOString() : '')
+    ].join(','));
+
+    const csvContent = [headers.map(escapeCsv).join(','), ...rows].join('\r\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=carwash_export_${Date.now()}.csv`);
+    return res.status(200).send(csvContent);
+  } catch (err) {
+    console.error('[exportCarWashData Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to export car wash data',
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getPaymodes,
   createOrder,
@@ -1150,6 +1388,8 @@ module.exports = {
   getOrders,
   getOrderById,
   getOrderHistory,
+  getAllOrderAuditLogs,
+  exportCarWashData,
   STATUS_CODES,
   STATUS_NAMES,
 };

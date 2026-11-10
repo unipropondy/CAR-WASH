@@ -52,13 +52,19 @@ const CATEGORY_SVGS = {
 };
 
 /**
- * GET /api/service-categories or /api/categories
- * Retrieve all active categories from ServiceCategoryMaster
+ * 1. GET /api/service-categories or /api/categories
+ * Retrieve categories from ServiceCategoryMaster
+ * Query params: ?all=true, ?search=...
  */
 async function getServiceCategories(req, res) {
   try {
+    const { all, search } = req.query || {};
+    const includeAll = all === 'true' || all === '1';
+
     const pool = await getPool();
-    const result = await pool.request().query(`
+    const request = pool.request();
+
+    let query = `
       SELECT 
         ServiceCategoryId,
         ServiceCategoryCode,
@@ -67,11 +73,27 @@ async function getServiceCategories(req, res) {
         ImageData,
         ImageContentType,
         DisplayOrder,
-        IsActive
-      FROM ServiceCategoryMaster
-      WHERE IsActive = 1
-      ORDER BY DisplayOrder ASC, ServiceCategoryId ASC
-    `);
+        IsActive,
+        CreatedDate
+      FROM dbo.ServiceCategoryMaster
+    `;
+
+    const whereClauses = [];
+    if (!includeAll) {
+      whereClauses.push(`IsActive = 1`);
+    }
+    if (search && search.trim()) {
+      request.input('search', sql.NVarChar(100), `%${search.trim()}%`);
+      whereClauses.push(`(ServiceCategoryCode LIKE @search OR CategoryName LIKE @search OR Description LIKE @search)`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY DisplayOrder ASC, ServiceCategoryId ASC;`;
+
+    const result = await request.query(query);
 
     const host = req.get('host') || 'localhost:5000';
     const protocol = req.protocol || 'http';
@@ -88,17 +110,17 @@ async function getServiceCategories(req, res) {
           : Buffer.from(row.ImageData).toString('base64');
         imageUrl = `data:${mime};base64,${base64}`;
       } else {
-        // Fallback endpoint URL
         imageUrl = `${baseUrl}/api/service-categories/${row.ServiceCategoryId}/image`;
       }
 
       return {
         serviceCategoryId: row.ServiceCategoryId,
-        serviceCategoryCode: row.ServiceCategoryCode,
-        categoryName: row.CategoryName,
-        description: row.Description || '',
-        displayOrder: row.DisplayOrder,
-        isActive: row.IsActive,
+        serviceCategoryCode: (row.ServiceCategoryCode || '').trim(),
+        categoryName: (row.CategoryName || '').trim(),
+        description: row.Description ? row.Description.trim() : '',
+        displayOrder: row.DisplayOrder ?? 0,
+        isActive: Boolean(row.IsActive),
+        createdDate: row.CreatedDate,
         imageContentType: row.ImageContentType,
         imageUrl,
         hasImage,
@@ -121,7 +143,7 @@ async function getServiceCategories(req, res) {
 }
 
 /**
- * GET /api/service-categories/:id/image
+ * 2. GET /api/service-categories/:id/image
  * Stream raw binary ImageData or tailored SVG placeholder
  */
 async function getCategoryImage(req, res) {
@@ -137,8 +159,8 @@ async function getCategoryImage(req, res) {
 
     const result = await request.query(`
       SELECT ServiceCategoryCode, ImageData, ImageContentType
-      FROM ServiceCategoryMaster
-      WHERE ServiceCategoryId = @id AND IsActive = 1
+      FROM dbo.ServiceCategoryMaster
+      WHERE ServiceCategoryId = @id
     `);
 
     if (!result.recordset || result.recordset.length === 0) {
@@ -165,8 +187,213 @@ async function getCategoryImage(req, res) {
   }
 }
 
+/**
+ * 3. POST /api/service-categories
+ * Create new service category
+ */
+async function createServiceCategory(req, res) {
+  try {
+    const {
+      serviceCategoryCode,
+      categoryName,
+      description,
+      displayOrder = 1,
+      isActive = true,
+    } = req.body || {};
+
+    if (!serviceCategoryCode || !serviceCategoryCode.trim()) {
+      return res.status(400).json({ success: false, message: 'Category Code is required.' });
+    }
+    if (!categoryName || !categoryName.trim()) {
+      return res.status(400).json({ success: false, message: 'Category Name is required.' });
+    }
+
+    const pool = await getPool();
+
+    // Check duplicate code
+    const dupCheck = pool.request();
+    dupCheck.input('code', sql.NVarChar(50), serviceCategoryCode.trim().toUpperCase());
+    const dupRes = await dupCheck.query(`
+      SELECT ServiceCategoryId FROM dbo.ServiceCategoryMaster WHERE UPPER(ServiceCategoryCode) = @code
+    `);
+    if (dupRes.recordset.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Service Category Code "${serviceCategoryCode}" already exists.`,
+      });
+    }
+
+    const insertReq = pool.request();
+    insertReq.input('code', sql.NVarChar(50), serviceCategoryCode.trim().toUpperCase());
+    insertReq.input('name', sql.NVarChar(150), categoryName.trim());
+    insertReq.input('desc', sql.NVarChar(500), description ? description.trim() : null);
+    insertReq.input('order', sql.Int, parseInt(displayOrder || '1', 10));
+    insertReq.input('active', sql.Bit, isActive ? 1 : 0);
+
+    const result = await insertReq.query(`
+      INSERT INTO dbo.ServiceCategoryMaster (
+        ServiceCategoryCode,
+        CategoryName,
+        Description,
+        DisplayOrder,
+        IsActive,
+        CreatedDate
+      )
+      OUTPUT INSERTED.ServiceCategoryId, INSERTED.ServiceCategoryCode, INSERTED.CategoryName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive, INSERTED.CreatedDate
+      VALUES (
+        @code,
+        @name,
+        @desc,
+        @order,
+        @active,
+        GETDATE()
+      );
+    `);
+
+    return res.status(201).json({
+      success: true,
+      message: `Category "${categoryName}" created successfully.`,
+      data: result.recordset[0],
+    });
+  } catch (err) {
+    console.error('[createServiceCategory Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create service category.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 4. PUT /api/service-categories/:id
+ * Update existing service category
+ */
+async function updateServiceCategory(req, res) {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (isNaN(categoryId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Category ID.' });
+    }
+
+    const {
+      serviceCategoryCode,
+      categoryName,
+      description,
+      displayOrder,
+      isActive,
+    } = req.body || {};
+
+    const pool = await getPool();
+    const reqDb = pool.request();
+    reqDb.input('id', sql.Int, categoryId);
+
+    const updates = [];
+
+    if (serviceCategoryCode !== undefined && serviceCategoryCode.trim()) {
+      reqDb.input('code', sql.NVarChar(50), serviceCategoryCode.trim().toUpperCase());
+      updates.push(`ServiceCategoryCode = @code`);
+    }
+    if (categoryName !== undefined && categoryName.trim()) {
+      reqDb.input('name', sql.NVarChar(150), categoryName.trim());
+      updates.push(`CategoryName = @name`);
+    }
+    if (description !== undefined) {
+      reqDb.input('desc', sql.NVarChar(500), description ? description.trim() : null);
+      updates.push(`Description = @desc`);
+    }
+    if (displayOrder !== undefined) {
+      reqDb.input('order', sql.Int, parseInt(displayOrder, 10));
+      updates.push(`DisplayOrder = @order`);
+    }
+    if (isActive !== undefined) {
+      reqDb.input('active', sql.Bit, isActive ? 1 : 0);
+      updates.push(`IsActive = @active`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields provided for update.' });
+    }
+
+    const query = `
+      UPDATE dbo.ServiceCategoryMaster
+      SET ${updates.join(', ')}
+      OUTPUT INSERTED.ServiceCategoryId, INSERTED.ServiceCategoryCode, INSERTED.CategoryName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive
+      WHERE ServiceCategoryId = @id;
+    `;
+
+    const result = await reqDb.query(query);
+
+    if (!result.recordset.length) {
+      return res.status(404).json({ success: false, message: `Category ${categoryId} not found.` });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Service category updated successfully.',
+      data: result.recordset[0],
+    });
+  } catch (err) {
+    console.error('[updateServiceCategory Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update service category.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 5. DELETE /api/service-categories/:id
+ * Soft delete or deactivate category
+ */
+async function deleteServiceCategory(req, res) {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (isNaN(categoryId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Category ID.' });
+    }
+
+    const pool = await getPool();
+
+    // Check if category has associated packages or orders
+    const pkgCheck = await pool.request()
+      .input('id', sql.Int, categoryId)
+      .query(`SELECT TOP 1 PackageId FROM dbo.ServicePackageMaster WHERE ServiceCategoryId = @id`);
+
+    if (pkgCheck.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.Int, categoryId)
+        .query(`UPDATE dbo.ServiceCategoryMaster SET IsActive = 0 WHERE ServiceCategoryId = @id`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Category has associated packages, deactivated successfully.',
+      });
+    }
+
+    await pool.request()
+      .input('id', sql.Int, categoryId)
+      .query(`DELETE FROM dbo.ServiceCategoryMaster WHERE ServiceCategoryId = @id`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Service category deleted successfully from database.',
+    });
+  } catch (err) {
+    console.error('[deleteServiceCategory Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete service category.',
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getServiceCategories,
   getCategoryImage,
+  createServiceCategory,
+  updateServiceCategory,
+  deleteServiceCategory,
 };
-

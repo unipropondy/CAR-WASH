@@ -63,6 +63,10 @@ export function removeHelpRequestFromStoredList(id: string): HelpRequestItem[] {
   return updated;
 }
 
+export function clearAllHelpRequests(): void {
+  saveStoredPendingRequests([]);
+}
+
 // ================= BROADCAST & STORAGE SYNC =================
 let broadcastChannel: any = null;
 if (Platform.OS === 'web' && typeof window !== 'undefined' && 'BroadcastChannel' in window) {

@@ -410,3 +410,80 @@ export async function updateBayMasterLayout(
   return json.data;
 }
 
+/**
+ * 13. Create a new bay in dbo.BayMaster
+ */
+export async function createBayMaster(
+  payload: {
+    bayNumber: number;
+    bayName: string;
+    bayType?: string;
+    bayStatus?: string;
+    xSize?: number;
+    ySize?: number;
+    remarks?: string;
+  },
+  token?: string
+): Promise<BayMasterRecord> {
+  const url = `${getBaseUrl()}/bays`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await apiFetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Failed to create bay in BayMaster');
+  }
+  return json.data;
+}
+
+/**
+ * 14. Update bay properties in dbo.BayMaster
+ */
+export async function updateBayMaster(
+  bayIdOrNumber: string | number,
+  payload: Partial<BayMasterRecord>,
+  token?: string
+): Promise<BayMasterRecord> {
+  const url = `${getBaseUrl()}/bays/${bayIdOrNumber}`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await apiFetch(url, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Failed to update bay in BayMaster');
+  }
+  return json.data;
+}
+
+/**
+ * 15. Deactivate or delete bay in dbo.BayMaster
+ */
+export async function deleteBayMaster(
+  bayIdOrNumber: string | number,
+  token?: string
+): Promise<any> {
+  const url = `${getBaseUrl()}/bays/${bayIdOrNumber}`;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await apiFetch(url, {
+    method: 'DELETE',
+    headers,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Failed to deactivate bay in BayMaster');
+  }
+  return json;
+}
+

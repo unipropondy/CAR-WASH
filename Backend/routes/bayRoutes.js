@@ -52,5 +52,8 @@ router.put('/:id/assign', optionalAuth, assignBay);
 // 8. PUT /api/bays/:id/release - Release bay to AVAILABLE
 router.put('/:id/release', optionalAuth, releaseBay);
 
+// 9. DELETE /api/bays/:id - Deactivate bay
+router.delete('/:id', optionalAuth, deleteBay);
+
 module.exports = router;
 

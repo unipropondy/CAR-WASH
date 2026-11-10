@@ -3,14 +3,22 @@ const router = express.Router();
 const categoryController = require('../controllers/categoryController');
 const packageController = require('../controllers/packageController');
 
-// GET /api/service-categories (or /api/categories)
+// 1. GET /api/service-categories
 router.get('/', categoryController.getServiceCategories);
 
-// GET /api/service-categories/:categoryId/packages
+// 2. GET /api/service-categories/:categoryId/packages
 router.get('/:categoryId/packages', packageController.getPackages);
 
-// GET /api/service-categories/:id/image
+// 3. GET /api/service-categories/:id/image
 router.get('/:id/image', categoryController.getCategoryImage);
 
-module.exports = router;
+// 4. POST /api/service-categories
+router.post('/', categoryController.createServiceCategory);
 
+// 5. PUT /api/service-categories/:id
+router.put('/:id', categoryController.updateServiceCategory);
+
+// 6. DELETE /api/service-categories/:id
+router.delete('/:id', categoryController.deleteServiceCategory);
+
+module.exports = router;

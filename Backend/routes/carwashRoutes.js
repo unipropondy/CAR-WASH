@@ -9,6 +9,8 @@ const {
   getOrders,
   getOrderById,
   getOrderHistory,
+  getAllOrderAuditLogs,
+  exportCarWashData,
 } = require('../controllers/carwashOrderController');
 const {
   getBays,
@@ -19,6 +21,7 @@ const {
   assignBay,
   releaseBay,
   updateLayout,
+  deleteBay,
 } = require('../controllers/bayMasterController');
 const {
   requestHelp,
@@ -65,6 +68,12 @@ router.put('/orders/:id/status', optionalAuth, updateStatus);
 // 7. GET /api/carwash/orders/:id/history - Get complete audit status history
 router.get('/orders/:id/history', optionalAuth, getOrderHistory);
 
+// 7b. GET /api/carwash/audit - Retrieve complete audit logs across all orders
+router.get('/audit', optionalAuth, getAllOrderAuditLogs);
+
+// 7c. GET /api/carwash/export - Export orders/transactions to CSV or JSON
+router.get('/export', optionalAuth, exportCarWashData);
+
 // ================= BAY MANAGEMENT (BayMaster ONLY) =================
 // 8. GET /api/carwash/bays - Fetch all bays from dbo.BayMaster
 router.get('/bays', optionalAuth, getBays);
@@ -89,6 +98,9 @@ router.put('/bays/:id/assign', optionalAuth, assignBay);
 
 // 15. PUT /api/carwash/bays/:id/release - Release bay to AVAILABLE
 router.put('/bays/:id/release', optionalAuth, releaseBay);
+
+// 15b. DELETE /api/carwash/bays/:id - Deactivate bay
+router.delete('/bays/:id', optionalAuth, deleteBay);
 
 // ================= KIOSK HELP & NOTIFICATIONS =================
 // 16. POST /api/carwash/help - Kiosk customer requests assistance

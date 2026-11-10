@@ -21,13 +21,19 @@ const DEFAULT_CAR_SVG = `
 `.trim();
 
 /**
- * GET /api/vehicle-types or /api/vehicles
- * Retrieve all active vehicle types from VehicleTypeMaster
+ * 1. GET /api/vehicle-types or /api/vehicles
+ * Retrieve vehicle types from VehicleTypeMaster
+ * Query params: ?all=true, ?search=...
  */
 async function getVehicleTypes(req, res) {
   try {
+    const { all, search } = req.query || {};
+    const includeAll = all === 'true' || all === '1';
+
     const pool = await getPool();
-    const result = await pool.request().query(`
+    const request = pool.request();
+
+    let query = `
       SELECT 
         VehicleTypeId,
         VehicleTypeCode,
@@ -36,11 +42,27 @@ async function getVehicleTypes(req, res) {
         ImageData,
         ImageContentType,
         DisplayOrder,
-        IsActive
-      FROM VehicleTypeMaster
-      WHERE IsActive = 1
-      ORDER BY DisplayOrder ASC, VehicleTypeId ASC
-    `);
+        IsActive,
+        CreatedDate
+      FROM dbo.VehicleTypeMaster
+    `;
+
+    const whereClauses = [];
+    if (!includeAll) {
+      whereClauses.push(`IsActive = 1`);
+    }
+    if (search && search.trim()) {
+      request.input('search', sql.NVarChar(100), `%${search.trim()}%`);
+      whereClauses.push(`(VehicleTypeCode LIKE @search OR VehicleTypeName LIKE @search OR Description LIKE @search)`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY DisplayOrder ASC, VehicleTypeId ASC;`;
+
+    const result = await request.query(query);
 
     const host = req.get('host') || 'localhost:5000';
     const protocol = req.protocol || 'http';
@@ -57,17 +79,17 @@ async function getVehicleTypes(req, res) {
           : Buffer.from(row.ImageData).toString('base64');
         imageUrl = `data:${mime};base64,${base64}`;
       } else {
-        // Fallback to placeholder image endpoint
         imageUrl = `${baseUrl}/api/vehicle-types/${row.VehicleTypeId}/image`;
       }
 
       return {
         vehicleTypeId: row.VehicleTypeId,
-        vehicleTypeCode: row.VehicleTypeCode,
-        vehicleTypeName: row.VehicleTypeName,
-        description: row.Description || '',
-        displayOrder: row.DisplayOrder,
-        isActive: row.IsActive,
+        vehicleTypeCode: (row.VehicleTypeCode || '').trim(),
+        vehicleTypeName: (row.VehicleTypeName || '').trim(),
+        description: row.Description ? row.Description.trim() : '',
+        displayOrder: row.DisplayOrder ?? 0,
+        isActive: Boolean(row.IsActive),
+        createdDate: row.CreatedDate,
         imageContentType: row.ImageContentType,
         imageUrl,
         hasImage,
@@ -90,7 +112,7 @@ async function getVehicleTypes(req, res) {
 }
 
 /**
- * GET /api/vehicle-types/:id/image or /api/vehicles/:id/image
+ * 2. GET /api/vehicle-types/:id/image
  * Stream the raw binary ImageData with proper ImageContentType
  */
 async function getVehicleImage(req, res) {
@@ -106,12 +128,11 @@ async function getVehicleImage(req, res) {
 
     const result = await request.query(`
       SELECT ImageData, ImageContentType
-      FROM VehicleTypeMaster
-      WHERE VehicleTypeId = @id AND IsActive = 1
+      FROM dbo.VehicleTypeMaster
+      WHERE VehicleTypeId = @id
     `);
 
     if (!result.recordset || result.recordset.length === 0) {
-      // Return placeholder SVG
       res.setHeader('Content-Type', 'image/svg+xml');
       return res.send(DEFAULT_CAR_SVG);
     }
@@ -119,14 +140,13 @@ async function getVehicleImage(req, res) {
     const row = result.recordset[0];
 
     if (!row.ImageData || row.ImageData.length === 0) {
-      // Graceful fallback to SVG placeholder
       res.setHeader('Content-Type', 'image/svg+xml');
       return res.send(DEFAULT_CAR_SVG);
     }
 
     const contentType = row.ImageContentType || 'image/png';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // 1-day cache
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.send(row.ImageData);
   } catch (err) {
     console.error('[getVehicleImage Error]', err);
@@ -135,8 +155,215 @@ async function getVehicleImage(req, res) {
   }
 }
 
+/**
+ * 3. POST /api/vehicle-types
+ * Create a new vehicle type in VehicleTypeMaster
+ */
+async function createVehicleType(req, res) {
+  try {
+    const {
+      vehicleTypeCode,
+      vehicleTypeName,
+      description,
+      displayOrder = 1,
+      isActive = true,
+    } = req.body || {};
+
+    if (!vehicleTypeCode || !vehicleTypeCode.trim()) {
+      return res.status(400).json({ success: false, message: 'Vehicle Type Code is required.' });
+    }
+    if (!vehicleTypeName || !vehicleTypeName.trim()) {
+      return res.status(400).json({ success: false, message: 'Vehicle Type Name is required.' });
+    }
+
+    const pool = await getPool();
+
+    // Check duplicate code
+    const dupCheck = pool.request();
+    dupCheck.input('code', sql.NVarChar(30), vehicleTypeCode.trim().toUpperCase());
+    const dupRes = await dupCheck.query(`
+      SELECT VehicleTypeId FROM dbo.VehicleTypeMaster WHERE UPPER(VehicleTypeCode) = @code
+    `);
+    if (dupRes.recordset.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Vehicle Type Code "${vehicleTypeCode}" already exists.`,
+      });
+    }
+
+    const insertReq = pool.request();
+    insertReq.input('code', sql.NVarChar(30), vehicleTypeCode.trim().toUpperCase());
+    insertReq.input('name', sql.NVarChar(100), vehicleTypeName.trim());
+    insertReq.input('desc', sql.NVarChar(250), description ? description.trim() : null);
+    insertReq.input('order', sql.Int, parseInt(displayOrder || '1', 10));
+    insertReq.input('active', sql.Bit, isActive ? 1 : 0);
+
+    const result = await insertReq.query(`
+      INSERT INTO dbo.VehicleTypeMaster (
+        VehicleTypeCode,
+        VehicleTypeName,
+        Description,
+        DisplayOrder,
+        IsActive,
+        CreatedDate
+      )
+      OUTPUT INSERTED.VehicleTypeId, INSERTED.VehicleTypeCode, INSERTED.VehicleTypeName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive, INSERTED.CreatedDate
+      VALUES (
+        @code,
+        @name,
+        @desc,
+        @order,
+        @active,
+        GETDATE()
+      );
+    `);
+
+    return res.status(201).json({
+      success: true,
+      message: `Vehicle Type "${vehicleTypeName}" created successfully.`,
+      data: result.recordset[0],
+    });
+  } catch (err) {
+    console.error('[createVehicleType Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create vehicle type in database.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 4. PUT /api/vehicle-types/:id
+ * Update an existing vehicle type
+ */
+async function updateVehicleType(req, res) {
+  try {
+    const vehicleTypeId = parseInt(req.params.id, 10);
+    if (isNaN(vehicleTypeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Vehicle Type ID.' });
+    }
+
+    const {
+      vehicleTypeCode,
+      vehicleTypeName,
+      description,
+      displayOrder,
+      isActive,
+    } = req.body || {};
+
+    const pool = await getPool();
+    const reqDb = pool.request();
+    reqDb.input('id', sql.Int, vehicleTypeId);
+
+    const updates = [];
+
+    if (vehicleTypeCode !== undefined && vehicleTypeCode.trim()) {
+      reqDb.input('code', sql.NVarChar(30), vehicleTypeCode.trim().toUpperCase());
+      updates.push(`VehicleTypeCode = @code`);
+    }
+    if (vehicleTypeName !== undefined && vehicleTypeName.trim()) {
+      reqDb.input('name', sql.NVarChar(100), vehicleTypeName.trim());
+      updates.push(`VehicleTypeName = @name`);
+    }
+    if (description !== undefined) {
+      reqDb.input('desc', sql.NVarChar(250), description ? description.trim() : null);
+      updates.push(`Description = @desc`);
+    }
+    if (displayOrder !== undefined) {
+      reqDb.input('order', sql.Int, parseInt(displayOrder, 10));
+      updates.push(`DisplayOrder = @order`);
+    }
+    if (isActive !== undefined) {
+      reqDb.input('active', sql.Bit, isActive ? 1 : 0);
+      updates.push(`IsActive = @active`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields to update provided.' });
+    }
+
+    const query = `
+      UPDATE dbo.VehicleTypeMaster
+      SET ${updates.join(', ')}
+      OUTPUT INSERTED.VehicleTypeId, INSERTED.VehicleTypeCode, INSERTED.VehicleTypeName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive
+      WHERE VehicleTypeId = @id;
+    `;
+
+    const result = await reqDb.query(query);
+
+    if (!result.recordset.length) {
+      return res.status(404).json({ success: false, message: `Vehicle Type ${vehicleTypeId} not found.` });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vehicle Type updated successfully.',
+      data: result.recordset[0],
+    });
+  } catch (err) {
+    console.error('[updateVehicleType Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update vehicle type.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 5. DELETE /api/vehicle-types/:id
+ * Soft delete or deactivate vehicle type
+ */
+async function deleteVehicleType(req, res) {
+  try {
+    const vehicleTypeId = parseInt(req.params.id, 10);
+    if (isNaN(vehicleTypeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Vehicle Type ID.' });
+    }
+
+    const pool = await getPool();
+
+    // Check if vehicle type is used by active orders
+    const usageCheck = await pool.request()
+      .input('id', sql.Int, vehicleTypeId)
+      .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WHERE VehicleTypeId = @id`);
+
+    if (usageCheck.recordset.length > 0) {
+      // Soft-delete by setting IsActive = 0
+      await pool.request()
+        .input('id', sql.Int, vehicleTypeId)
+        .query(`UPDATE dbo.VehicleTypeMaster SET IsActive = 0 WHERE VehicleTypeId = @id`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Vehicle type has existing orders, deactivated successfully.',
+      });
+    }
+
+    // Direct delete if never used
+    const result = await pool.request()
+      .input('id', sql.Int, vehicleTypeId)
+      .query(`DELETE FROM dbo.VehicleTypeMaster WHERE VehicleTypeId = @id`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vehicle type deleted successfully from database.',
+    });
+  } catch (err) {
+    console.error('[deleteVehicleType Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete vehicle type.',
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getVehicleTypes,
   getVehicleImage,
+  createVehicleType,
+  updateVehicleType,
+  deleteVehicleType,
 };
-

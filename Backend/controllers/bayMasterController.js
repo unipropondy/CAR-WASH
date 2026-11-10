@@ -585,6 +585,74 @@ async function updateLayout(req, res) {
   }
 }
 
+/**
+ * 9. DELETE /api/carwash/bays/:id
+ * Delete or deactivate bay in dbo.BayMaster
+ */
+async function deleteBay(req, res) {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+
+    const isNumeric = /^\d+$/.test(id);
+    let matchCondition = `BayId = TRY_CAST(@id AS UNIQUEIDENTIFIER)`;
+    const reqDb = pool.request();
+    reqDb.input('id', sql.NVarChar(100), id);
+
+    if (isNumeric) {
+      reqDb.input('bayNumber', sql.Int, parseInt(id, 10));
+      matchCondition = `(BayNumber = @bayNumber OR BayId = TRY_CAST(@id AS UNIQUEIDENTIFIER))`;
+    }
+
+    // Check if bay currently has an in-service car wash order
+    let targetBayNumber = isNumeric ? parseInt(id, 10) : null;
+    if (!targetBayNumber) {
+      const getNum = await pool.request().input('bId', sql.NVarChar(100), id).query(`
+        SELECT BayNumber FROM dbo.BayMaster WHERE BayId = TRY_CAST(@bId AS UNIQUEIDENTIFIER);
+      `);
+      if (getNum.recordset.length) targetBayNumber = getNum.recordset[0].BayNumber;
+    }
+
+    if (targetBayNumber) {
+      const busyCheck = await pool.request()
+        .input('bayNum', sql.Int, targetBayNumber)
+        .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WHERE BayId = @bayNum AND StatusCode IN (40, 50)`);
+
+      if (busyCheck.recordset.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: `Bay ${targetBayNumber} is currently occupied by an active wash order and cannot be deleted.`,
+        });
+      }
+    }
+
+    // Soft-delete by setting Status = 0
+    const result = await reqDb.query(`
+      UPDATE dbo.BayMaster
+      SET Status = 0, BayStatus = 'MAINTENANCE', ModifiedOn = GETDATE()
+      OUTPUT INSERTED.*
+      WHERE ${matchCondition};
+    `);
+
+    if (!result.recordset.length) {
+      return res.status(404).json({ success: false, message: `Bay not found: ${id}` });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Bay deactivated successfully in BayMaster.`,
+      data: formatBayRecord(result.recordset[0]),
+    });
+  } catch (err) {
+    console.error('[BayMaster deleteBay Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete bay in BayMaster',
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getBays,
   getBayById,
@@ -594,5 +662,6 @@ module.exports = {
   assignBay,
   releaseBay,
   updateLayout,
+  deleteBay,
 };
 
