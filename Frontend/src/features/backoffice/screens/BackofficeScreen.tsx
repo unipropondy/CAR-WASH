@@ -21,6 +21,7 @@ import {
   Alert,
   ActivityIndicator,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -340,6 +341,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [vDesc, setVDesc] = useState('');
   const [vOrder, setVOrder] = useState('1');
   const [vActive, setVActive] = useState(true);
+  const [vImage, setVImage] = useState('');
 
   // 3b. Categories
   const [categories, setCategories] = useState<ServiceCategoryRecord[]>([]);
@@ -350,6 +352,31 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [cDesc, setCDesc] = useState('');
   const [cOrder, setCOrder] = useState('1');
   const [cActive, setCActive] = useState(true);
+  const [cImage, setCImage] = useState('');
+
+  const handlePickImage = (onSuccess: (base64: string) => void) => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        const file = e.target?.files?.[0];
+        if (file) {
+          if (file.size > 5 * 1024 * 1024) {
+            showAlert('File Too Large', 'Please select an image smaller than 5MB.');
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            onSuccess(base64);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    }
+  };
 
   // 3c. Packages
   const [packages, setPackages] = useState<ServicePackageRecord[]>([]);
@@ -462,6 +489,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: vDesc.trim(),
           displayOrder: parseInt(vOrder || '1', 10),
           isActive: vActive,
+          imageData: vImage || undefined,
         });
         showAlert('Success', `Vehicle type "${vName}" updated.`);
       } else {
@@ -471,6 +499,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: vDesc.trim(),
           displayOrder: parseInt(vOrder || '1', 10),
           isActive: vActive,
+          imageData: vImage || undefined,
         });
         showAlert('Success', `Vehicle type "${vName}" created.`);
       }
@@ -506,6 +535,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: cDesc.trim(),
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
+          imageData: cImage || undefined,
         });
         showAlert('Success', `Category "${cName}" updated.`);
       } else {
@@ -515,6 +545,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: cDesc.trim(),
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
+          imageData: cImage || undefined,
         });
         showAlert('Success', `Category "${cName}" created.`);
       }
@@ -1176,6 +1207,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setVDesc('');
                 setVOrder('1');
                 setVActive(true);
+                setVImage('');
                 setVehicleModalOpen(true);
               }}
             >
@@ -1185,6 +1217,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
 
           <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 0.8 }]}>IMAGE</Text>
             <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
             <Text style={[styles.th, { flex: 1.5 }]}>TYPE NAME</Text>
             <Text style={[styles.th, { flex: 2 }]}>DESCRIPTION</Text>
@@ -1195,6 +1228,18 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
           {vehicles.map((v) => (
             <View key={v.vehicleTypeId} style={styles.tableRow}>
+              <View style={{ flex: 0.8, justifyContent: 'center' }}>
+                {v.imageUrl ? (
+                  <Image
+                    source={{ uri: v.imageUrl }}
+                    style={styles.tableThumb}
+                  />
+                ) : (
+                  <View style={styles.tableThumbPlaceholder}>
+                    <Ionicons name="car-outline" size={16} color={C.textMuted} />
+                  </View>
+                )}
+              </View>
               <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{v.vehicleTypeCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>{v.vehicleTypeName}</Text>
               <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{v.description || '-'}</Text>
@@ -1216,6 +1261,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setVDesc(v.description || '');
                     setVOrder(String(v.displayOrder));
                     setVActive(v.isActive);
+                    setVImage(v.imageUrl || '');
                     setVehicleModalOpen(true);
                   }}
                 >
@@ -1244,6 +1290,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setCDesc('');
                 setCOrder('1');
                 setCActive(true);
+                setCImage('');
                 setCategoryModalOpen(true);
               }}
             >
@@ -1253,9 +1300,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
 
           <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 0.8 }]}>IMAGE</Text>
             <Text style={[styles.th, { flex: 1.2 }]}>CODE</Text>
             <Text style={[styles.th, { flex: 1.5 }]}>CATEGORY NAME</Text>
-            <Text style={[styles.th, { flex: 2.5 }]}>DESCRIPTION</Text>
+            <Text style={[styles.th, { flex: 2.2 }]}>DESCRIPTION</Text>
             <Text style={[styles.th, { flex: 0.8 }]}>ORDER</Text>
             <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
@@ -1263,9 +1311,21 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
           {categories.map((c) => (
             <View key={c.serviceCategoryId} style={styles.tableRow}>
+              <View style={{ flex: 0.8, justifyContent: 'center' }}>
+                {c.imageUrl ? (
+                  <Image
+                    source={{ uri: c.imageUrl }}
+                    style={styles.tableThumb}
+                  />
+                ) : (
+                  <View style={styles.tableThumbPlaceholder}>
+                    <Ionicons name="sparkles-outline" size={16} color={C.textMuted} />
+                  </View>
+                )}
+              </View>
               <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '700' }]}>{c.serviceCategoryCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>{c.categoryName}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 2.5 }]}>{c.description || '-'}</Text>
+              <Text style={[styles.td, styles.textSec, { flex: 2.2 }]}>{c.description || '-'}</Text>
               <Text style={[styles.td, styles.textSec, { flex: 0.8 }]}>{c.displayOrder}</Text>
               <View style={{ flex: 1 }}>
                 <View style={[styles.statusBadge, c.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
@@ -1284,6 +1344,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setCDesc(c.description || '');
                     setCOrder(String(c.displayOrder));
                     setCActive(c.isActive);
+                    setCImage(c.imageUrl || '');
                     setCategoryModalOpen(true);
                   }}
                 >
@@ -1608,6 +1669,33 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
               <TextInput style={styles.fieldInput} value={vOrder} onChangeText={setVOrder} keyboardType="numeric" />
             </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>VEHICLE IMAGE</Text>
+              <View style={styles.uploadRow}>
+                {vImage ? (
+                  <View style={styles.previewBox}>
+                    <Image source={{ uri: vImage }} style={styles.previewImg} />
+                    <Pressable style={styles.previewRemoveBtn} onPress={() => setVImage('')}>
+                      <Ionicons name="trash" size={12} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.previewBoxPlaceholder}>
+                    <Ionicons name="car-outline" size={24} color={C.textMuted} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Pressable
+                    style={styles.btnUpload}
+                    onPress={() => handlePickImage((base64) => setVImage(base64))}
+                  >
+                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                    <Text style={styles.btnUploadText}>{vImage ? 'Change Image' : 'Upload Image'}</Text>
+                  </Pressable>
+                  <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL)</Text>
+                </View>
+              </View>
+            </View>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setVehicleModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSaveVehicleType}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
@@ -1635,6 +1723,33 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={styles.formGroup}>
               <Text style={styles.fieldLabel}>DESCRIPTION</Text>
               <TextInput style={styles.fieldInput} value={cDesc} onChangeText={setCDesc} />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>CATEGORY ICON / IMAGE</Text>
+              <View style={styles.uploadRow}>
+                {cImage ? (
+                  <View style={styles.previewBox}>
+                    <Image source={{ uri: cImage }} style={styles.previewImg} />
+                    <Pressable style={styles.previewRemoveBtn} onPress={() => setCImage('')}>
+                      <Ionicons name="trash" size={12} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.previewBoxPlaceholder}>
+                    <Ionicons name="sparkles-outline" size={24} color={C.textMuted} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Pressable
+                    style={styles.btnUpload}
+                    onPress={() => handlePickImage((base64) => setCImage(base64))}
+                  >
+                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                    <Text style={styles.btnUploadText}>{cImage ? 'Change Image' : 'Upload Image'}</Text>
+                  </Pressable>
+                  <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL)</Text>
+                </View>
+              </View>
             </View>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setCategoryModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
@@ -2541,6 +2656,97 @@ const styles = StyleSheet.create({
     width: 50, height: 50, borderRadius: 12,
     backgroundColor: 'rgba(255,26,26,0.08)',
     alignItems: 'center', justifyContent: 'center',
+  },
+
+  /* Image Upload & Thumbnails */
+  tableThumb: {
+    width: 44,
+    height: 28,
+    borderRadius: 6,
+    resizeMode: 'contain',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  tableThumbPlaceholder: {
+    width: 44,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: 10,
+  },
+  previewBox: {
+    width: 64,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: C.accent,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewBoxPlaceholder: {
+    width: 64,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImg: {
+    width: 60,
+    height: 44,
+    borderRadius: 6,
+    resizeMode: 'contain',
+  },
+  previewRemoveBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 10,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  btnUpload: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,26,26,0.15)',
+    borderWidth: 1,
+    borderColor: C.accent,
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  btnUploadText: {
+    color: C.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  uploadHint: {
+    color: C.textMuted,
+    fontSize: 10,
+    marginTop: 4,
   },
 
   /* Utility */

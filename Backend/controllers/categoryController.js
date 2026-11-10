@@ -199,6 +199,7 @@ async function createServiceCategory(req, res) {
       description,
       displayOrder = 1,
       isActive = true,
+      imageData,
     } = req.body || {};
 
     if (!serviceCategoryCode || !serviceCategoryCode.trim()) {
@@ -223,12 +224,29 @@ async function createServiceCategory(req, res) {
       });
     }
 
+    let imgBuffer = null;
+    let imgContentType = null;
+    if (imageData && typeof imageData === 'string') {
+      if (imageData.startsWith('data:')) {
+        const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          imgContentType = match[1];
+          imgBuffer = Buffer.from(match[2], 'base64');
+        }
+      } else {
+        imgContentType = 'image/png';
+        imgBuffer = Buffer.from(imageData, 'base64');
+      }
+    }
+
     const insertReq = pool.request();
     insertReq.input('code', sql.NVarChar(50), serviceCategoryCode.trim().toUpperCase());
     insertReq.input('name', sql.NVarChar(150), categoryName.trim());
     insertReq.input('desc', sql.NVarChar(500), description ? description.trim() : null);
     insertReq.input('order', sql.Int, parseInt(displayOrder || '1', 10));
     insertReq.input('active', sql.Bit, isActive ? 1 : 0);
+    insertReq.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
+    insertReq.input('imgContentType', sql.NVarChar(100), imgContentType);
 
     const result = await insertReq.query(`
       INSERT INTO dbo.ServiceCategoryMaster (
@@ -237,6 +255,8 @@ async function createServiceCategory(req, res) {
         Description,
         DisplayOrder,
         IsActive,
+        ImageData,
+        ImageContentType,
         CreatedDate
       )
       OUTPUT INSERTED.ServiceCategoryId, INSERTED.ServiceCategoryCode, INSERTED.CategoryName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive, INSERTED.CreatedDate
@@ -246,6 +266,8 @@ async function createServiceCategory(req, res) {
         @desc,
         @order,
         @active,
+        @imgData,
+        @imgContentType,
         GETDATE()
       );
     `);
@@ -282,6 +304,7 @@ async function updateServiceCategory(req, res) {
       description,
       displayOrder,
       isActive,
+      imageData,
     } = req.body || {};
 
     const pool = await getPool();
@@ -309,6 +332,27 @@ async function updateServiceCategory(req, res) {
     if (isActive !== undefined) {
       reqDb.input('active', sql.Bit, isActive ? 1 : 0);
       updates.push(`IsActive = @active`);
+    }
+    if (imageData !== undefined) {
+      if (imageData && typeof imageData === 'string') {
+        let imgBuffer = null;
+        let imgContentType = null;
+        if (imageData.startsWith('data:')) {
+          const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            imgContentType = match[1];
+            imgBuffer = Buffer.from(match[2], 'base64');
+          }
+        } else {
+          imgContentType = 'image/png';
+          imgBuffer = Buffer.from(imageData, 'base64');
+        }
+        reqDb.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
+        reqDb.input('imgContentType', sql.NVarChar(100), imgContentType);
+        updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
+      } else if (imageData === null || imageData === '') {
+        updates.push(`ImageData = NULL, ImageContentType = NULL`);
+      }
     }
 
     if (updates.length === 0) {

@@ -33,6 +33,7 @@ export async function createVehicleType(payload: {
   description?: string;
   displayOrder?: number;
   isActive?: boolean;
+  imageData?: string;
 }): Promise<VehicleTypeRecord> {
   const res = await apiFetch('/api/vehicle-types', {
     method: 'POST',
@@ -46,7 +47,10 @@ export async function createVehicleType(payload: {
   return data.data;
 }
 
-export async function updateVehicleType(id: number, payload: Partial<VehicleTypeRecord>): Promise<VehicleTypeRecord> {
+export async function updateVehicleType(
+  id: number,
+  payload: Partial<VehicleTypeRecord> & { imageData?: string }
+): Promise<VehicleTypeRecord> {
   const res = await apiFetch(`/api/vehicle-types/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -103,6 +107,7 @@ export async function createServiceCategory(payload: {
   description?: string;
   displayOrder?: number;
   isActive?: boolean;
+  imageData?: string;
 }): Promise<ServiceCategoryRecord> {
   const res = await apiFetch('/api/service-categories', {
     method: 'POST',
@@ -116,7 +121,10 @@ export async function createServiceCategory(payload: {
   return data.data;
 }
 
-export async function updateServiceCategory(id: number, payload: Partial<ServiceCategoryRecord>): Promise<ServiceCategoryRecord> {
+export async function updateServiceCategory(
+  id: number,
+  payload: Partial<ServiceCategoryRecord> & { imageData?: string }
+): Promise<ServiceCategoryRecord> {
   const res = await apiFetch(`/api/service-categories/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
