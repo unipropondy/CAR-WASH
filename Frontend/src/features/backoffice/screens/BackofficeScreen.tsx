@@ -27,9 +27,8 @@ import { Ionicons } from '@expo/vector-icons';
 // ── Auth & Store ──
 import { useAuthStore } from '../../auth/store/authStore';
 
-// ── POS and Reports screens (fully reused) ──
+// ── POS Queue screen ──
 import { PosDashboardScreen } from '../../pos/screens/PosDashboardScreen';
-import { PosReportsView } from '../../pos/components/PosReportsView';
 import { PosNavTab } from '../../pos/components/PosSidebar';
 
 // ── Services & APIs ──
@@ -123,9 +122,7 @@ const C = {
 type NavId =
   | 'dashboard'
   | 'carwash'
-  | 'analytics'
   | 'users'
-  | 'reports'
   | 'settings'
   | 'audit'
   | 'export'
@@ -1998,16 +1995,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             />
           </View>
         );
-      case 'analytics':
-      case 'reports':
-        return (
-          <View style={styles.posWrapper}>
-            <PosReportsView
-              cashierName={loggedInUser?.userName || 'Admin'}
-              onBackToOrders={() => navigateTo('dashboard')}
-            />
-          </View>
-        );
       case 'users':
         return renderUsers();
       case 'settings':
@@ -2072,9 +2059,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         {/* Navigation Group: SYSTEM */}
         <Text style={styles.navGroupLabel}>SYSTEM</Text>
         {[
-          { id: 'analytics', icon: 'bar-chart-outline', label: 'Analytics' },
           { id: 'users', icon: 'people-outline', label: 'User Management' },
-          { id: 'reports', icon: 'document-text-outline', label: 'Reports' },
           { id: 'settings', icon: 'settings-outline', label: 'Configuration' },
           { id: 'audit', icon: 'shield-outline', label: 'Audit Logs' },
           { id: 'export', icon: 'cloud-upload-outline', label: 'Data Export' },
