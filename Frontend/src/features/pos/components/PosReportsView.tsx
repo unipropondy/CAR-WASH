@@ -1526,80 +1526,127 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         {/* Left: Recent Washes Table matching reference design */}
         <View style={styles.recentWashesCard}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>🚗 Recent Washes</Text>
-            <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '600' }}>
-              Showing latest {recentWashesList.length} orders
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={styles.sectionHeaderIconBox}>
+                <Ionicons name="car-sport" size={18} color="#ED0712" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Recent Washes</Text>
+                <Text style={styles.cardSubtitleText}>Live order tracking and fulfillment</Text>
+              </View>
+            </View>
+            <View style={styles.countBadgePill}>
+              <View style={styles.countBadgeDot} />
+              <Text style={styles.countBadgeText}>
+                {recentWashesList.length} Orders
+              </Text>
+            </View>
           </View>
 
           <View style={styles.tableContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ minWidth: '100%' }}>
-              <View style={{ width: '100%', minWidth: 540 }}>
+              <View style={{ width: '100%', minWidth: 560 }}>
                 {/* Table Header: Exactly 5 Columns (ORDER NO, NAME, VEHICLE, AMOUNT, ACTION) */}
                 <View style={styles.tableHeaderRow}>
-                  <Text style={[styles.thText, { flex: 1.1, minWidth: 90 }]}>ORDER NO</Text>
-                  <Text style={[styles.thText, { flex: 2, minWidth: 140, paddingLeft: 10 }]}>NAME</Text>
-                  <Text style={[styles.thText, { flex: 1.4, minWidth: 110 }]}>VEHICLE</Text>
-                  <Text style={[styles.thText, { flex: 1.2, minWidth: 95 }]}>AMOUNT</Text>
-                  <Text style={[styles.thText, { flex: 1, minWidth: 80, textAlign: 'center' }]}>ACTION</Text>
+                  <Text style={[styles.thText, { flex: 1.1, minWidth: 95 }]}>ORDER NO</Text>
+                  <Text style={[styles.thText, { flex: 2, minWidth: 150, paddingLeft: 8 }]}>NAME</Text>
+                  <Text style={[styles.thText, { flex: 1.4, minWidth: 120 }]}>VEHICLE</Text>
+                  <Text style={[styles.thText, { flex: 1.2, minWidth: 100 }]}>AMOUNT</Text>
+                  <Text style={[styles.thText, { flex: 0.9, minWidth: 80, textAlign: 'center' }]}>ACTION</Text>
                 </View>
 
                 {/* Table Rows */}
                 {recentWashesList.length > 0 ? (
                   recentWashesList.map((row, i) => {
-                    const avatarColors = ['#4F46E5', '#0D9488', '#EA580C', '#2563EB', '#7C3AED'];
-                    const avatarBg = avatarColors[i % avatarColors.length];
+                    const avatarGradients = [
+                      { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' },
+                      { bg: '#F0FDFA', text: '#0D9488', border: '#99F6E4' },
+                      { bg: '#FFF7ED', text: '#EA580C', border: '#FFEDD5' },
+                      { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' },
+                      { bg: '#FAF5FF', text: '#7C3AED', border: '#E9D5FF' },
+                    ];
+                    const avatarStyle = avatarGradients[i % avatarGradients.length];
+                    const isEven = i % 2 === 0;
+                    const isWalkIn = !row.vehicleNumber || row.vehicleNumber.trim().toUpperCase() === 'WALK-IN';
 
                     return (
-                      <View key={row.orderId || i} style={styles.tableDataRow}>
+                      <View 
+                        key={row.orderId || i} 
+                        style={[
+                          styles.tableDataRow, 
+                          { backgroundColor: isEven ? '#FFFFFF' : '#FBFDFF' }
+                        ]}
+                      >
                         {/* 1. ORDER NO */}
-                        <View style={{ flex: 1.1, minWidth: 90, justifyContent: 'center' }}>
-                          <View style={styles.orderIdChip}>
-                            <Text style={styles.orderIdText}>{formatOrderNo(row.orderNo)}</Text>
+                        <View style={{ flex: 1.1, minWidth: 95, justifyContent: 'center' }}>
+                          <View style={styles.orderIdBadge}>
+                            <View style={styles.orderIdAccentBar} />
+                            <Text style={styles.orderIdNumberText}>#{formatOrderNo(row.orderNo)}</Text>
                           </View>
                         </View>
 
                         {/* 2. NAME */}
-                        <View style={[styles.customerCell, { flex: 2, minWidth: 140, paddingLeft: 10 }]}>
-                          <View style={[styles.customerAvatar, { backgroundColor: avatarBg }]}>
-                            <Text style={styles.customerAvatarText}>
+                        <View style={[styles.customerCell, { flex: 2, minWidth: 150, paddingLeft: 8 }]}>
+                          <View style={[styles.customerAvatarBox, { backgroundColor: avatarStyle.bg, borderColor: avatarStyle.border }]}>
+                            <Text style={[styles.customerAvatarText, { color: avatarStyle.text }]}>
                               {(row.customerName || 'CU').slice(0, 2).toUpperCase()}
                             </Text>
                           </View>
-                          <Text style={styles.customerNameText} numberOfLines={1}>
-                            {row.customerName || 'Walk-in'}
-                          </Text>
-                        </View>
-
-                        {/* 3. VEHICLE */}
-                        <View style={[styles.vehicleCell, { flex: 1.4, minWidth: 110 }]}>
-                          <View style={styles.platePill}>
-                            <Text style={styles.plateText} numberOfLines={1}>{row.vehicleNumber || '-'}</Text>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.customerNameText} numberOfLines={1}>
+                              {row.customerName || 'Walk-in'}
+                            </Text>
+                            <Text style={styles.customerSubText} numberOfLines={1}>
+                              {row.packageName || 'Standard Wash'}
+                            </Text>
                           </View>
                         </View>
 
+                        {/* 3. VEHICLE */}
+                        <View style={[styles.vehicleCell, { flex: 1.4, minWidth: 120 }]}>
+                          {isWalkIn ? (
+                            <View style={styles.walkinPlatePill}>
+                              <Ionicons name="walk-outline" size={12} color="#64748B" style={{ marginRight: 3 }} />
+                              <Text style={styles.walkinPlateText}>WALK-IN</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.embossedPlatePill}>
+                              <View style={styles.plateDot} />
+                              <Text style={styles.embossedPlateText} numberOfLines={1}>{row.vehicleNumber}</Text>
+                              <View style={styles.plateDot} />
+                            </View>
+                          )}
+                        </View>
+
                         {/* 4. AMOUNT */}
-                        <View style={{ flex: 1.2, minWidth: 95, justifyContent: 'center' }}>
-                          <Text style={styles.amountBoldText}>$ {row.totalAmount.toFixed(2)}</Text>
+                        <View style={{ flex: 1.2, minWidth: 100, justifyContent: 'center' }}>
+                          <Text style={styles.amountBoldText}>${row.totalAmount.toFixed(2)}</Text>
+                          <View style={styles.amountPaidPill}>
+                            <View style={styles.paidDotMini} />
+                            <Text style={styles.paidTextMini}>PAID</Text>
+                          </View>
                         </View>
 
                         {/* 5. ACTION (View Button Opening Full Order Details Modal) */}
-                        <View style={{ flex: 1, minWidth: 80, alignItems: 'center', justifyContent: 'center' }}>
+                        <View style={{ flex: 0.9, minWidth: 80, alignItems: 'center', justifyContent: 'center' }}>
                           <TouchableOpacity 
-                            style={styles.viewBtn} 
-                            activeOpacity={0.8}
+                            style={styles.modernViewBtn} 
+                            activeOpacity={0.75}
                             onPress={() => handleOpenOrderDetails(row)}
                           >
-                            <Ionicons name="eye-outline" size={13} color="#1D4ED8" style={{ marginRight: 4 }} />
-                            <Text style={styles.viewBtnText}>View</Text>
+                            <Ionicons name="eye-outline" size={13} color="#2563EB" />
+                            <Text style={styles.modernViewBtnText}>View</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
                     );
                   })
                 ) : (
-                  <View style={{ padding: 24, alignItems: 'center' }}>
-                    <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>No washes recorded for this period</Text>
+                  <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="car-outline" size={32} color="#CBD5E1" />
+                    <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '700', marginTop: 8 }}>
+                      No washes recorded for this period
+                    </Text>
                   </View>
                 )}
               </View>
@@ -1610,51 +1657,118 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         {/* Right: Recent Transactions Activity Feed */}
         <View style={styles.recentTransactionsCard}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>Recent Transactions</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F0FDF4' }]}>
+                <Ionicons name="flash-outline" size={18} color="#16A34A" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Recent Transactions</Text>
+                <Text style={styles.cardSubtitleText}>Live settlement activity feed</Text>
+              </View>
+            </View>
             <TouchableOpacity 
-              style={styles.refreshButton} 
+              style={styles.modernRefreshBtn} 
               onPress={() => loadDashboard(selectedPeriodTab, true)}
-              activeOpacity={0.85}
+              activeOpacity={0.8}
             >
               {isRefreshing ? (
                 <ActivityIndicator size="small" color="#ED0712" />
               ) : (
                 <>
-                  <Text style={styles.refreshBtnIcon}>🔄</Text>
-                  <Text style={styles.refreshBtnText}>REFRESH</Text>
+                  <Ionicons name="sync-outline" size={13} color="#ED0712" />
+                  <Text style={styles.modernRefreshBtnText}>REFRESH</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
 
-          <View style={styles.feedList}>
+          <ScrollView 
+            style={styles.txFeedScrollView} 
+            contentContainerStyle={styles.txFeedContent} 
+            showsVerticalScrollIndicator={false}
+          >
             {recentTransactionsList.length > 0 ? (
               recentTransactionsList.map((tx, i) => {
-                const isPaid = tx.paymentStatus === 'PAID';
-                const icon = isPaid ? '✔' : '💳';
-                const bg = isPaid ? '#DCFCE7' : '#EFF6FF';
-                const color = isPaid ? '#16A34A' : '#2563EB';
-                const title = `Payment ${tx.paymentStatus} - $${tx.totalAmount.toFixed(2)} from ${tx.customerName || 'Customer'} (${tx.payMode})`;
+                const modeUpper = (tx.payMode || '').toUpperCase();
+                let badge = {
+                  bg: '#EFF6FF',
+                  border: '#DBEAFE',
+                  color: '#2563EB',
+                  icon: 'card-outline',
+                  label: tx.payMode || 'CARD',
+                };
+
+                if (modeUpper.includes('PAYNOW')) {
+                  badge = {
+                    bg: '#FDF2F8',
+                    border: '#FCE7F3',
+                    color: '#DB2777',
+                    icon: 'qr-code-outline',
+                    label: 'PAYNOW',
+                  };
+                } else if (modeUpper.includes('MEMBER')) {
+                  badge = {
+                    bg: '#FEF3C7',
+                    border: '#FDE68A',
+                    color: '#D97706',
+                    icon: 'ribbon-outline',
+                    label: 'MEMBER',
+                  };
+                } else if (modeUpper.includes('CASH')) {
+                  badge = {
+                    bg: '#F5F3FF',
+                    border: '#DDD6FE',
+                    color: '#7C3AED',
+                    icon: 'cash-outline',
+                    label: 'CASH',
+                  };
+                }
+
                 const time = formatRelativeTime(tx.paidDate || tx.createdDate);
 
                 return (
-                  <View key={tx.orderId || i} style={styles.feedItemRow}>
-                    <View style={[styles.feedIconCircle, { backgroundColor: bg }]}>
-                      <Text style={[styles.feedIconText, { color }]}>{icon}</Text>
+                  <View key={tx.orderId || i} style={styles.txCardRow}>
+                    {/* Left: Channel Branded Avatar */}
+                    <View style={[styles.txAvatarBox, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                      <Ionicons name={badge.icon as any} size={16} color={badge.color} />
                     </View>
-                    <View style={styles.feedContentCol}>
-                      <Text style={styles.feedTitleText} numberOfLines={2}>{title}</Text>
+
+                    {/* Middle: Customer + Order Info */}
+                    <View style={styles.txInfoCol}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.txCustomerName} numberOfLines={1}>
+                          {tx.customerName || 'Walk-in Customer'}
+                        </Text>
+                        <Text style={styles.txOrderTag}>#{formatOrderNo(tx.orderNo)}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        <View style={[styles.txModePill, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                          <Text style={[styles.txModeText, { color: badge.color }]}>{badge.label}</Text>
+                        </View>
+                        <View style={styles.txPaidStatusRow}>
+                          <View style={styles.paidDotMini} />
+                          <Text style={styles.txPaidText}>Paid</Text>
+                        </View>
+                      </View>
                     </View>
-                    <Text style={styles.feedTimeText}>{time}</Text>
+
+                    {/* Right: Amount + Time */}
+                    <View style={styles.txAmountCol}>
+                      <Text style={styles.txAmountVal}>+${tx.totalAmount.toFixed(2)}</Text>
+                      <Text style={styles.txTimeVal}>{time}</Text>
+                    </View>
                   </View>
                 );
               })
             ) : (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: '#94A3B8', fontSize: 12 }}>No recent transactions recorded</Text>
+              <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="receipt-outline" size={32} color="#CBD5E1" />
+                <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '700', marginTop: 8 }}>
+                  No recent transactions recorded
+                </Text>
               </View>
             )}
-          </View>
+          </ScrollView>
         </View>
       </View>
       {/* ============================================================== */}
@@ -2951,32 +3065,73 @@ const styles = StyleSheet.create({
   /* ROW 4: RECENT TABLES */
   bottomRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 18,
     width: '100%',
     flexWrap: 'wrap',
+    alignItems: 'stretch',
+  },
+  sectionHeaderIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardSubtitleText: {
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  countBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  countBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  countBadgeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#475569',
   },
   recentWashesCard: {
-    flex: 1.5,
-    minWidth: 480,
+    flex: 1.55,
+    minWidth: 520,
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 20,
+    borderRadius: 24,
+    padding: 22,
     borderWidth: 1,
-    borderColor: '#EDF2F7',
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   tableContainer: {
-    marginTop: 14,
+    marginTop: 16,
     width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    overflow: 'hidden',
   },
   tableHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   thText: {
     fontSize: 11,
@@ -2987,12 +3142,11 @@ const styles = StyleSheet.create({
   tableDataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
   },
   tableDataRowOverdue: {
     backgroundColor: '#FFF5F5',
@@ -3000,6 +3154,29 @@ const styles = StyleSheet.create({
     borderLeftColor: '#ED0712',
   },
   // ORDER NO Column
+  orderIdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'flex-start',
+  },
+  orderIdAccentBar: {
+    width: 3.5,
+    alignSelf: 'stretch',
+    backgroundColor: '#ED0712',
+  },
+  orderIdNumberText: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    letterSpacing: 0.5,
+  },
   orderIdChip: {
     backgroundColor: '#F1F4F9',
     borderWidth: 1,
@@ -3023,6 +3200,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  customerAvatarBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerAvatarText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  customerNameText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  customerSubText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 1,
+  },
   customerAvatar: {
     width: 32,
     height: 32,
@@ -3030,19 +3230,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  customerAvatarText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  customerNameText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
   // VEHICLE Column
   vehicleCell: {
     justifyContent: 'center',
+  },
+  embossedPlatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
+    ...(Platform.OS === 'web' ? ({ boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1)' } as any) : {}),
+  },
+  plateDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#64748B',
+  },
+  embossedPlateText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+  },
+  walkinPlatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
+  },
+  walkinPlateText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   platePill: {
     backgroundColor: '#0F172A',
@@ -3057,44 +3289,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
-  // PACKAGE Column
-  packagePill: {
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
-    overflow: 'hidden',
-  },
-  packagePillText: {
-    fontSize: 11,
-    fontWeight: '800',
-    flexShrink: 1,
-  },
-  pkgDeluxePill: {
-    backgroundColor: '#FEF3C7',
-  },
-  pkgDeluxeText: {
-    color: '#92400E',
-  },
-  pkgBasicPill: {
-    backgroundColor: '#DBEAFE',
-  },
-  pkgBasicText: {
-    color: '#1D4ED8',
-  },
-  carWashLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#94A3B8',
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
   // AMOUNT Column
   amountBoldText: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '900',
     color: '#0F172A',
+  },
+  amountPaidPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  paidDotMini: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
+  },
+  paidTextMini: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.5,
   },
   cashTagText: {
     fontSize: 9,
@@ -3103,7 +3320,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 2,
   },
-  // PAYMENT Column
+  // ACTION Column
+  modernViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  modernViewBtnText: {
+    color: '#2563EB',
+    fontWeight: '800',
+    fontSize: 11.5,
+  },
+  viewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    cursor: 'pointer',
+  },
+  viewBtnText: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+    fontSize: 11.5,
+  },
+  // PAYMENT Column (Modal)
   paidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3125,7 +3378,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#059669',
   },
-  // BAY Column
+  // BAY Column (Modal)
   bayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3145,62 +3398,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1D4ED8',
   },
-  // WAIT Column
-  waitText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  waitTextNormal: {
-    color: '#64748B',
-  },
-  waitTextAmber: {
-    color: '#D97706',
-    fontWeight: '900',
-  },
-  waitTextRed: {
-    color: '#DC2626',
-    fontWeight: '900',
-  },
-  // ACTION Column
-  viewBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    cursor: 'pointer',
-  },
-  viewBtnText: {
-    color: '#1D4ED8',
-    fontWeight: '800',
-    fontSize: 11.5,
-  },
-  historyBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    cursor: 'pointer',
-  },
 
   /* RECENT TRANSACTIONS */
   recentTransactionsCard: {
     flex: 1,
-    minWidth: 320,
+    minWidth: 340,
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 20,
+    borderRadius: 24,
+    padding: 22,
     borderWidth: 1,
-    borderColor: '#EDF2F7',
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
+  },
+  modernRefreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  modernRefreshBtnText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#ED0712',
+    letterSpacing: 0.5,
   },
   refreshButton: {
     flexDirection: 'row',
@@ -3222,6 +3448,82 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#ED0712',
     letterSpacing: 0.5,
+  },
+  txFeedScrollView: {
+    maxHeight: 520,
+    marginTop: 14,
+  },
+  txFeedContent: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  txCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  txAvatarBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  txInfoCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  txCustomerName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  txOrderTag: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  txModePill: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  txModeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  txPaidStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  txPaidText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  txAmountCol: {
+    alignItems: 'flex-end',
+  },
+  txAmountVal: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  txTimeVal: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 2,
   },
   feedList: {
     marginTop: 14,
