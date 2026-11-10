@@ -227,6 +227,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   // Active trend item for tooltip
   const activeTrendItem = washTrendList[activeTrendIdx] || washTrendList[0] || null;
 
+  // Service Distribution State
+  const [activeServiceIdx, setActiveServiceIdx] = useState<number | null>(null);
+  const activeServiceItem = activeServiceIdx !== null ? serviceDistributionList[activeServiceIdx] : null;
+  const topServiceItem = serviceDistributionList.length > 0 
+    ? [...serviceDistributionList].sort((a, b) => (b.totalWashes || 0) - (a.totalWashes || 0))[0] 
+    : null;
+  const totalDistWashes = serviceDistributionList.reduce((acc, s) => acc + (s.totalWashes || 0), 0) || 1;
+
   const maxTrendWashes = Math.max(10, ...washTrendList.map(w => w.completedWashes || 0));
   const maxTrendRevenue = Math.max(100, ...washTrendList.map(w => w.dailyRevenue || 0));
   const peakTrendItem = washTrendList.length > 0 
@@ -299,7 +307,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     }
   };
 
-  const SERVICE_PALETTE = ['#EF4444', '#F87171', '#F59E0B', '#8B5CF6', '#3B82F6', '#10B981'];
+  const SERVICE_THEMES = [
+    { stroke: '#ED0712', bg: '#FEF2F2', border: '#FEE2E2', text: '#ED0712' },
+    { stroke: '#6366F1', bg: '#EEF2FF', border: '#E0E7FF', text: '#4F46E5' },
+    { stroke: '#F59E0B', bg: '#FFFBEB', border: '#FEF3C7', text: '#D97706' },
+    { stroke: '#06B6D4', bg: '#ECFEFF', border: '#CFFAFE', text: '#0891B2' },
+    { stroke: '#10B981', bg: '#ECFDF5', border: '#D1FAE5', text: '#059669' },
+    { stroke: '#EC4899', bg: '#FDF2F8', border: '#FCE7F3', text: '#DB2777' },
+  ];
+  const SERVICE_PALETTE = SERVICE_THEMES.map(t => t.stroke);
   const PAYMENT_PALETTE: Record<string, string> = {
     CASH: '#ED0712',
     ONLINE: '#F43F5E',
@@ -737,82 +753,193 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
 
-        {/* Card 3: Service Distribution (Moved to Right Side) */}
+        {/* Card 3: Service Distribution (Elevated Segmented Donut Analytics Card) */}
         <View style={styles.cardFlexOne}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTitle}>Service Distribution</Text>
-              <Text style={styles.cardSubtitle}>Wash services by count</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="pie-chart" size={17} color="#ED0712" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Service Distribution</Text>
+                <Text style={styles.cardSubtitle}>Wash packages by volume & share</Text>
+              </View>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
           </View>
 
-          {/* Horseshoe Multi-Arc Radial SVG Chart */}
-          <View style={styles.concentricChartWrap}>
+          {/* Interactive Segmented Donut SVG Chart */}
+          <View style={styles.serviceDonutWrap}>
             {Platform.OS === 'web' ? (
-              <svg width="200" height="180" viewBox="0 0 200 180" style={{ display: 'block', margin: '0 auto' }}>
-                {serviceDistributionList.slice(0, 4).map((item, idx) => {
-                  const r = 78 - idx * 15;
-                  const trackColor = idx === 0 ? '#FEE2E2' : idx === 1 ? '#FEE2E2' : idx === 2 ? '#FEF3C7' : '#EDE9FE';
-                  const strokeColor = SERVICE_PALETTE[idx % SERVICE_PALETTE.length];
-                  const pct = Math.min(100, Math.max(0, item.washSharePercentage || 0));
-                  const arcSpan = 270;
-                  const endAngle = -135 + (arcSpan * pct) / 100;
-                  return (
-                    <React.Fragment key={idx}>
-                      <path d={describeArc(100, 95, r, -135, 135)} fill="none" stroke={trackColor} strokeWidth="8" strokeLinecap="round" />
-                      {pct > 0 && (
-                        <path d={describeArc(100, 95, r, -135, endAngle)} fill="none" stroke={strokeColor} strokeWidth="8" strokeLinecap="round" />
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+              <svg width="150" height="150" viewBox="0 0 150 150" style={{ display: 'block', margin: '0 auto' }}>
+                {/* Background Track */}
+                <circle cx="75" cy="75" r="54" fill="none" stroke="#F1F5F9" strokeWidth="14" />
+                {(() => {
+                  let accumulatedPct = 0;
+                  const C = 2 * Math.PI * 54;
+                  const gap = serviceDistributionList.length > 1 ? 4 : 0;
+                  return serviceDistributionList.slice(0, 5).map((item, idx) => {
+                    const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
+                    const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
+                    const sliceLen = Math.max(0, (pct / 100) * C - gap);
+                    const dashArray = `${sliceLen.toFixed(1)} ${(C - sliceLen).toFixed(1)}`;
+                    const dashOffset = (-(accumulatedPct / 100) * C).toFixed(1);
+                    accumulatedPct += pct;
+                    const isSliceActive = activeServiceIdx === idx;
+
+                    return (
+                      <circle
+                        key={item.packageId || idx}
+                        cx="75"
+                        cy="75"
+                        r="54"
+                        fill="none"
+                        stroke={theme.stroke}
+                        strokeWidth={isSliceActive ? 18 : 14}
+                        strokeDasharray={dashArray}
+                        strokeDashoffset={dashOffset}
+                        strokeLinecap="butt"
+                        transform="rotate(-90 75 75)"
+                        style={{
+                          cursor: 'pointer',
+                          transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                          opacity: activeServiceIdx !== null && !isSliceActive ? 0.45 : 1,
+                        }}
+                        onMouseEnter={() => setActiveServiceIdx(idx)}
+                        onMouseLeave={() => setActiveServiceIdx(null)}
+                        onClick={() => setActiveServiceIdx(activeServiceIdx === idx ? null : idx)}
+                      />
+                    );
+                  });
+                })()}
               </svg>
             ) : null}
 
-            {/* Center Content */}
-            <View style={styles.centerRingOverlay}>
-              <View style={styles.centerRedCarIcon}>
-                {renderSvg(20, '0 0 24 24', [
-                  { d: 'M5 11l2-4h10l2 4', stroke: '#ED0712', strokeWidth: 2 },
-                  { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#ED0712', strokeWidth: 2 },
-                  { d: 'M7 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                  { d: 'M17 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                ])}
-              </View>
-              <Text style={styles.centerWashesVal}>{totalWashesCount.toLocaleString()}</Text>
-              <Text style={styles.centerWashesLabel}>Total Washes</Text>
-              <View style={styles.centerBadgeGreen}>
-                <Text style={styles.centerBadgeGreenText}>{selectedPeriodTab}</Text>
-              </View>
+            {/* Center Content Overlay */}
+            <View style={styles.donutCenterLabel}>
+              {activeServiceItem ? (
+                <>
+                  {(() => {
+                    const theme = SERVICE_THEMES[(activeServiceIdx ?? 0) % SERVICE_THEMES.length];
+                    return (
+                      <>
+                        <View style={[styles.activeServiceIndicatorPill, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                          <View style={[styles.activeServiceDot, { backgroundColor: theme.stroke }]} />
+                          <Text style={[styles.activeServicePctText, { color: theme.text }]}>
+                            {activeServiceItem.washSharePercentage}%
+                          </Text>
+                        </View>
+                        <Text style={styles.donutValText}>{activeServiceItem.totalWashes}</Text>
+                        <Text style={styles.serviceDonutSubText} numberOfLines={1}>
+                          {activeServiceItem.packageName}
+                        </Text>
+                      </>
+                    );
+                  })()}
+                </>
+              ) : (
+                <>
+                  <View style={[styles.serviceCenterIconBox, { backgroundColor: '#FEF2F2' }]}>
+                    <Ionicons name="sparkles" size={14} color="#ED0712" />
+                  </View>
+                  <Text style={styles.donutValText}>{totalWashesCount.toLocaleString()}</Text>
+                  <Text style={styles.serviceDonutSubText}>Total Washes</Text>
+                </>
+              )}
             </View>
           </View>
 
-          {/* Breakdown List */}
+          {/* Breakdown List of Cards */}
           <View style={styles.serviceBreakdownList}>
             {serviceDistributionList.length > 0 ? (
-              serviceDistributionList.slice(0, 4).map((item, idx) => (
-                <View key={item.packageId || idx} style={styles.serviceBreakdownItem}>
-                  <View style={styles.serviceItemLeft}>
-                    <View style={[styles.serviceColorDot, { backgroundColor: SERVICE_PALETTE[idx % SERVICE_PALETTE.length] }]} />
-                    <Text style={styles.serviceNameText} numberOfLines={1}>{item.packageName}</Text>
-                  </View>
-                  <View style={styles.serviceItemRight}>
-                    <Text style={styles.serviceCountText}>{item.totalWashes.toLocaleString()}</Text>
-                    <View style={styles.serviceBadgeGreen}>
-                      <Text style={styles.serviceBadgeGreenText}>{item.washSharePercentage}%</Text>
+              serviceDistributionList.slice(0, 4).map((item, idx) => {
+                const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
+                const isActive = activeServiceIdx === idx;
+                return (
+                  <TouchableOpacity
+                    key={item.packageId || idx}
+                    activeOpacity={0.85}
+                    onPress={() => setActiveServiceIdx(activeServiceIdx === idx ? null : idx)}
+                    {...(Platform.OS === 'web'
+                      ? ({
+                          onMouseEnter: () => setActiveServiceIdx(idx),
+                          onMouseLeave: () => setActiveServiceIdx(null),
+                        } as any)
+                      : {})}
+                    style={[
+                      styles.serviceBreakdownCard,
+                      isActive && {
+                        backgroundColor: theme.bg,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.serviceCardTopRow}>
+                      <View style={styles.serviceItemLeft}>
+                        <View style={[styles.serviceColorBar, { backgroundColor: theme.stroke }]} />
+                        <Text
+                          style={[styles.serviceNameText, isActive && { color: '#0F172A', fontWeight: '800' }]}
+                          numberOfLines={1}
+                        >
+                          {item.packageName}
+                        </Text>
+                      </View>
+                      <View style={styles.serviceItemRight}>
+                        <Text style={styles.serviceCountText}>
+                          {item.totalWashes.toLocaleString()}{' '}
+                          <Text style={styles.serviceCountUnit}>washes</Text>
+                        </Text>
+                        <View style={[styles.serviceSharePill, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                          <Text style={[styles.serviceSharePillText, { color: theme.text }]}>
+                            {item.washSharePercentage}%
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
-                </View>
-              ))
+
+                    {/* Mini Progress Track */}
+                    <View style={styles.serviceTrackBg}>
+                      <View
+                        style={[
+                          styles.serviceTrackFill,
+                          {
+                            width: `${Math.min(100, Math.max(5, item.washSharePercentage || 0))}%`,
+                            backgroundColor: theme.stroke,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
             ) : (
-              <Text style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', marginVertical: 12 }}>
-                No services recorded for this period
+              <Text style={styles.emptyServiceText}>
+                No wash services recorded for this period
               </Text>
             )}
           </View>
+
+          {/* Service Summary Footer */}
+          {serviceDistributionList.length > 0 && (
+            <View style={styles.serviceSummaryFooter}>
+              <View style={styles.serviceFooterLeft}>
+                <Ionicons name="sparkles" size={13} color="#ED0712" />
+                <Text style={styles.serviceFooterTopText} numberOfLines={1}>
+                  Top:{' '}
+                  <Text style={styles.serviceFooterTopBold}>
+                    {topServiceItem?.packageName || 'N/A'} ({topServiceItem?.washSharePercentage || 0}%)
+                  </Text>
+                </Text>
+              </View>
+              <View style={styles.serviceFooterBadge}>
+                <Text style={styles.serviceFooterBadgeText}>
+                  {serviceDistributionList.length} Active Tiers
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
       </View>
 
@@ -2485,7 +2612,175 @@ const styles = StyleSheet.create({
     color: '#1E293B',
   },
 
-  /* CONCENTRIC RADIAL CHART */
+  /* SERVICE DISTRIBUTION - ELEVATED SEGMENTED DONUT */
+  serviceDonutWrap: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 4,
+  },
+  serviceCenterIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  activeServiceIndicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 2,
+  },
+  activeServiceDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  activeServicePctText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  donutValText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.5,
+  },
+  serviceDonutSubText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    maxWidth: 90,
+    textAlign: 'center',
+  },
+  serviceBreakdownList: {
+    marginTop: 6,
+    gap: 6,
+  },
+  serviceBreakdownCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', transition: 'all 0.15s ease' } as any) : {}),
+  },
+  serviceCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+    marginRight: 6,
+  },
+  serviceColorBar: {
+    width: 3.5,
+    height: 13,
+    borderRadius: 2,
+  },
+  serviceNameText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1E293B',
+    flexShrink: 1,
+  },
+  serviceItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  serviceCountText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  serviceCountUnit: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  serviceSharePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serviceSharePillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  serviceTrackBg: {
+    height: 3.5,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 2,
+    marginTop: 5,
+    overflow: 'hidden',
+  },
+  serviceTrackFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  serviceSummaryFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginTop: 8,
+  },
+  serviceFooterLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+    marginRight: 6,
+  },
+  serviceFooterTopText: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  serviceFooterTopBold: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  serviceFooterBadge: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  serviceFooterBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  emptyServiceText: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    textAlign: 'center',
+    marginVertical: 12,
+  },
+  // Legacy compatibility fallbacks
   concentricChartWrap: {
     position: 'relative',
     alignItems: 'center',
@@ -2524,39 +2819,15 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#16A34A',
   },
-  serviceBreakdownList: {
-    marginTop: 10,
-    gap: 9,
-  },
   serviceBreakdownItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  serviceItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   serviceColorDot: {
     width: 9,
     height: 9,
     borderRadius: 4.5,
-  },
-  serviceNameText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  serviceItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  serviceCountText: {
-    fontSize: 12.5,
-    fontWeight: '900',
-    color: '#0F172A',
   },
   serviceBadgeGreen: {
     backgroundColor: '#DCFCE7',
