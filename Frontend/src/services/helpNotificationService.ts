@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { NOTIFICATION_SOUND_URI, NOTIFICATION_SOUND_BASE64 } from './notificationSoundAsset';
-import { getApiBaseUrl } from './apiConfig';
+import { getApiBaseUrl, apiFetch } from './apiConfig';
 
 const getBackendUrl = (): string => `${getApiBaseUrl()}/api/carwash`;
 
@@ -282,7 +282,7 @@ export async function sendKioskHelpRequest(
 
   // 4. Background backend sync (does not block user or fail if backend is down)
   try {
-    fetch(`${getBackendUrl()}/help`, {
+    apiFetch(`${getBackendUrl()}/help`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -291,7 +291,7 @@ export async function sendKioskHelpRequest(
         step: createdItem.step,
         message: createdItem.message,
       }),
-    }).catch(() => {});
+    }, 5000).catch(() => {});
   } catch (e) {}
 
   return createdItem;
@@ -304,13 +304,7 @@ export async function fetchActiveHelpRequests(): Promise<HelpRequestItem[]> {
   const localList = getStoredPendingRequests();
 
   try {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 1800) : null;
-
-    const res = await fetch(`${getBackendUrl()}/help`, {
-      signal: controller?.signal,
-    });
-    if (timeoutId) clearTimeout(timeoutId);
+    const res = await apiFetch(`${getBackendUrl()}/help`, {}, 4000);
 
     if (res.ok) {
       const json = await res.json();
@@ -330,7 +324,7 @@ export async function fetchActiveHelpRequests(): Promise<HelpRequestItem[]> {
       return merged;
     }
   } catch (err) {
-    // Backend offline / network error
+    // Backend offline / network error - fallback to local storage
   }
 
   // Fallback to local stored pending requests
@@ -359,9 +353,9 @@ export async function resolveHelpRequest(id: string): Promise<void> {
 
   // 4. Background backend sync
   try {
-    fetch(`${getBackendUrl()}/help/${id}/resolve`, {
+    apiFetch(`${getBackendUrl()}/help/${id}/resolve`, {
       method: 'PUT',
-    }).catch(() => {});
+    }, 5000).catch(() => {});
   } catch (err) {}
 }
 

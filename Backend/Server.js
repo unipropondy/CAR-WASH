@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const os = require('os');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const authRoutes = require('./routes/authRoutes');
@@ -21,8 +22,9 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -53,20 +55,29 @@ app.use('/api/users', userRoutes);
 app.use('/api/carwash', carwashRoutes);
 app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
 
+// Fast Connectivity Ping
+app.get('/api/ping', (req, res) => {
+  res.status(200).json({ ok: true, status: 'UP', timestamp: new Date().toISOString() });
+});
+
 // Health Check
 app.get('/api/health', async (req, res) => {
   try {
     const pool = await getPool();
     res.status(200).json({
       status: 'UP',
+      service: 'RedBay Car Wash POS Backend',
       database: pool.connected ? 'CONNECTED' : 'DISCONNECTED',
       timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
     });
   } catch (err) {
     res.status(500).json({
       status: 'DEGRADED',
+      service: 'RedBay Car Wash POS Backend',
       database: 'DISCONNECTED',
       error: err.message,
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -106,7 +117,16 @@ async function startServer() {
     console.log(`=========================================`);
     console.log(`Car Wash POS Backend running on http://${HOST}:${PORT}`);
     console.log(`Local Access: http://localhost:${PORT}/api/health`);
-    console.log(`Mobile LAN Access: http://192.168.0.128:${PORT}/api/health`);
+    
+    // Dynamically list non-internal network IPs
+    const interfaces = os.networkInterfaces();
+    Object.keys(interfaces).forEach((name) => {
+      interfaces[name]?.forEach((net) => {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log(`Network (${name}): http://${net.address}:${PORT}/api/health`);
+        }
+      });
+    });
     console.log(`=========================================`);
   });
 }

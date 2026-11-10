@@ -27,6 +27,13 @@ import {
   fetchCompanySettings,
   updateCompanySettings,
 } from '../../../services/companySettingsApi';
+import {
+  getApiBaseUrl,
+  getCustomApiBaseUrl,
+  setCustomApiBaseUrl,
+  checkBackendHealth,
+  BackendHealthResult,
+} from '../../../services/apiConfig';
 
 interface PosSettingsViewProps {
   cashierName?: string;
@@ -59,6 +66,62 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
   const [printerStatus, setPrinterStatus] = useState<'CONNECTED' | 'TESTING'>('CONNECTED');
   const [drawerStatus, setDrawerStatus] = useState<'READY' | 'TESTING'>('READY');
   const [terminalStatus, setTerminalStatus] = useState<'ONLINE' | 'SYNCING'>('ONLINE');
+
+  // Backend Server Connectivity State
+  const [currentApiUrl, setCurrentApiUrl] = useState<string>(getApiBaseUrl());
+  const [serverUrlInput, setServerUrlInput] = useState<string>(getCustomApiBaseUrl() || '');
+  const [isTestingServer, setIsTestingServer] = useState<boolean>(false);
+  const [serverHealth, setServerHealth] = useState<BackendHealthResult | null>(null);
+
+  useEffect(() => {
+    checkBackendHealth().then(setServerHealth).catch(() => {});
+  }, []);
+
+  const handleTestServer = async () => {
+    setIsTestingServer(true);
+    try {
+      const target = serverUrlInput.trim() || undefined;
+      const res = await checkBackendHealth(target);
+      setServerHealth(res);
+      if (res.ok) {
+        const msg = `Backend is ONLINE!\nURL: ${res.url}\nLatency: ${res.latencyMs}ms\nDatabase: ${res.database || 'CONNECTED'}`;
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Connection Successful', msg);
+      } else {
+        const msg = `Backend is UNREACHABLE:\n${res.error || 'Connection failed'}\nTarget: ${res.url}`;
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Connection Failed', msg);
+      }
+    } catch (err: any) {
+      if (Platform.OS === 'web') alert('Test Error: ' + err.message);
+      else Alert.alert('Error', err.message);
+    } finally {
+      setIsTestingServer(false);
+    }
+  };
+
+  const handleSaveServerUrl = () => {
+    if (serverUrlInput.trim().length > 0) {
+      setCustomApiBaseUrl(serverUrlInput.trim());
+      const newUrl = getApiBaseUrl();
+      setCurrentApiUrl(newUrl);
+      checkBackendHealth(newUrl).then(setServerHealth);
+      const msg = `Custom Backend URL saved:\n${newUrl}\nAll requests will now route to this server.`;
+      if (Platform.OS === 'web') alert(msg);
+      else Alert.alert('Server URL Updated', msg);
+    }
+  };
+
+  const handleResetServerUrl = () => {
+    setCustomApiBaseUrl(null);
+    setServerUrlInput('');
+    const newUrl = getApiBaseUrl();
+    setCurrentApiUrl(newUrl);
+    checkBackendHealth(newUrl).then(setServerHealth);
+    const msg = `Reset to Auto-detected URL:\n${newUrl}`;
+    if (Platform.OS === 'web') alert(msg);
+    else Alert.alert('Server URL Reset', msg);
+  };
 
   // Pricing State
   const [prices, setPrices] = useState({
@@ -928,6 +991,101 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
                   {terminalStatus === 'SYNCING' ? 'Syncing...' : 'Sync Now'}
                 </Text>
               </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Card: Centralized Backend Server & Universal Network Connectivity */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="server-outline" size={20} color="#ED0712" />
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={styles.cardTitle}>Backend Server & Network Connectivity</Text>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 12,
+                    backgroundColor: serverHealth?.ok ? '#ECFDF5' : '#FEF2F2',
+                    borderWidth: 1,
+                    borderColor: serverHealth?.ok ? '#A7F3D0' : '#FECACA',
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 3.5,
+                      backgroundColor: serverHealth?.ok ? '#10B981' : '#EF4444',
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: '800',
+                      color: serverHealth?.ok ? '#047857' : '#DC2626',
+                    }}
+                  >
+                    {serverHealth?.ok
+                      ? `ONLINE (${serverHealth.latencyMs}ms)`
+                      : isTestingServer
+                      ? 'TESTING...'
+                      : 'OFFLINE'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              <View style={{ backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#E2E8F0', gap: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B' }}>ACTIVE API BASE URL</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0F172A', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>
+                  {currentApiUrl}
+                </Text>
+                <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                  Universal routing across Wi-Fi, 4G/5G mobile networks, and public HTTPS cloud endpoints.
+                </Text>
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <Text style={styles.fieldLabel}>Custom Server URL Override (Optional)</Text>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  <TextInput
+                    style={[styles.textInput, { flex: 1, minWidth: 220 }]}
+                    placeholder="e.g. https://api.redbaycarwash.com or http://localhost:5000"
+                    placeholderTextColor="#94A3B8"
+                    value={serverUrlInput}
+                    onChangeText={setServerUrlInput}
+                  />
+                  <TouchableOpacity
+                    style={[styles.testBtn, { backgroundColor: '#ED0712', borderColor: '#DC2626' }]}
+                    onPress={handleSaveServerUrl}
+                    disabled={!serverUrlInput.trim()}
+                  >
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                    <Text style={[styles.testBtnText, { color: '#FFFFFF' }]}>Apply</Text>
+                  </TouchableOpacity>
+                  {getCustomApiBaseUrl() && (
+                    <TouchableOpacity
+                      style={[styles.testBtn, { borderColor: '#CBD5E1' }]}
+                      onPress={handleResetServerUrl}
+                    >
+                      <Ionicons name="refresh" size={16} color="#475569" />
+                      <Text style={styles.testBtnText}>Reset Auto</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.testBtn, { borderColor: '#CBD5E1' }]}
+                    onPress={handleTestServer}
+                    disabled={isTestingServer}
+                  >
+                    <Ionicons name="pulse" size={16} color="#0F172A" />
+                    <Text style={styles.testBtnText}>{isTestingServer ? 'Pinging...' : 'Ping Test'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           </View>
         </View>

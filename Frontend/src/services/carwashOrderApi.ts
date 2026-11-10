@@ -318,7 +318,7 @@ export async function updateBayMasterStatus(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: 'PUT',
     headers,
     body: JSON.stringify({ bayStatus }),
