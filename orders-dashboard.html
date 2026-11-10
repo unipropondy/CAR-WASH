@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orders Dashboard – Car Wash POS</title>
+  
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            navy: '#0F172A',
+            pageBg: '#F1F4F9',
+            borderCol: '#E2E8F0',
+            mutedText: '#475569',
+            brandGreen: '#047857',
+            brandBlue: '#1D4ED8',
+            brandAmber: '#92400E',
+            brandRed: '#B91C1C',
+          },
+          boxShadow: {
+            soft: '0 4px 20px -2px rgba(15, 23, 42, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02)',
+            card: '0 10px 30px -5px rgba(15, 23, 42, 0.05), 0 4px 10px -2px rgba(15, 23, 42, 0.02)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 and Babel Standalone for clean component architecture -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #F1F4F9;
+      color: #0F172A;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Custom scrollbar for table container */
+    .custom-scrollbar::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #F1F5F9;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #94A3B8;
+    }
+  </style>
+</head>
+<body class="bg-[#F1F4F9] min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // Sample dataset exactly matching the user request & screenshot
+    const INITIAL_ORDERS = [
+      {
+        id: '#RB20261102-0005',
+        customer: { name: 'Loki', phone: '99761811', avatarBg: '#4F46E5', initials: 'LO' },
+        vehicle: { plate: 'TN22DU1324', type: 'Sedan' },
+        package: { name: 'Deluxe Wash & Vacuum', tier: 'deluxe', category: 'CAR WASH' },
+        amount: 22.00,
+        payMode: 'CASH',
+        paymentStatus: 'Paid',
+        bay: 'Bay 5',
+        waitMinutes: 10,
+        waitText: '10 min',
+        status: 'In Service', // Active in service
+        history: [
+          { time: '09:30 AM', event: 'Order created via Kiosk', user: 'Customer' },
+          { time: '09:32 AM', event: 'Cash payment confirmed ($ 22.00)', user: 'Cashier (CS)' },
+          { time: '09:35 AM', event: 'Assigned to Washing Bay 5', user: 'Cashier (CS)' },
+          { time: '09:40 AM', event: 'Service commenced in Bay 5', user: 'Operator' }
+        ]
+      },
+      {
+        id: '#RB20261102-0004',
+        customer: { name: 'LOKI', phone: '76391272', avatarBg: '#4F46E5', initials: 'LO' },
+        vehicle: { plate: 'LOKI', type: 'Sedan' },
+        package: { name: 'Premium Hydrophobic Coat', tier: 'premium', category: 'CAR WASH' },
+        amount: 30.00,
+        payMode: 'CASH',
+        paymentStatus: 'Paid',
+        bay: 'Bay 2',
+        waitMinutes: 18,
+        waitText: '18 min',
+        status: 'Closed',
+        history: [
+          { time: '08:50 AM', event: 'Order created via Kiosk', user: 'Customer' },
+          { time: '08:52 AM', event: 'Paid $ 30.00 cash', user: 'Cashier (CS)' },
+          { time: '08:55 AM', event: 'Assigned to Bay 2', user: 'Operator' },
+          { time: '09:10 AM', event: 'Service Completed', user: 'Operator' },
+          { time: '09:12 AM', event: 'Handover & Closed', user: 'Cashier (CS)' }
+        ]
+      },
+      {
+        id: '#RB20261102-0003',
+        customer: { name: 'Rachel Tan', phone: '91234567', avatarBg: '#0D9488', initials: 'RT' },
+        vehicle: { plate: 'SMG 8899 D', type: 'Sedan' },
+        package: { name: 'Express Foam Wash', tier: 'express', category: 'CAR WASH' },
+        amount: 15.00,
+        payMode: 'CASH',
+        paymentStatus: 'Paid',
+        bay: 'Bay 1',
+        waitMinutes: 25,
+        waitText: '25 min',
+        status: 'Closed',
+        history: [
+          { time: '08:15 AM', event: 'Order created via Kiosk', user: 'Customer' },
+          { time: '08:16 AM', event: 'Paid $ 15.00 cash', user: 'Cashier (CS)' },
+          { time: '08:20 AM', event: 'Assigned to Bay 1', user: 'Operator' },
+          { time: '08:35 AM', event: 'Service Completed', user: 'Operator' },
+          { time: '08:40 AM', event: 'Vehicle Handover & Closed', user: 'Cashier (CS)' }
+        ]
+      },
+      {
+        id: '#RB20261102-0002',
+        customer: { name: 'Bryan Lim (Live)', phone: '88776655', avatarBg: '#EA580C', initials: 'BL' },
+        vehicle: { plate: 'SLK 9988 X', type: 'Sedan' },
+        package: { name: 'Deluxe Wash & Vacuum', tier: 'deluxe', category: 'CAR WASH' },
+        amount: 22.00,
+        payMode: 'CASH',
+        paymentStatus: 'Paid',
+        bay: 'Bay 1',
+        waitMinutes: 45,
+        waitText: '45 min',
+        status: 'Closed',
+        history: [
+          { time: '07:30 AM', event: 'Order created via Kiosk', user: 'Customer' },
+          { time: '07:32 AM', event: 'Paid $ 22.00 cash', user: 'Cashier (CS)' },
+          { time: '07:35 AM', event: 'Assigned to Bay 1', user: 'Operator' },
+          { time: '08:10 AM', event: 'Completed wash', user: 'Operator' },
+          { time: '08:15 AM', event: 'Closed', user: 'Cashier (CS)' }
+        ]
+      },
+      {
+        id: '#RB20261102-0001',
+        customer: { name: 'Marcus Tan', phone: '91234567', avatarBg: '#059669', initials: 'MT' },
+        vehicle: { plate: 'SJA 8899 M', type: 'Sedan' },
+        package: { name: 'Express Foam Wash', tier: 'express', category: 'CAR WASH' },
+        amount: 15.00,
+        payMode: 'CASH',
+        paymentStatus: 'Paid',
+        bay: 'Bay 2',
+        waitMinutes: 98,
+        waitText: '1h 38m',
+        status: 'Closed',
+        history: [
+          { time: '06:45 AM', event: 'Order created via Kiosk', user: 'Customer' },
+          { time: '06:48 AM', event: 'Paid $ 15.00 cash', user: 'Cashier (CS)' },
+          { time: '07:00 AM', event: 'Assigned to Bay 2', user: 'Operator' },
+          { time: '07:20 AM', event: 'Completed', user: 'Operator' },
+          { time: '08:23 AM', event: 'Order Closed', user: 'Cashier (CS)' }
+        ]
+      }
+    ];
+
+    const FILTER_OPTIONS = [
+      { id: 'ALL', label: 'All Orders' },
+      { id: 'PENDING_PAYMENT', label: 'Pending Payment' },
+      { id: 'PAID_WAITING', label: 'Paid / Waiting' },
+      { id: 'IN_SERVICE', label: 'In Service' },
+      { id: 'COMPLETED', label: 'Completed' },
+      { id: 'CLOSED', label: 'Closed' },
+      { id: 'CANCELLED', label: 'Cancelled' },
+    ];
+
+    // ================== SVG ICONS ==================
+    const CarIcon = () => (
+      <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+      </svg>
+    );
+
+    const WaterDropIcon = () => (
+      <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+      </svg>
+    );
+
+    const CheckIcon = () => (
+      <svg className="w-3.5 h-3.5 text-emerald-600 stroke-current" fill="none" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+      </svg>
+    );
+
+    const ClockIcon = () => (
+      <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" strokeWidth="2" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 7v5l3 3" />
+      </svg>
+    );
+
+    const SearchIcon = () => (
+      <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    );
+
+    // ================== COMPONENT: TOP BAR ==================
+    const TopBar = ({ searchQuery, setSearchQuery }) => {
+      return (
+        <header className="bg-white border-b border-[#E2E8F0] px-6 py-3.5 sticky top-0 z-30 shadow-xs">
+          <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Left: Logo, Title & Search */}
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              {/* Black rounded square Menu Icon button */}
+              <button
+                onClick={() => alert('Side Menu')}
+                aria-label="Toggle side menu"
+                className="w-9 h-9 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg flex items-center justify-center shadow-sm shrink-0 transition cursor-pointer"
+              >
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              
+              <h2 className="text-xl font-extrabold text-[#0F172A] tracking-tight">
+                Orders
+              </h2>
+
+              {/* Search Bar */}
+              <div className="relative flex-1 sm:w-80 ml-2">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <SearchIcon />
+                </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search order, customer or plate"
+                  className="w-full pl-10 pr-4 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-navy focus:border-transparent transition"
+                  aria-label="Search orders"
+                />
+              </div>
+            </div>
+
+            {/* Right: Cashier User Avatar */}
+            <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+              <div className="w-9 h-9 rounded-full bg-black text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                CS
+              </div>
+              <span className="text-sm font-semibold text-[#0F172A]">
+                Cashier
+              </span>
+            </div>
+          </div>
+        </header>
+      );
+    };
+
+    // ================== COMPONENT: SUMMARY CARD ==================
+    const SummaryCard = ({ label, value }) => (
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 shadow-soft hover:shadow-card transition duration-200">
+        <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+          {label}
+        </p>
+        <p className="text-3xl font-extrabold text-[#0F172A] tracking-tight">
+          {value}
+        </p>
+      </div>
+    );
+
+    // ================== COMPONENT: PACKAGE PILL ==================
+    const PackageBadge = ({ pkg }) => {
+      let bgStyle = 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]'; // deluxe amber default
+      if (pkg.tier === 'premium') {
+        bgStyle = 'bg-[#FEE2E2] text-[#B91C1C] border-[#FECACA]'; // premium red
+      } else if (pkg.tier === 'express') {
+        bgStyle = 'bg-[#E0F2FE] text-[#1D4ED8] border-[#BAE6FD]'; // express blue
+      }
+
+      return (
+        <div>
+          <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${bgStyle} tracking-tight`}>
+            {pkg.name}
+          </span>
+          <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mt-1">
+            {pkg.category}
+          </p>
+        </div>
+      );
+    };
+
+    // ================== COMPONENT: WAIT TIME DISPLAY ==================
+    const WaitBadge = ({ minutes, text }) => {
+      let colorClass = 'text-slate-600 font-semibold';
+      if (minutes >= 40) {
+        colorClass = 'text-[#B91C1C] font-extrabold'; // Over 40m red
+      } else if (minutes >= 20) {
+        colorClass = 'text-amber-700 font-bold'; // 20-40m amber
+      }
+
+      return (
+        <span className={`text-sm ${colorClass}`}>
+          {text}
+        </span>
+      );
+    };
+
+    // ================== MAIN APP COMPONENT ==================
+    const App = () => {
+      const [orders, setOrders] = useState(INITIAL_ORDERS);
+      const [activeFilter, setActiveFilter] = useState('ALL');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [selectedOrderForView, setSelectedOrderForView] = useState(null);
+      const [selectedOrderForHistory, setSelectedOrderForHistory] = useState(null);
+      const [toastMessage, setToastMessage] = useState(null);
+
+      // Trigger a temporary notification
+      const showToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
+      };
+
+      // Handle Marking an order as Done (Completed)
+      const handleMarkDone = (orderId) => {
+        setOrders((prev) =>
+          prev.map((o) => {
+            if (o.id === orderId) {
+              const updated = {
+                ...o,
+                status: 'Completed',
+                history: [
+                  ...o.history,
+                  {
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    event: 'Service marked Completed via POS Action',
+                    user: 'Cashier (CS)',
+                  },
+                ],
+              };
+              return updated;
+            }
+            return o;
+          })
+        );
+        showToast(`Order ${orderId} marked as COMPLETED!`);
+      };
+
+      // Compute Counts dynamically
+      const counts = useMemo(() => {
+        return {
+          ALL: orders.length,
+          PENDING_PAYMENT: orders.filter((o) => o.status === 'Pending Payment').length,
+          PAID_WAITING: orders.filter((o) => o.status === 'Paid / Waiting').length,
+          IN_SERVICE: orders.filter((o) => o.status === 'In Service').length,
+          COMPLETED: orders.filter((o) => o.status === 'Completed').length,
+          CLOSED: orders.filter((o) => o.status === 'Closed').length,
+          CANCELLED: orders.filter((o) => o.status === 'Cancelled').length,
+        };
+      }, [orders]);
+
+      // Summary Card Stats
+      const totalRevenue = useMemo(() => {
+        return orders.reduce((sum, o) => sum + o.amount, 0).toFixed(2);
+      }, [orders]);
+
+      // Filtered Orders List
+      const filteredOrders = useMemo(() => {
+        return orders.filter((order) => {
+          // Status filter
+          let matchesFilter = true;
+          if (activeFilter === 'PENDING_PAYMENT') matchesFilter = order.status === 'Pending Payment';
+          else if (activeFilter === 'PAID_WAITING') matchesFilter = order.status === 'Paid / Waiting';
+          else if (activeFilter === 'IN_SERVICE') matchesFilter = order.status === 'In Service';
+          else if (activeFilter === 'COMPLETED') matchesFilter = order.status === 'Completed';
+          else if (activeFilter === 'CLOSED') matchesFilter = order.status === 'Closed';
+          else if (activeFilter === 'CANCELLED') matchesFilter = order.status === 'Cancelled';
+
+          if (!matchesFilter) return false;
+
+          // Search query filter (Order ID, Customer Name, License Plate)
+          if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            const idMatch = order.id.toLowerCase().includes(q);
+            const nameMatch = order.customer.name.toLowerCase().includes(q);
+            const plateMatch = order.vehicle.plate.toLowerCase().includes(q);
+            const phoneMatch = order.customer.phone.includes(q);
+            return idMatch || nameMatch || plateMatch || phoneMatch;
+          }
+
+          return true;
+        });
+      }, [orders, activeFilter, searchQuery]);
+
+      return (
+        <div className="min-h-screen flex flex-col bg-[#F1F4F9]">
+          {/* 1. TOP BAR */}
+          <TopBar searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+
+          {/* Toast Alert */}
+          {toastMessage && (
+            <div className="fixed top-20 right-6 z-50 bg-[#0F172A] text-white px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 border border-slate-700 animate-bounce">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <p className="text-sm font-bold">{toastMessage}</p>
+            </div>
+          )}
+
+          {/* MAIN PAGE CONTAINER */}
+          <main className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 py-8 flex-1 flex flex-col gap-6">
+            
+            {/* 2. PAGE HEADER */}
+            <div>
+              <h1 className="text-3xl font-extrabold text-[#0F172A] tracking-tight">
+                Today’s orders
+              </h1>
+              <p className="text-sm font-medium text-slate-500 mt-1">
+                Monday, 2 November 2026
+              </p>
+            </div>
+
+            {/* 3. FOUR SUMMARY CARDS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              <SummaryCard label="TOTAL ORDERS" value={counts.ALL} />
+              <SummaryCard label="IN SERVICE" value={counts.IN_SERVICE} />
+              <SummaryCard label="CLOSED" value={counts.CLOSED} />
+              <SummaryCard label="REVENUE" value={`$${totalRevenue}`} />
+            </div>
+
+            {/* 4. LARGE WHITE ROUNDED CARD (20px radius, soft shadow) */}
+            <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-6 shadow-soft flex flex-col">
+              
+              {/* 4.a Filter pills with count badges */}
+              <div className="flex items-center gap-2.5 overflow-x-auto pb-4 custom-scrollbar mb-4 border-b border-[#F1F5F9]">
+                {FILTER_OPTIONS.map((f) => {
+                  const isActive = activeFilter === f.id;
+                  const count = counts[f.id] || 0;
+
+                  return (
+                    <button
+                      key={f.id}
+                      onClick={() => setActiveFilter(f.id)}
+                      className={`min-h-[44px] px-4 py-2 rounded-full text-xs font-extrabold flex items-center gap-2 transition shrink-0 cursor-pointer border ${
+                        isActive
+                          ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-xs'
+                          : 'bg-[#F8FAFC] text-slate-600 border-[#E2E8F0] hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                      aria-label={`Filter by ${f.label} (${count})`}
+                    >
+                      <span>{f.label}</span>
+                      <span
+                        className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                          isActive
+                            ? 'bg-slate-700 text-white'
+                            : 'bg-[#E2E8F0] text-slate-700'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 4.b DATA TABLE - Desktop View (Horizontal scroll only below 1180px) */}
+              <div className="hidden md:block overflow-x-auto custom-scrollbar">
+                <table className="w-full border-collapse text-left min-w-[1050px]">
+                  <thead>
+                    <tr className="border-b border-[#F1F5F9] text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      <th className="py-3 px-3 w-[15%]">ORDER</th>
+                      <th className="py-3 px-3 w-[17%]">CUSTOMER</th>
+                      <th className="py-3 px-3 w-[14%]">VEHICLE</th>
+                      <th className="py-3 px-3 w-[18%]">PACKAGE</th>
+                      <th className="py-3 px-3 w-[10%]">AMOUNT</th>
+                      <th className="py-3 px-3 w-[9%]">PAYMENT</th>
+                      <th className="py-3 px-3 w-[8%]">BAY</th>
+                      <th className="py-3 px-3 w-[7%]">WAIT</th>
+                      <th className="py-3 px-3 w-[12%] text-right">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#F1F5F9]">
+                    {filteredOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan="9" className="text-center py-12 text-slate-400 font-semibold text-sm">
+                          No matching orders found under this view.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOrders.map((order) => {
+                        const isOver40 = order.waitMinutes >= 40;
+                        const isInService = order.status === 'In Service';
+
+                        return (
+                          <tr
+                            key={order.id}
+                            className={`transition group ${
+                              isOver40
+                                ? 'bg-[#FEF2F2] border-l-4 border-l-[#B91C1C]'
+                                : 'hover:bg-[#F8FAFC]'
+                            }`}
+                          >
+                            {/* ORDER */}
+                            <td className="py-4 px-3 align-middle">
+                              <span className="inline-block bg-[#F1F5F9] text-slate-800 text-xs font-bold font-mono-code px-2.5 py-1 rounded-md border border-[#E2E8F0]">
+                                {order.id}
+                              </span>
+                            </td>
+
+                            {/* CUSTOMER */}
+                            <td className="py-4 px-3 align-middle">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="w-8 h-8 rounded-full text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs"
+                                  style={{ backgroundColor: order.customer.avatarBg }}
+                                >
+                                  {order.customer.initials}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-[#0F172A] truncate">
+                                    {order.customer.name}
+                                  </p>
+                                  <p className="text-xs text-slate-400 font-medium font-mono-code">
+                                    {order.customer.phone}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* VEHICLE */}
+                            <td className="py-4 px-3 align-middle">
+                              <div>
+                                <span className="inline-flex items-center gap-1.5 bg-[#1E293B] text-white font-mono-code text-xs font-bold px-2.5 py-1 rounded-md shadow-xs">
+                                  <CarIcon />
+                                  <span>{order.vehicle.plate}</span>
+                                </span>
+                                <p className="text-xs text-slate-400 font-medium mt-1">
+                                  {order.vehicle.type}
+                                </p>
+                              </div>
+                            </td>
+
+                            {/* PACKAGE */}
+                            <td className="py-4 px-3 align-middle">
+                              <PackageBadge pkg={order.package} />
+                            </td>
+
+                            {/* AMOUNT */}
+                            <td className="py-4 px-3 align-middle">
+                              <div>
+                                <p className="text-sm font-extrabold text-[#0F172A]">
+                                  $ {order.amount.toFixed(2)}
+                                </p>
+                                <span className="inline-block text-[10px] font-extrabold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                                  {order.payMode}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* PAYMENT */}
+                            <td className="py-4 px-3 align-middle">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                <CheckIcon />
+                                <span>{order.paymentStatus}</span>
+                              </span>
+                            </td>
+
+                            {/* BAY */}
+                            <td className="py-4 px-3 align-middle">
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">
+                                <WaterDropIcon />
+                                <span>{order.bay}</span>
+                              </span>
+                            </td>
+
+                            {/* WAIT */}
+                            <td className="py-4 px-3 align-middle whitespace-nowrap">
+                              <WaitBadge minutes={order.waitMinutes} text={order.waitText} />
+                            </td>
+
+                            {/* ACTION (Always Visible) */}
+                            <td className="py-4 px-3 align-middle text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {isInService ? (
+                                  <button
+                                    onClick={() => handleMarkDone(order.id)}
+                                    className="min-h-[44px] px-4 py-2 bg-[#059669] hover:bg-[#047857] text-white text-xs font-extrabold rounded-lg shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                                    aria-label={`Mark order ${order.id} as Done`}
+                                  >
+                                    <CheckIcon />
+                                    <span>Done</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setSelectedOrderForView(order)}
+                                    className="min-h-[44px] px-4 py-2 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-slate-700 text-xs font-extrabold rounded-lg border border-[#E2E8F0] transition cursor-pointer"
+                                    aria-label={`View details of order ${order.id}`}
+                                  >
+                                    View
+                                  </button>
+                                )}
+
+                                {/* Clock History Button */}
+                                <button
+                                  onClick={() => setSelectedOrderForHistory(order)}
+                                  className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg bg-[#F8FAFC] hover:bg-slate-200 text-slate-500 border border-[#E2E8F0] transition cursor-pointer"
+                                  aria-label={`View history log for order ${order.id}`}
+                                >
+                                  <ClockIcon />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 4.c MOBILE RESPONSIVE CARDS (Under 768px Width) */}
+              <div className="block md:hidden space-y-4">
+                {filteredOrders.length === 0 ? (
+                  <p className="text-center py-8 text-slate-400 font-semibold text-sm">
+                    No matching orders found.
+                  </p>
+                ) : (
+                  filteredOrders.map((order) => {
+                    const isOver40 = order.waitMinutes >= 40;
+                    const isInService = order.status === 'In Service';
+
+                    return (
+                      <div
+                        key={order.id}
+                        className={`rounded-xl border border-[#E2E8F0] p-4 flex flex-col gap-3 shadow-xs ${
+                          isOver40
+                            ? 'bg-[#FEF2F2] border-l-4 border-l-[#B91C1C]'
+                            : 'bg-white'
+                        }`}
+                      >
+                        {/* Top row: Order ID, Bay & Amount */}
+                        <div className="flex items-center justify-between">
+                          <span className="bg-[#F1F5F9] text-slate-800 text-xs font-bold font-mono-code px-2 py-0.5 rounded border border-[#E2E8F0]">
+                            {order.id}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                            <WaterDropIcon />
+                            <span>{order.bay}</span>
+                          </span>
+                          <p className="text-base font-extrabold text-[#0F172A]">
+                            $ {order.amount.toFixed(2)}
+                          </p>
+                        </div>
+
+                        {/* Customer & Vehicle */}
+                        <div className="flex items-center justify-between gap-2 border-y border-slate-100 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className="w-8 h-8 rounded-full text-white font-extrabold text-xs flex items-center justify-center"
+                              style={{ backgroundColor: order.customer.avatarBg }}
+                            >
+                              {order.customer.initials}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-[#0F172A]">{order.customer.name}</p>
+                              <p className="text-xs text-slate-400 font-mono-code">{order.customer.phone}</p>
+                            </div>
+                          </div>
+
+                          <span className="inline-flex items-center gap-1 bg-[#1E293B] text-white font-mono-code text-xs font-bold px-2 py-1 rounded">
+                            <CarIcon />
+                            <span>{order.vehicle.plate}</span>
+                          </span>
+                        </div>
+
+                        {/* Package & Payment */}
+                        <div className="flex items-center justify-between">
+                          <PackageBadge pkg={order.package} />
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full mb-1">
+                              <CheckIcon />
+                              <span>{order.paymentStatus}</span>
+                            </span>
+                            <div>
+                              <span className="text-xs text-slate-400 mr-1">Wait:</span>
+                              <WaitBadge minutes={order.waitMinutes} text={order.waitText} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                          {isInService ? (
+                            <button
+                              onClick={() => handleMarkDone(order.id)}
+                              className="flex-1 min-h-[44px] bg-[#059669] text-white text-sm font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs"
+                            >
+                              <CheckIcon />
+                              <span>Mark Done</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setSelectedOrderForView(order)}
+                              className="flex-1 min-h-[44px] bg-[#F1F5F9] text-slate-700 text-sm font-bold rounded-lg border border-[#E2E8F0]"
+                            >
+                              View Details
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setSelectedOrderForHistory(order)}
+                            className="min-h-[44px] min-w-[44px] px-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-slate-600 flex items-center justify-center"
+                            aria-label={`History for ${order.id}`}
+                          >
+                            <ClockIcon />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+            </div>
+
+            {/* 5. BAY OVERVIEW SECTION */}
+            <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-6 shadow-soft flex flex-col">
+              <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-600/30">
+                    <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                      <path d="M4 4h7v7H4zm0 9h7v7H4zm9-9h7v7h-7zm0 9h7v7h-7z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-xl font-extrabold text-[#0F172A]">Bay Overview</h3>
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        1 In Service • 4 Available
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">Real-time washing bay occupancy & automated cycle progress</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => showToast('Manage Bays')}
+                  className="px-4 py-2 border border-red-200 bg-white hover:bg-red-50 text-red-600 text-xs font-extrabold rounded-xl flex items-center gap-2 transition cursor-pointer"
+                >
+                  <span>⚙️</span> Manage Bays
+                </button>
+              </div>
+
+              {/* 5 Bays Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {/* Bay 1 - Available */}
+                <div className="rounded-2xl border border-dashed border-slate-300 p-4 bg-slate-50/60 hover:bg-slate-50 transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 rounded-full bg-slate-400"></div>
+                        <span className="font-extrabold text-sm text-[#0F172A]">Bay 1</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                        ● Available
+                      </span>
+                    </div>
+                    <div className="py-6 flex flex-col items-center justify-center text-slate-400">
+                      <span className="text-3xl mb-1">🚗</span>
+                      <p className="font-extrabold text-xs text-slate-700">No Vehicle</p>
+                      <p className="text-[10px] text-slate-500">Ready for Wash</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-200/80">
+                    <div className="flex justify-between text-[11px] font-medium text-slate-400 mb-1.5">
+                      <span>🕒 --</span>
+                      <span>⏱️ --</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1.5"></div>
+                  </div>
+                </div>
+
+                {/* Bay 2 - Available */}
+                <div className="rounded-2xl border border-dashed border-slate-300 p-4 bg-slate-50/60 hover:bg-slate-50 transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 rounded-full bg-slate-400"></div>
+                        <span className="font-extrabold text-sm text-[#0F172A]">Bay 2</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                        ● Available
+                      </span>
+                    </div>
+                    <div className="py-6 flex flex-col items-center justify-center text-slate-400">
+                      <span className="text-3xl mb-1">🚗</span>
+                      <p className="font-extrabold text-xs text-slate-700">No Vehicle</p>
+                      <p className="text-[10px] text-slate-500">Ready for Wash</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-200/80">
+                    <div className="flex justify-between text-[11px] font-medium text-slate-400 mb-1.5">
+                      <span>🕒 --</span>
+                      <span>⏱️ --</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1.5"></div>
+                  </div>
+                </div>
+
+                {/* Bay 3 - Available */}
+                <div className="rounded-2xl border border-dashed border-slate-300 p-4 bg-slate-50/60 hover:bg-slate-50 transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 rounded-full bg-slate-400"></div>
+                        <span className="font-extrabold text-sm text-[#0F172A]">Bay 3</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                        ● Available
+                      </span>
+                    </div>
+                    <div className="py-6 flex flex-col items-center justify-center text-slate-400">
+                      <span className="text-3xl mb-1">🚗</span>
+                      <p className="font-extrabold text-xs text-slate-700">No Vehicle</p>
+                      <p className="text-[10px] text-slate-500">Ready for Wash</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-200/80">
+                    <div className="flex justify-between text-[11px] font-medium text-slate-400 mb-1.5">
+                      <span>🕒 --</span>
+                      <span>⏱️ --</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1.5"></div>
+                  </div>
+                </div>
+
+                {/* Bay 4 - Available */}
+                <div className="rounded-2xl border border-dashed border-slate-300 p-4 bg-slate-50/60 hover:bg-slate-50 transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 rounded-full bg-slate-400"></div>
+                        <span className="font-extrabold text-sm text-[#0F172A]">Bay 4</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                        ● Available
+                      </span>
+                    </div>
+                    <div className="py-6 flex flex-col items-center justify-center text-slate-400">
+                      <span className="text-3xl mb-1">🚗</span>
+                      <p className="font-extrabold text-xs text-slate-700">No Vehicle</p>
+                      <p className="text-[10px] text-slate-500">Ready for Wash</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-200/80">
+                    <div className="flex justify-between text-[11px] font-medium text-slate-400 mb-1.5">
+                      <span>🕒 --</span>
+                      <span>⏱️ --</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1.5"></div>
+                  </div>
+                </div>
+
+                {/* Bay 5 - Occupied with Loki */}
+                <div className="rounded-2xl border border-slate-200 p-4 bg-white hover:shadow-md transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 rounded-full bg-red-600"></div>
+                        <span className="font-extrabold text-sm text-[#0F172A]">Bay 5</span>
+                      </div>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> In Service
+                      </span>
+                    </div>
+                    <div className="py-2 flex items-center justify-center">
+                      <img src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=200&auto=format&fit=crop&q=60" alt="Car" className="h-14 object-contain rounded-md" />
+                    </div>
+                    <div className="flex items-center gap-2.5 mt-2">
+                      <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">LO</div>
+                      <div className="overflow-hidden">
+                        <p className="font-extrabold text-xs text-[#0F172A] truncate">Loki</p>
+                        <p className="text-[10px] font-mono text-slate-500 truncate">TN22DU1324</p>
+                        <p className="text-[10px] font-bold text-amber-700">Deluxe Wash</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-100">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1.5">
+                      <span>🕒 09:45 AM</span>
+                      <span className="text-emerald-600">⏱️ 10 min</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-red-500 h-full rounded-full w-[45%]"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* ================= MODAL: ORDER DETAILS ================= */}
+          {selectedOrderForView && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <h3 className="text-lg font-extrabold text-[#0F172A]">
+                    Order Details
+                  </h3>
+                  <button
+                    onClick={() => setSelectedOrderForView(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:text-black font-bold flex items-center justify-center cursor-pointer"
+                    aria-label="Close dialog"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="py-4 space-y-3">
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Order ID</span>
+                    <span className="text-sm font-mono-code font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                      {selectedOrderForView.id}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Customer</span>
+                    <span className="text-sm font-bold text-slate-900">{selectedOrderForView.customer.name} ({selectedOrderForView.customer.phone})</span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Vehicle Plate</span>
+                    <span className="text-sm font-mono-code font-extrabold text-white bg-slate-900 px-2 py-0.5 rounded">
+                      {selectedOrderForView.vehicle.plate}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Package</span>
+                    <span className="text-sm font-bold text-slate-800">{selectedOrderForView.package.name}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Assigned Bay</span>
+                    <span className="text-sm font-bold text-blue-700">{selectedOrderForView.bay}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Current Status</span>
+                    <span className="text-sm font-extrabold text-slate-800">{selectedOrderForView.status}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1 border-t border-slate-100 pt-3">
+                    <span className="text-sm font-bold text-slate-600">Total Payable ({selectedOrderForView.payMode})</span>
+                    <span className="text-xl font-extrabold text-[#0F172A]">$ {selectedOrderForView.amount.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex justify-end">
+                  <button
+                    onClick={() => setSelectedOrderForView(null)}
+                    className="min-h-[44px] px-6 bg-[#0F172A] text-white text-sm font-bold rounded-xl cursor-pointer hover:bg-slate-800 transition"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= MODAL: ORDER STATUS HISTORY ================= */}
+          {selectedOrderForHistory && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-[#E2E8F0]">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-[#0F172A]">
+                      Audit Trail & Status History
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono-code font-bold mt-0.5">
+                      {selectedOrderForHistory.id} • {selectedOrderForHistory.vehicle.plate}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedOrderForHistory(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:text-black font-bold flex items-center justify-center cursor-pointer"
+                    aria-label="Close history modal"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="py-4 space-y-3">
+                  {selectedOrderForHistory.history.map((h, i) => (
+                    <div key={i} className="flex items-start gap-3 relative">
+                      <div className="w-2.5 h-2.5 rounded-full bg-blue-600 mt-1.5 shrink-0 ring-4 ring-blue-50"></div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-slate-800">{h.event}</p>
+                          <span className="text-[11px] font-mono-code text-slate-400">{h.time}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 font-medium">By: {h.user}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex justify-end">
+                  <button
+                    onClick={() => setSelectedOrderForHistory(null)}
+                    className="min-h-[44px] px-6 bg-[#0F172A] text-white text-sm font-bold rounded-xl cursor-pointer hover:bg-slate-800 transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Render the React Application
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

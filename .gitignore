@@ -1,0 +1,308 @@
+# =============================================================================
+#  RedBay Car Wash — .gitignore
+#  Covers: Node.js / Express (Backend) + React Native / Expo (Frontend)
+#  Generated: 2026-11-10
+# =============================================================================
+
+
+# =============================================================================
+# 1. ENVIRONMENT & SECRETS  ← NEVER commit these
+# =============================================================================
+
+# All .env variants
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.staging
+.env.staging.local
+.env.*.local
+*.env
+
+# Secret / credential files
+secrets.json
+secrets.yaml
+secrets.yml
+credentials.json
+credentials.yaml
+credentials.yml
+service-account.json
+*serviceaccount*.json
+
+# Private keys, certificates, tokens
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+auth_token
+.auth_token
+
+# JWT / API key files
+jwt_secret
+api_keys.json
+api_keys.yml
+
+
+# =============================================================================
+# 2. DEPENDENCIES
+# =============================================================================
+
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+
+# =============================================================================
+# 3. BUILD & DIST OUTPUT
+# =============================================================================
+
+# Generic build/dist
+dist/
+build/
+out/
+output/
+.output/
+release/
+compiled/
+
+# React Native / Expo build artefacts
+android/
+ios/
+*.apk
+*.aab
+*.ipa
+*.app
+*.dSYM/
+*.xcarchive/
+
+# Expo web output
+web-build/
+Frontend/web-build/
+
+# Metro bundler cache
+.metro-health-check*
+
+
+# =============================================================================
+# 4. EXPO / REACT NATIVE TOOLCHAIN
+# =============================================================================
+
+# Expo managed-workflow generated files
+.expo/
+# Keep .expo/README.md if it documents the directory — still ignored here
+# because the directory is auto-regenerated on `expo start`
+
+# Expo Router
+expo-env.d.ts
+
+# React Native Gradle files
+.gradle/
+*.hprof
+
+# Flipper
+ios/Pods/
+ios/.xcode.env.local
+
+
+# =============================================================================
+# 5. LOGS & RUNTIME FILES
+# =============================================================================
+
+logs/
+log/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+crash.log
+crash.*.log
+
+
+# =============================================================================
+# 6. CACHE & TEMPORARY FILES
+# =============================================================================
+
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vuepress/dist/
+.turbo/
+.swc/
+
+# TypeScript compilation cache
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Babel cache
+.babel_cache/
+babel.cache/
+
+# Jest coverage & cache
+coverage/
+.jest-cache/
+jest_0/
+
+# ESLint cache
+.eslintcache
+
+# Prettier cache
+.prettiercache
+
+# Node REPL history
+.node_repl_history
+
+# Temporary directories
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Lock files (keep package-lock.json / yarn.lock — ignore only secondary ones)
+# package-lock.json  ← DO NOT ignore; needed for reproducible installs
+# yarn.lock          ← DO NOT ignore
+.package-lock.json
+
+
+# =============================================================================
+# 7. PUPPETEER / BROWSER TESTING ARTEFACTS
+# =============================================================================
+
+# Puppeteer downloaded Chromium (auto-downloaded on install)
+Backend/node_modules/.cache/puppeteer/
+.local-chromium/
+.local-firefox/
+
+# Screenshots & snapshots from test scripts
+Backend/scripts/snaps/
+*.png.snap
+screenshots/
+snaps/
+
+
+# =============================================================================
+# 8. DATABASE & BACKUP FILES
+# =============================================================================
+
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.bak
+*.dump
+*.backup
+*.mdf
+*.ldf
+*.ndf
+
+
+# =============================================================================
+# 9. OS-GENERATED FILES
+# =============================================================================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+*.AppleDouble
+*.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# =============================================================================
+# 10. EDITOR & IDE
+# =============================================================================
+
+# VS Code (keep .vscode/settings.json if used for workspace config)
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.idea_modules/
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+
+# =============================================================================
+# 11. MISCELLANEOUS
+# =============================================================================
+
+# PowerShell scripts that contain credentials or run-once setup
+# (keep utility scripts; ignore anything with secrets)
+# Uncomment below if you have a secrets-bearing ps1:
+# setup-credentials.ps1
+
+# Optional: ignore the standalone HTML dashboard (auto-generated)
+# orders-dashboard.html
+
+# Diagnostic / debug one-off scripts inside Backend/scripts
+# (these are throwaway test runners, not production code)
+Backend/scripts/*.js
+
+# npm / pnpm optional resolution files
+.npmrc.local
+.yarnrc.local
+
