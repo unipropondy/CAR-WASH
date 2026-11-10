@@ -229,6 +229,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
   const maxTrendWashes = Math.max(10, ...washTrendList.map(w => w.completedWashes || 0));
   const maxTrendRevenue = Math.max(100, ...washTrendList.map(w => w.dailyRevenue || 0));
+  const peakTrendItem = washTrendList.length > 0 
+    ? [...washTrendList].sort((a, b) => (b.completedWashes || 0) - (a.completedWashes || 0))[0]
+    : null;
+  const totalTrendWashes = washTrendList.reduce((acc, w) => acc + (w.completedWashes || 0), 0);
+  const totalTrendRevenue = washTrendList.reduce((acc, w) => acc + (w.dailyRevenue || 0), 0);
+  const avgDailyWashes = washTrendList.length > 0 ? (totalTrendWashes / washTrendList.length).toFixed(1) : '0';
 
   const formatOrderNo = (orderNo?: string | number): string => {
     if (!orderNo) return '0000';
@@ -585,28 +591,43 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
 
-        {/* Card 2: Wash Trend (Paired Bar Chart) */}
+        {/* Card 2: Wash Trend (Paired Bar Chart - Elevated SaaS Design) */}
         <View style={styles.cardFlexOnePointTwo}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTitle}>Wash Trend</Text>
-              <Text style={styles.cardSubtitle}>Timeline comparison of washes and revenue</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="trending-up" size={17} color="#ED0712" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Wash Trend</Text>
+                <Text style={styles.cardSubtitle}>Timeline comparison of washes and revenue</Text>
+              </View>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
           </View>
 
-          {/* Legends */}
-          <View style={styles.legendRow}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#DC2626' }]} />
-              <Text style={styles.legendText}>Number of Washes</Text>
+          {/* Legends & Active Day Indicator */}
+          <View style={styles.trendLegendBar}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendPillDot, { backgroundColor: '#ED0712' }]} />
+                <Text style={styles.legendText}>Washes</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendPillDot, { backgroundColor: '#FDA4AF' }]} />
+                <Text style={styles.legendText}>Revenue (SGD)</Text>
+              </View>
             </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FECDD3' }]} />
-              <Text style={styles.legendText}>Revenue (SGD)</Text>
-            </View>
+            {activeTrendItem && (
+              <View style={styles.activeDayPill}>
+                <View style={styles.activeDayDot} />
+                <Text style={styles.activeDayText}>
+                  {activeTrendItem.dayName || 'Day'}: {(activeTrendItem.completedWashes || 0)}w · ${(activeTrendItem.dailyRevenue || 0).toFixed(0)}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Chart Wrapper */}
@@ -635,16 +656,17 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     styles.activeTooltipCard,
                     {
                       left: `${((activeTrendIdx + 0.5) / washTrendList.length) * 100}%`,
-                      transform: [{ translateX: -65 }],
+                      transform: [{ translateX: -70 }],
                     },
                   ]}
                 >
+                  <Text style={styles.tooltipTitle}>{activeTrendItem.dayName || 'Selected Day'}</Text>
                   <View style={styles.tooltipRow}>
-                    <View style={[styles.tooltipDot, { backgroundColor: '#FFFFFF' }]} />
+                    <View style={[styles.tooltipDot, { backgroundColor: '#ED0712' }]} />
                     <Text style={styles.tooltipTextWhite}>{(activeTrendItem.completedWashes || 0).toLocaleString()} Washes</Text>
                   </View>
                   <View style={styles.tooltipRow}>
-                    <View style={[styles.tooltipDot, { backgroundColor: '#FCA5A5' }]} />
+                    <View style={[styles.tooltipDot, { backgroundColor: '#FDA4AF' }]} />
                     <Text style={styles.tooltipTextPink}>${(activeTrendItem.dailyRevenue || 0).toFixed(2)} Revenue</Text>
                   </View>
                   <View style={styles.tooltipArrow} />
@@ -663,20 +685,23 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     return (
                       <TouchableOpacity
                         key={item.orderDate || idx}
-                        style={styles.monthColGroup}
+                        style={[styles.monthColGroup, isActive && styles.monthColGroupActive]}
                         onPress={() => setActiveTrendIdx(idx)}
                         activeOpacity={0.8}
                       >
-                        {isActive && <View style={styles.activeMarkerDotRed} />}
-
-                        <View style={styles.pairedBarsRow}>
-                          <View style={[styles.barRedPrimary, { height: `${washesHeightPct}%` }]} />
-                          <View style={[styles.barPinkSecondary, { height: `${revHeightPct}%` }]} />
+                        <View style={[styles.slotTrack, isActive && styles.slotTrackActive]}>
+                          <View style={styles.pairedBarsRow}>
+                            <View style={[styles.barRedPrimary, { height: `${washesHeightPct}%` }]} />
+                            <View style={[styles.barPinkSecondary, { height: `${revHeightPct}%` }]} />
+                          </View>
                         </View>
 
-                        <Text style={[styles.monthLabelText, isActive && styles.monthLabelTextActive]} numberOfLines={1}>
-                          {dayLabel}
-                        </Text>
+                        <View style={styles.dayLabelWrap}>
+                          {isActive && <View style={styles.activeDayIndicatorDot} />}
+                          <Text style={[styles.monthLabelText, isActive && styles.monthLabelTextActive]} numberOfLines={1}>
+                            {dayLabel}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })
@@ -686,6 +711,28 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   </View>
                 )}
               </View>
+            </View>
+          </View>
+
+          {/* Bottom KPI Summary Footer */}
+          <View style={styles.trendSummaryFooter}>
+            <View style={styles.trendFooterStat}>
+              <Text style={styles.trendFooterLabel}>Peak Day</Text>
+              <Text style={styles.trendFooterValBold}>
+                {peakTrendItem ? `${peakTrendItem.dayName || 'Peak'} (${peakTrendItem.completedWashes}w)` : '-'}
+              </Text>
+            </View>
+            <View style={styles.trendFooterDivider} />
+            <View style={styles.trendFooterStat}>
+              <Text style={styles.trendFooterLabel}>Daily Average</Text>
+              <Text style={styles.trendFooterVal}>{avgDailyWashes} washes</Text>
+            </View>
+            <View style={styles.trendFooterDivider} />
+            <View style={styles.trendFooterStat}>
+              <Text style={styles.trendFooterLabel}>Trend Revenue</Text>
+              <Text style={[styles.trendFooterValBold, { color: '#059669' }]}>
+                ${totalTrendRevenue.toFixed(0)}
+              </Text>
             </View>
           </View>
         </View>
@@ -2539,6 +2586,12 @@ const styles = StyleSheet.create({
   },
 
   /* WASH TREND */
+  trendLegendBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
   legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2550,6 +2603,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  legendPillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   legendDot: {
     width: 8,
     height: 8,
@@ -2560,15 +2618,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#475569',
   },
+  activeDayPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  activeDayDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#ED0712',
+  },
+  activeDayText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#ED0712',
+  },
   chartWrapper: {
     flexDirection: 'row',
-    height: 220,
+    height: 200,
     width: '100%',
     position: 'relative',
   },
   yAxisCol: {
-    width: 44,
-    height: 180,
+    width: 36,
+    height: 165,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     paddingRight: 8,
@@ -2589,52 +2669,76 @@ const styles = StyleSheet.create({
     right: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
-    borderStyle: 'dashed',
   },
   barsContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 210,
+    height: 195,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'flex-end',
-    paddingBottom: 24,
+    paddingBottom: 22,
   },
   monthColGroup: {
     alignItems: 'center',
     height: '100%',
     justifyContent: 'flex-end',
     position: 'relative',
-    paddingHorizontal: 6,
+    paddingHorizontal: 3,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  monthColGroupActive: {
+    transform: [{ scale: 1.02 }],
+  },
+  slotTrack: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  slotTrackActive: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
   },
   pairedBarsRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 4,
-    height: 160,
+    height: 145,
   },
   barRedPrimary: {
-    width: 14,
-    backgroundColor: '#DC2626',
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
-    minHeight: 10,
+    width: 12,
+    backgroundColor: '#ED0712',
+    borderRadius: 4,
+    minHeight: 8,
   },
   barPinkSecondary: {
-    width: 14,
-    backgroundColor: '#FECDD3',
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
-    minHeight: 10,
+    width: 12,
+    backgroundColor: '#FDA4AF',
+    borderRadius: 4,
+    minHeight: 8,
+  },
+  dayLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 6,
+  },
+  activeDayIndicatorDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ED0712',
   },
   monthLabelText: {
     fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
-    marginTop: 6,
   },
   monthLabelTextActive: {
     color: '#0F172A',
@@ -2651,19 +2755,28 @@ const styles = StyleSheet.create({
   },
   activeTooltipCard: {
     position: 'absolute',
-    top: 6,
+    top: 0,
     backgroundColor: '#0F172A',
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderRadius: 12,
     zIndex: 20,
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 4px 14px rgba(0,0,0,0.25)' } as any) : {}),
+    width: 140,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 20px rgba(0,0,0,0.25)' } as any) : { elevation: 6 }),
+  },
+  tooltipTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tooltipRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginVertical: 1,
+    marginVertical: 1.5,
   },
   tooltipDot: {
     width: 5,
@@ -2671,14 +2784,14 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
   },
   tooltipTextWhite: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
     color: '#FFFFFF',
   },
   tooltipTextPink: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#FECDD3',
+    color: '#FDA4AF',
   },
   tooltipArrow: {
     position: 'absolute',
@@ -2694,6 +2807,46 @@ const styles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: '#0F172A',
+  },
+  trendSummaryFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  trendFooterStat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  trendFooterDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: '#E2E8F0',
+  },
+  trendFooterLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  trendFooterVal: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 1,
+  },
+  trendFooterValBold: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 1,
   },
 
   /* BAY UTILIZATION */
