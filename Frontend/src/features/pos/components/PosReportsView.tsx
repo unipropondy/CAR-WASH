@@ -1355,9 +1355,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         {/* Card 2: Key Metrics (4 Essential KPIs - Modern 2x2 Scorecard Grid) */}
         <View style={styles.rowThreeCard}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTitle}>📊 Key Metrics</Text>
-              <Text style={styles.cardSubtitle}>Performance & efficiency KPIs</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#EEF2FF' }]}>
+                <Ionicons name="stats-chart" size={17} color="#4F46E5" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Key Metrics</Text>
+                <Text style={styles.cardSubtitle}>Performance & efficiency KPIs</Text>
+              </View>
             </View>
             <View style={styles.metricLiveChip}>
               <View style={styles.metricLiveDot} />
@@ -1372,7 +1377,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 sub: 'Per wash order',
                 val: `$${summary.averageOrderValue.toFixed(2)}`,
                 tag: 'AOV',
-                icon: 'wallet-outline',
+                icon: 'wallet',
                 iconBg: '#EEF2FF',
                 iconColor: '#4F46E5',
               },
@@ -1381,7 +1386,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 sub: `${closedWashesCount} closed • ${summary.totalBookings} booked`,
                 val: `${completedWashesCount > 0 ? completedWashesCount : (closedWashesCount > 0 ? closedWashesCount : 0)}`,
                 tag: 'Fulfilled',
-                icon: 'car-sport-outline',
+                icon: 'car-sport',
                 iconBg: '#ECFDF5',
                 iconColor: '#059669',
               },
@@ -1390,7 +1395,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 sub: 'Door-to-door cycle',
                 val: `${summary.avgWashDurationMinutes} min`,
                 tag: 'Speed',
-                icon: 'timer-outline',
+                icon: 'time',
                 iconBg: '#FFFBEB',
                 iconColor: '#D97706',
               },
@@ -1399,7 +1404,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 sub: `Net: $${summary.totalNetRevenue.toFixed(2)}`,
                 val: `$${summary.totalGSTAmount.toFixed(2)}`,
                 tag: '9% GST',
-                icon: 'receipt-outline',
+                icon: 'receipt',
                 iconBg: '#F0F9FF',
                 iconColor: '#0284C7',
               },
@@ -1407,33 +1412,54 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <View key={m.label} style={styles.kpiTile}>
                 <View style={styles.kpiTileTopRow}>
                   <View style={[styles.kpiTileIconCircle, { backgroundColor: m.iconBg }]}>
-                    <Ionicons name={m.icon as any} size={16} color={m.iconColor} />
+                    <Ionicons name={m.icon as any} size={18} color={m.iconColor} />
                   </View>
                   <View style={[styles.kpiTileTag, { backgroundColor: m.iconBg }]}>
                     <Text style={[styles.kpiTileTagText, { color: m.iconColor }]}>{m.tag}</Text>
                   </View>
                 </View>
-                <View style={styles.kpiTileBottom}>
+                <View style={styles.kpiTileMiddle}>
                   <Text style={styles.kpiTileValue}>{m.val}</Text>
                   <Text style={styles.kpiTileLabel} numberOfLines={1}>{m.label}</Text>
                   <Text style={styles.kpiTileSubtext} numberOfLines={1}>{m.sub}</Text>
+                </View>
+                <View style={styles.kpiTileBottomTrack}>
+                  <View style={[styles.kpiTileBottomFill, { backgroundColor: m.iconColor }]} />
                 </View>
               </View>
             ))}
           </View>
 
-          <View style={styles.metricsFooterStrip}>
-            <Ionicons name="sparkles" size={13} color="#6366F1" style={{ marginRight: 6 }} />
-            <Text style={styles.metricsFooterText}>Live SQL metrics synced from operational wash bays</Text>
+          <View style={styles.metricsSummaryBanner}>
+            <View style={styles.summaryBannerLeft}>
+              <View style={styles.summaryBannerIcon}>
+                <Ionicons name="shield-checkmark" size={16} color="#059669" />
+              </View>
+              <View>
+                <Text style={styles.summaryBannerTitle}>Telemetry: Active</Text>
+                <Text style={styles.summaryBannerSub}>100% telemetry synced from wash bays</Text>
+              </View>
+            </View>
+            <View style={styles.summaryBannerRight}>
+              <Text style={styles.summaryBannerStat}>
+                {completedWashesCount > 0 ? completedWashesCount : (closedWashesCount > 0 ? closedWashesCount : 0)} Washes
+              </Text>
+              <Text style={styles.summaryBannerStatSub}>Fulfilled</Text>
+            </View>
           </View>
         </View>
 
         {/* Card 3: Payment Breakdown (Redesigned with Distribution Bar & Method Cards) */}
         <View style={styles.rowThreeCardWide}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTitle}>💳 Payment Breakdown</Text>
-              <Text style={styles.cardSubtitle}>Reconciled by settlement channel</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F0FDF4' }]}>
+                <Ionicons name="card" size={17} color="#16A34A" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Payment Breakdown</Text>
+                <Text style={styles.cardSubtitle}>Reconciled by settlement channel</Text>
+              </View>
             </View>
             <View style={styles.paymentTotalBadge}>
               <Text style={styles.paymentTotalBadgeLabel}>Total</Text>
@@ -1475,28 +1501,28 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             {payMixList.length > 0 ? (
               payMixList.map((p, idx) => {
                 const chUpper = (p.paymentChannel || '').toUpperCase();
-                let iconName = 'card-outline';
+                let iconName = 'card';
                 let themeColor = '#2563EB';
                 let themeBg = '#EFF6FF';
 
                 if (chUpper.includes('PAYNOW')) {
-                  iconName = 'qr-code-outline';
+                  iconName = 'qr-code';
                   themeColor = '#FF2A7A';
                   themeBg = '#FFF1F5';
                 } else if (chUpper.includes('MEMBER')) {
-                  iconName = 'ribbon-outline';
+                  iconName = 'person-circle';
                   themeColor = '#FF9900';
                   themeBg = '#FFFBEB';
                 } else if (chUpper.includes('CASH')) {
-                  iconName = 'cash-outline';
+                  iconName = 'cash';
                   themeColor = '#7C3AED';
                   themeBg = '#F5F3FF';
                 } else if (chUpper.includes('CREDIT')) {
-                  iconName = 'card-outline';
+                  iconName = 'card';
                   themeColor = '#C026D3';
                   themeBg = '#FDF4FF';
                 } else if (chUpper.includes('CARD')) {
-                  iconName = 'card-outline';
+                  iconName = 'card';
                   themeColor = '#2563EB';
                   themeBg = '#EFF6FF';
                 }
@@ -2926,19 +2952,21 @@ const styles = StyleSheet.create({
   keyMetricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     marginTop: 12,
     flex: 1,
   },
   kpiTile: {
-    ...(Platform.OS === 'web' ? ({ width: 'calc(50% - 5px)' } as any) : { width: '48%' }),
+    ...(Platform.OS === 'web' ? ({ width: 'calc(50% - 6px)' } as any) : { width: '48%' }),
+    flex: 1,
+    minHeight: 130,
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 12,
+    padding: 14,
     justifyContent: 'space-between',
-    minHeight: 104,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any) : { elevation: 1 }),
   },
   kpiTileTopRow: {
     flexDirection: 'row',
@@ -2946,41 +2974,103 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   kpiTileIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   kpiTileTag: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 8,
   },
   kpiTileTagText: {
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
-  kpiTileBottom: {
-    marginTop: 6,
+  kpiTileMiddle: {
+    marginVertical: 4,
   },
   kpiTileValue: {
-    fontSize: 19,
+    fontSize: 24,
     fontWeight: '900',
     color: '#0F172A',
+    letterSpacing: -0.5,
   },
   kpiTileLabel: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '800',
     color: '#1E293B',
-    marginTop: 2,
+    marginTop: 3,
   },
   kpiTileSubtext: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
-    marginTop: 1,
+    marginTop: 2,
+  },
+  kpiTileBottomTrack: {
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#E2E8F0',
+    width: '100%',
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  kpiTileBottomFill: {
+    height: '100%',
+    width: '45%',
+    borderRadius: 1.5,
+  },
+  metricsSummaryBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 12,
+  },
+  summaryBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  summaryBannerIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryBannerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  summaryBannerSub: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  summaryBannerRight: {
+    alignItems: 'flex-end',
+  },
+  summaryBannerStat: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#059669',
+  },
+  summaryBannerStatSub: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#64748B',
   },
   metricsFooterStrip: {
     flexDirection: 'row',
