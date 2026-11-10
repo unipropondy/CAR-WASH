@@ -773,8 +773,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* 5. ROW 3: PAYMENT CHANNEL MIX | KEY METRICS | PAYMENT BREAKDOWN */}
       {/* ============================================================== */}
       <View style={styles.rowThreeContainer}>
-        {/* Card 1: Payment Channel Mix (Infographic Template) */}
-        <View style={[styles.rowThreeCard, { flex: 1.15, minWidth: 360 }]}>
+        {/* Card 1: Payment Channel Mix (Infographic Circular Chart) */}
+        <View style={[styles.rowThreeCard, { flex: 1.35, minWidth: 440 }]}>
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardTitle}>Payment Channel Mix</Text>
@@ -782,7 +782,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
             <View style={styles.metricLiveChip}>
               <View style={styles.metricLiveDot} />
-              <Text style={styles.metricLiveText}>LIVE</Text>
+              <Text style={styles.metricLiveText}>LIVE SQL</Text>
             </View>
           </View>
 
@@ -791,26 +791,54 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             {Platform.OS === 'web' && payMixList.length > 0 ? (
               <View style={styles.infographicSvgContainer}>
                 {(() => {
-                  const cx = 210;
-                  const cy = 150;
-                  const rInner = 44;
-                  const rMid = 68;
+                  const cx = 300;
+                  const cy = 190;
+                  const rInner = 56;
+                  const rMid = 86;
 
-                  // Infographic palette matching reference image
-                  const colorPalette: Record<string, { outer: string; inner: string }> = {
-                    CASH:   { outer: '#7C3AED', inner: '#8B5CF6' }, // Deep Purple / Violet
-                    CREDIT: { outer: '#EC4899', inner: '#F472B6' }, // Hot Pink / Magenta
-                    MEMBER: { outer: '#F59E0B', inner: '#FBBF24' }, // Amber / Golden Yellow
-                    PAYNOW: { outer: '#F43F5E', inner: '#FB7185' }, // Coral / Bright Pink
-                    ONLINE: { outer: '#6366F1', inner: '#818CF8' }, // Indigo
+                  // Infographic gradient & color definitions matching reference
+                  const channelStyles: Record<
+                    string,
+                    { gradId: string; primary: string; light: string; deep: string }
+                  > = {
+                    PAYNOW: {
+                      gradId: 'grad_paynow',
+                      primary: '#FF2A7A',
+                      light: '#FF639B',
+                      deep: '#E11D48',
+                    },
+                    MEMBER: {
+                      gradId: 'grad_member',
+                      primary: '#FF9900',
+                      light: '#FFB82E',
+                      deep: '#D97706',
+                    },
+                    CASH: {
+                      gradId: 'grad_cash',
+                      primary: '#7C3AED',
+                      light: '#9B51E0',
+                      deep: '#581C87',
+                    },
+                    CREDIT: {
+                      gradId: 'grad_credit',
+                      primary: '#C026D3',
+                      light: '#E879F9',
+                      deep: '#86198F',
+                    },
+                    ONLINE: {
+                      gradId: 'grad_online',
+                      primary: '#4F46E5',
+                      light: '#818CF8',
+                      deep: '#3730A3',
+                    },
                   };
 
-                  const fallbackPalette = [
-                    { outer: '#7C3AED', inner: '#8B5CF6' },
-                    { outer: '#EC4899', inner: '#F472B6' },
-                    { outer: '#F59E0B', inner: '#FBBF24' },
-                    { outer: '#F43F5E', inner: '#FB7185' },
-                    { outer: '#06B6D4', inner: '#22D3EE' },
+                  const fallbackList = [
+                    { gradId: 'grad_paynow', primary: '#FF2A7A', light: '#FF639B', deep: '#E11D48' },
+                    { gradId: 'grad_member', primary: '#FF9900', light: '#FFB82E', deep: '#D97706' },
+                    { gradId: 'grad_cash', primary: '#7C3AED', light: '#9B51E0', deep: '#581C87' },
+                    { gradId: 'grad_credit', primary: '#C026D3', light: '#E879F9', deep: '#86198F' },
+                    { gradId: 'grad_online', primary: '#4F46E5', light: '#818CF8', deep: '#3730A3' },
                   ];
 
                   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -830,8 +858,36 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     return `M ${p1.x} ${p1.y} A ${rOut} ${rOut} 0 ${largeArc} 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${rIn} ${rIn} 0 ${largeArc} 0 ${p4.x} ${p4.y} Z`;
                   };
 
-                  const totalPct = payMixList.reduce((acc, cur) => acc + (cur.revenuePercentage || 0), 0) || 100;
-                  let curAngle = -90;
+                  const describeArcLine = (r: number, a1: number, a2: number) => {
+                    const diff = a2 - a1;
+                    const safeA2 = diff >= 359.99 ? a1 + 359.99 : a2;
+                    const p1 = polarToXY(r, a1);
+                    const p2 = polarToXY(r, safeA2);
+                    const largeArc = diff > 180 ? 1 : 0;
+                    return `M ${p1.x} ${p1.y} A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`;
+                  };
+
+                  const totalPct =
+                    payMixList.reduce((acc, cur) => acc + (cur.revenuePercentage || 0), 0) || 100;
+                  let curAngle = -75; // Pinwheel start angle matching reference layout
+
+                  // Dynamic stepped outer radii offsets matching reference infographic tiers
+                  const getStepRadius = (idx: number, count: number) => {
+                    if (count === 1) return 150;
+                    if (count === 2) return idx === 0 ? 156 : 132;
+                    if (count === 3) {
+                      // 3 slices: Hero, Recessed tier, Medium tier
+                      const tiers = [156, 126, 144];
+                      return tiers[idx % 3];
+                    }
+                    if (count === 4) {
+                      const tiers = [156, 122, 148, 134];
+                      return tiers[idx % 4];
+                    }
+                    // 5 or more slices
+                    const tiers = [156, 120, 150, 130, 160];
+                    return tiers[idx % tiers.length];
+                  };
 
                   const computedSlices = payMixList.map((item, idx) => {
                     const pct = Math.max(0, item.revenuePercentage || 0);
@@ -841,14 +897,23 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     curAngle += span;
 
                     const midA = (startA + endA) / 2;
-                    const c = colorPalette[item.paymentChannel] || fallbackPalette[idx % fallbackPalette.length];
+                    const style =
+                      channelStyles[item.paymentChannel] ||
+                      fallbackList[idx % fallbackList.length];
 
-                    // Stepped outer radius: larger share steps further out, matching the reference infographic
-                    const rOut = 95 + (pct >= 40 ? 16 : pct >= 20 ? 10 : pct >= 10 ? 5 : 0);
+                    const rOut = getStepRadius(idx, payMixList.length);
 
-                    const gap = span > 8 ? 2 : 0;
+                    // Clean white radial seam between slices
+                    const gap = span > 10 ? 2 : 0.6;
                     const safeStartA = startA + gap;
                     const safeEndA = endA - gap;
+
+                    // Compute preliminary leader line coordinates
+                    const startPt = polarToXY(rOut + 4, midA);
+                    const isRight = Math.cos(toRad(midA)) >= 0;
+                    const diagDist = 26;
+                    const rawKneeX = startPt.x + Math.cos(toRad(midA)) * diagDist;
+                    const rawKneeY = startPt.y + Math.sin(toRad(midA)) * diagDist;
 
                     return {
                       item,
@@ -857,174 +922,343 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       endA: safeEndA,
                       midA,
                       rOut,
-                      color: c.outer,
-                      innerColor: c.inner,
+                      style,
+                      idx,
+                      startPt,
+                      isRight,
+                      rawKneeX,
+                      rawKneeY,
                     };
                   });
 
+                  // Collision relaxation for leader line callouts
+                  const relaxSide = (slices: typeof computedSlices) => {
+                    slices.sort((a, b) => a.rawKneeY - b.rawKneeY);
+                    const minY = 38;
+                    const maxY = 342;
+                    const minGap = 52;
+
+                    for (let i = 0; i < slices.length; i++) {
+                      if (slices[i].rawKneeY < minY) slices[i].rawKneeY = minY;
+                    }
+                    for (let i = 1; i < slices.length; i++) {
+                      if (slices[i].rawKneeY - slices[i - 1].rawKneeY < minGap) {
+                        slices[i].rawKneeY = slices[i - 1].rawKneeY + minGap;
+                      }
+                    }
+                    if (slices.length > 0 && slices[slices.length - 1].rawKneeY > maxY) {
+                      slices[slices.length - 1].rawKneeY = maxY;
+                      for (let i = slices.length - 2; i >= 0; i--) {
+                        if (slices[i + 1].rawKneeY - slices[i].rawKneeY < minGap) {
+                          slices[i].rawKneeY = slices[i + 1].rawKneeY - minGap;
+                        }
+                      }
+                    }
+                  };
+
+                  const rightSlices = computedSlices.filter((s) => s.isRight);
+                  const leftSlices = computedSlices.filter((s) => !s.isRight);
+                  relaxSide(rightSlices);
+                  relaxSide(leftSlices);
+
                   return (
-                    <svg width="100%" height="300" viewBox="0 0 420 300" style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}>
+                    <svg
+                      width="100%"
+                      height="380"
+                      viewBox="0 0 600 380"
+                      style={{
+                        display: 'block',
+                        margin: '0 auto',
+                        overflow: 'visible',
+                        animation: 'infographicEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                      }}
+                    >
                       <defs>
-                        <linearGradient id="centerCircleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#FF2A85" />
-                          <stop offset="100%" stopColor="#C026D3" />
-                        </linearGradient>
-                        <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                          <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="rgba(236,72,153,0.3)" />
+                        <style>
+                          {`
+                            @keyframes infographicEntrance {
+                              0% { opacity: 0; transform: scale(0.95); }
+                              100% { opacity: 1; transform: scale(1); }
+                            }
+                          `}
+                        </style>
+
+                        {/* Drop shadow for center white ring */}
+                        <filter id="centerRingShadow" x="-30%" y="-30%" width="160%" height="160%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="7" floodColor="rgba(0, 0, 0, 0.14)" />
                         </filter>
+                        {/* Drop shadow for center pink button */}
+                        <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="rgba(230, 0, 103, 0.45)" />
+                        </filter>
+                        {/* Soft drop shadow for outer 3D slices */}
+                        <filter id="segmentShadow" x="-15%" y="-15%" width="130%" height="130%">
+                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(0, 0, 0, 0.10)" />
+                        </filter>
+
+                        {/* Center Pink Button Gradient */}
+                        <linearGradient id="pinkCenterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#FF1E8A" />
+                          <stop offset="55%" stopColor="#E60067" />
+                          <stop offset="100%" stopColor="#A21CAF" />
+                        </linearGradient>
+
+                        {/* Glossy specular reflection for center button */}
+                        <linearGradient id="glossHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.45" />
+                          <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.0" />
+                        </linearGradient>
+
+                        {/* Radial gradients for each segment matching reference */}
+                        <linearGradient id="grad_paynow" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#FF337A" />
+                          <stop offset="100%" stopColor="#E11D48" />
+                        </linearGradient>
+                        <linearGradient id="grad_member" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#FFB300" />
+                          <stop offset="100%" stopColor="#F59E0B" />
+                        </linearGradient>
+                        <linearGradient id="grad_cash" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#8B5CF6" />
+                          <stop offset="100%" stopColor="#5B21B6" />
+                        </linearGradient>
+                        <linearGradient id="grad_credit" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#E879F9" />
+                          <stop offset="100%" stopColor="#A21CAF" />
+                        </linearGradient>
+                        <linearGradient id="grad_online" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#6366F1" />
+                          <stop offset="100%" stopColor="#3730A3" />
+                        </linearGradient>
                       </defs>
 
-                      {/* 1. Outer Stepped Arc Slices */}
-                      {computedSlices.map((s, idx) => {
-                        const d = describeArc(rMid + 2, s.rOut, s.startA, s.endA);
-                        return (
-                          <path
-                            key={`outer-${idx}`}
-                            d={d}
-                            fill={s.color}
-                            stroke="#FFFFFF"
-                            strokeWidth="1.5"
-                          />
-                        );
-                      })}
-
-                      {/* 2. Inner Arc Band with slight transparency */}
-                      {computedSlices.map((s, idx) => {
-                        const d = describeArc(rInner, rMid, s.startA, s.endA);
-                        return (
-                          <path
-                            key={`inner-${idx}`}
-                            d={d}
-                            fill={s.innerColor}
-                            opacity="0.9"
-                            stroke="#FFFFFF"
-                            strokeWidth="1.5"
-                          />
-                        );
-                      })}
-
-                      {/* 3. Icons inside Inner Arc Ring */}
-                      {computedSlices.map((s, idx) => {
-                        const iconPos = polarToXY((rInner + rMid) / 2, s.midA);
-                        const ch = s.item.paymentChannel;
+                      {/* 1. SEAMLESS SOLID SECTORS WITH STEPPED RADII (From rInner to rOut) */}
+                      {computedSlices.map((s) => {
+                        const dMain = describeArc(rInner, s.rOut, s.startA, s.endA);
+                        const dInnerGlow = describeArc(rInner, rMid, s.startA, s.endA);
+                        const dArcLine = describeArcLine(rMid, s.startA, s.endA);
 
                         return (
-                          <g key={`icon-${idx}`} transform={`translate(${iconPos.x}, ${iconPos.y})`}>
-                            {ch === 'CASH' && (
-                              <g>
-                                <rect x="-6" y="-4.5" width="12" height="9" rx="1.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
-                                <circle cx="0" cy="0" r="1.8" fill="#FFFFFF" />
-                              </g>
-                            )}
-                            {ch === 'CREDIT' && (
-                              <g>
-                                <rect x="-7" y="-5" width="14" height="10" rx="1.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
-                                <line x1="-7" y1="-1" x2="7" y2="-1" stroke="#FFFFFF" strokeWidth="1.5" />
-                                <rect x="-4.5" y="1" width="2.5" height="1.8" rx="0.5" fill="#FFFFFF" />
-                              </g>
-                            )}
-                            {ch === 'MEMBER' && (
-                              <g>
-                                <circle cx="0" cy="0" r="5.5" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
-                                <circle cx="0" cy="0" r="3" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
-                                <circle cx="0" cy="0" r="1" fill="#FFFFFF" />
-                              </g>
-                            )}
-                            {ch === 'PAYNOW' && (
-                              <g>
-                                <rect x="-5" y="-5" width="4" height="4" fill="#FFFFFF" />
-                                <rect x="1" y="-5" width="4" height="4" fill="#FFFFFF" />
-                                <rect x="-5" y="1" width="4" height="4" fill="#FFFFFF" />
-                                <rect x="1.5" y="1.5" width="3" height="3" fill="#FFFFFF" />
-                              </g>
-                            )}
-                            {ch !== 'CASH' && ch !== 'CREDIT' && ch !== 'MEMBER' && ch !== 'PAYNOW' && (
-                              <g>
-                                <circle cx="0" cy="0" r="3.5" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
-                                <path d="M-5 0 L5 0 M0 -5 L0 5" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-                              </g>
-                            )}
+                          <g key={`slice-${s.idx}`}>
+                            {/* Solid Continuous Wedge */}
+                            <path
+                              d={dMain}
+                              fill={`url(#${s.style.gradId})`}
+                              stroke="#FFFFFF"
+                              strokeWidth="3.2"
+                              strokeLinejoin="round"
+                              filter="url(#segmentShadow)"
+                            />
+
+                            {/* Inner Band Translucent White Sheen */}
+                            <path
+                              d={dInnerGlow}
+                              fill="rgba(255, 255, 255, 0.16)"
+                              stroke="none"
+                            />
+
+                            {/* Concentric Step Dividing Line */}
+                            <path
+                              d={dArcLine}
+                              fill="none"
+                              stroke="rgba(255, 255, 255, 0.42)"
+                              strokeWidth="1.4"
+                            />
                           </g>
                         );
                       })}
 
-                      {/* 4. Center Concentric Rings Badge */}
-                      <circle cx={cx} cy={cy} r="41" fill="#FFFFFF" stroke="#F1F5F9" strokeWidth="3" filter="url(#softGlow)" />
-                      <circle cx={cx} cy={cy} r="35" fill="url(#centerCircleGrad)" stroke="#FFFFFF" strokeWidth="2.5" />
-                      <text x={cx} y={cy - 9} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize="8.5" fontWeight="800" letterSpacing="0.8">
+                      {/* 2. WHITE INWARD CHEVRONS & HIGH-DEFINITION VECTOR ICONS */}
+                      {computedSlices.map((s) => {
+                        const rIcon = (rInner + rMid) / 2; // 71px
+                        const iconPos = polarToXY(rIcon, s.midA);
+                        const tipPt = polarToXY(rInner, s.midA);
+                        const lPt = polarToXY(rInner + 4.5, s.midA - 2.8);
+                        const rPt = polarToXY(rInner + 4.5, s.midA + 2.8);
+                        const ch = s.item.paymentChannel.toUpperCase();
+
+                        return (
+                          <g key={`icon-group-${s.idx}`}>
+                            {/* Inward-pointing triangular notch */}
+                            <polygon
+                              points={`${tipPt.x},${tipPt.y} ${lPt.x},${lPt.y} ${rPt.x},${rPt.y}`}
+                              fill="#FFFFFF"
+                            />
+
+                            {/* Vector Icons Matching Reference Template */}
+                            <g transform={`translate(${iconPos.x}, ${iconPos.y})`}>
+                              {/* 1. Target with Dart (MEMBER or fallback idx 0) */}
+                              {(ch.includes('MEMBER') || s.idx === 0) && (
+                                <g transform="scale(0.95)">
+                                  <circle cx="0" cy="0" r="8" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+                                  <circle cx="0" cy="0" r="4.2" fill="none" stroke="#FFFFFF" strokeWidth="1.7" />
+                                  <circle cx="0" cy="0" r="1.6" fill="#FFFFFF" />
+                                  <path d="M 3.5 -3.5 L 9 -9 M 6 -3.5 L 9.5 -7 M 3.5 -6 L 7 -9.5" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" />
+                                </g>
+                              )}
+
+                              {/* 2. Magnifying Glass with Dollar Sign (PAYNOW or fallback idx 1) */}
+                              {(ch.includes('PAYNOW') || s.idx === 1) && !ch.includes('MEMBER') && (
+                                <g transform="scale(0.95)">
+                                  <circle cx="-1.5" cy="-1.5" r="6.2" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+                                  <line x1="3.5" y1="3.5" x2="8" y2="8" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
+                                  <text x="-1.5" y="1.2" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="900" fontFamily="sans-serif">$</text>
+                                </g>
+                              )}
+
+                              {/* 3. Ascending 3-Column Bar Chart (CASH or fallback idx 2) */}
+                              {(ch.includes('CASH') || s.idx === 2) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && (
+                                <g transform="scale(0.95)">
+                                  <line x1="-7" y1="6.5" x2="7" y2="6.5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
+                                  <rect x="-6" y="1.5" width="3" height="5" fill="#FFFFFF" rx="0.5" />
+                                  <rect x="-1" y="-2" width="3" height="8.5" fill="#FFFFFF" rx="0.5" />
+                                  <rect x="4" y="-6" width="3" height="12.5" fill="#FFFFFF" rx="0.5" />
+                                </g>
+                              )}
+
+                              {/* 4. Interlocking Gears (CREDIT or fallback idx 3) */}
+                              {(ch.includes('CARD') || ch.includes('CREDIT') || s.idx === 3) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && (
+                                <g transform="scale(0.95)">
+                                  <circle cx="-2.5" cy="2.5" r="4.5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" strokeDasharray="2.5 1.8" />
+                                  <circle cx="-2.5" cy="2.5" r="1.5" fill="#FFFFFF" />
+                                  <circle cx="3.8" cy="-3" r="3.4" fill="none" stroke="#FFFFFF" strokeWidth="1.4" strokeDasharray="2.2 1.5" />
+                                  <circle cx="3.8" cy="-3" r="1.1" fill="#FFFFFF" />
+                                </g>
+                              )}
+
+                              {/* 5. Globe Grid (ONLINE or other) */}
+                              {!ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && !ch.includes('CARD') && !ch.includes('CREDIT') && (
+                                <g transform="scale(0.95)">
+                                  <circle cx="0" cy="0" r="7" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
+                                  <ellipse cx="0" cy="0" rx="3.2" ry="7" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
+                                  <line x1="-7" y1="0" x2="7" y2="0" stroke="#FFFFFF" strokeWidth="1.4" />
+                                </g>
+                              )}
+                            </g>
+                          </g>
+                        );
+                      })}
+
+                      {/* 3. THICK WHITE CIRCULAR RING (Elevated 3D Depth) */}
+                      <circle cx={cx} cy={cy} r="56" fill="#FFFFFF" filter="url(#centerRingShadow)" />
+                      <circle cx={cx} cy={cy} r="56" fill="none" stroke="#F1F5F9" strokeWidth="1.8" />
+
+                      {/* 4. ATTRACTIVE PINK GRADIENT CENTER CIRCLE WITH 3D SHINE */}
+                      <circle cx={cx} cy={cy} r="42" fill="url(#pinkCenterGrad)" stroke="#FFFFFF" strokeWidth="2.4" filter="url(#buttonShadow)" />
+                      {/* Glossy top-dome reflection overlay */}
+                      <path
+                        d={`M ${cx - 32} ${cy - 8} A 34 34 0 0 1 ${cx + 32} ${cy - 8} A 32 15 0 0 0 ${cx - 32} ${cy - 8} Z`}
+                        fill="url(#glossHighlight)"
+                      />
+
+                      {/* Center Disc Typography */}
+                      <text
+                        x={cx}
+                        y={cy - 10}
+                        textAnchor="middle"
+                        fill="rgba(255, 255, 255, 0.92)"
+                        fontSize="8.5"
+                        fontWeight="800"
+                        letterSpacing="1.5"
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                      >
                         TOTAL
                       </text>
-                      <text x={cx} y={cy + 6} textAnchor="middle" fill="#FFFFFF" fontSize="15" fontWeight="900">
+                      <text
+                        x={cx}
+                        y={cy + 7}
+                        textAnchor="middle"
+                        fill="#FFFFFF"
+                        fontSize="18"
+                        fontWeight="900"
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                      >
                         ${summary.totalRevenue.toFixed(0)}
                       </text>
-                      <text x={cx} y={cy + 17} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize="7.5" fontWeight="700">
+                      <text
+                        x={cx}
+                        y={cy + 19}
+                        textAnchor="middle"
+                        fill="rgba(255, 255, 255, 0.88)"
+                        fontSize="7.5"
+                        fontWeight="700"
+                        letterSpacing="1.2"
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                      >
                         REVENUE
                       </text>
 
-                      {/* 5. Leader Lines & Callout Labels */}
-                      {computedSlices.map((s, idx) => {
-                        const startPt = polarToXY(s.rOut + 3, s.midA);
-                        const isRight = Math.cos(toRad(s.midA)) >= 0;
-                        const isTop = Math.sin(toRad(s.midA)) < 0;
-
-                        const kneeX = startPt.x + (isRight ? 20 : -20);
-                        const kneeY = startPt.y + (isTop ? -14 : 14);
-                        const endX = kneeX + (isRight ? 26 : -26);
+                      {/* 5. EXTERNAL CONNECTING LINES WITH CIRCULAR NODES & DETAILS */}
+                      {computedSlices.map((s) => {
+                        const kneeX = s.rawKneeX;
+                        const kneeY = s.rawKneeY;
+                        const horizLen = 32;
+                        const endX = kneeX + (s.isRight ? horizLen : -horizLen);
                         const endY = kneeY;
 
-                        const textX = endX + (isRight ? 8 : -8);
-                        const textAnchor = isRight ? 'start' : 'end';
+                        const textX = endX + (s.isRight ? 10 : -10);
+                        const textAnchor = s.isRight ? 'start' : 'end';
 
                         return (
-                          <g key={`callout-${idx}`}>
+                          <g key={`leader-${s.idx}`}>
+                            {/* Connecting Line (Diagonal + Horizontal) */}
                             <path
-                              d={`M ${startPt.x} ${startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
+                              d={`M ${s.startPt.x} ${s.startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
                               fill="none"
-                              stroke={s.color}
-                              strokeWidth="1.5"
+                              stroke={s.style.primary}
+                              strokeWidth="1.8"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
+
+                            {/* Small Circular Endpoint (Hollow node matching reference) */}
                             <circle
                               cx={endX}
                               cy={endY}
-                              r="3.2"
+                              r="3.8"
                               fill="#FFFFFF"
-                              stroke={s.color}
-                              strokeWidth="2"
+                              stroke={s.style.primary}
+                              strokeWidth="2.2"
                             />
+
+                            {/* Dynamic Percentage */}
                             <text
                               x={textX}
-                              y={endY - 3}
+                              y={endY - 5}
                               textAnchor={textAnchor}
-                              fill={s.color}
-                              fontSize="15"
+                              fill={s.style.primary}
+                              fontSize="20"
                               fontWeight="900"
                               fontFamily="system-ui, -apple-system, sans-serif"
                             >
                               {s.pct}%
                             </text>
+
+                            {/* Payment Mode Title */}
                             <text
                               x={textX}
-                              y={endY + 11}
+                              y={endY + 12}
                               textAnchor={textAnchor}
                               fill="#0F172A"
-                              fontSize="10.5"
+                              fontSize="12"
                               fontWeight="800"
+                              letterSpacing="0.4"
                               fontFamily="system-ui, -apple-system, sans-serif"
                             >
                               {s.item.paymentChannelName || s.item.paymentChannel}
                             </text>
+
+                            {/* Revenue Amount & Transaction Count */}
                             <text
                               x={textX}
-                              y={endY + 22}
+                              y={endY + 26}
                               textAnchor={textAnchor}
                               fill="#64748B"
-                              fontSize="9"
+                              fontSize="10"
                               fontWeight="600"
                               fontFamily="system-ui, -apple-system, sans-serif"
                             >
-                              ${s.item.totalAmount.toFixed(0)} · {s.item.transactionCount || 0}tx
+                              ${s.item.totalAmount.toFixed(0)} · {s.item.transactionCount || 0} orders
                             </text>
                           </g>
                         );
@@ -1035,16 +1269,16 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
             ) : null}
 
-            {/* Breakdown Pill Cards underneath */}
+            {/* Breakdown Cards underneath */}
             <View style={styles.channelInfographicGridWrap}>
               {payMixList.length > 0 ? (
                 payMixList.map((c) => {
                   const colorMap: Record<string, string> = {
+                    PAYNOW: '#FF2A7A',
+                    MEMBER: '#FF9900',
                     CASH: '#7C3AED',
-                    CREDIT: '#EC4899',
-                    MEMBER: '#F59E0B',
-                    PAYNOW: '#F43F5E',
-                    ONLINE: '#6366F1',
+                    CREDIT: '#C026D3',
+                    ONLINE: '#4F46E5',
                   };
                   const color = colorMap[c.paymentChannel] || '#7C3AED';
                   return (
@@ -2375,11 +2609,11 @@ const styles = StyleSheet.create({
   },
   channelInfographicCard: {
     flex: 1,
-    minWidth: 120,
+    minWidth: 95,
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
     paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#EDF2F7',
     borderTopWidth: 3,
