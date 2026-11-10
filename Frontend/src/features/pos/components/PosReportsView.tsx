@@ -825,6 +825,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       light: '#E879F9',
                       deep: '#86198F',
                     },
+                    CARD: {
+                      gradId: 'grad_card',
+                      primary: '#2563EB',
+                      light: '#60A5FA',
+                      deep: '#1D4ED8',
+                    },
                     ONLINE: {
                       gradId: 'grad_online',
                       primary: '#4F46E5',
@@ -1043,6 +1049,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         <linearGradient id="grad_credit" x1="0%" y1="0%" x2="100%" y2="100%">
                           <stop offset="0%" stopColor="#E879F9" />
                           <stop offset="100%" stopColor="#A21CAF" />
+                        </linearGradient>
+                        <linearGradient id="grad_card" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#60A5FA" />
+                          <stop offset="100%" stopColor="#1D4ED8" />
                         </linearGradient>
                         <linearGradient id="grad_online" x1="0%" y1="0%" x2="100%" y2="100%">
                           <stop offset="0%" stopColor="#6366F1" />
@@ -1306,6 +1316,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     MEMBER: '#FF9900',
                     CASH: '#7C3AED',
                     CREDIT: '#C026D3',
+                    CARD: '#2563EB',
                     ONLINE: '#4F46E5',
                   };
                   const color = colorMap[c.paymentChannel] || '#7C3AED';
@@ -2720,18 +2731,18 @@ const styles = StyleSheet.create({
   },
   channelInfographicGridWrap: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
-    gap: 6,
+    flexWrap: 'wrap',
+    gap: 8,
     width: '100%',
     marginTop: 10,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   channelInfographicCard: {
-    flex: 1,
+    ...(Platform.OS === 'web' ? ({ width: 'calc((100% - 16px) / 3)' } as any) : { width: '31.5%' }),
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
-    paddingVertical: 7,
-    paddingHorizontal: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderTopWidth: 3,
