@@ -1533,41 +1533,34 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
 
           <View style={styles.tableContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ minWidth: 970 }}>
-              <View style={{ width: 970 }}>
-                {/* Table Header */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ minWidth: '100%' }}>
+              <View style={{ width: '100%', minWidth: 540 }}>
+                {/* Table Header: Exactly 5 Columns (ORDER NO, NAME, VEHICLE, AMOUNT, ACTION) */}
                 <View style={styles.tableHeaderRow}>
-                  <Text style={[styles.thText, { width: 90 }]}>ORDER NO</Text>
-                  <Text style={[styles.thText, { width: 145, paddingLeft: 10 }]}>NAME</Text>
-                  <Text style={[styles.thText, { width: 110 }]}>VEHICLE</Text>
-                  <Text style={[styles.thText, { width: 165 }]}>PACKAGE</Text>
-                  <Text style={[styles.thText, { width: 95 }]}>AMOUNT</Text>
-                  <Text style={[styles.thText, { width: 120 }]}>STATUS</Text>
-                  <Text style={[styles.thText, { width: 100 }]}>BAY</Text>
-                  <Text style={[styles.thText, { width: 65 }]}>TIME</Text>
-                  <Text style={[styles.thText, { width: 80, textAlign: 'center' }]}>ACTION</Text>
+                  <Text style={[styles.thText, { flex: 1.1, minWidth: 90 }]}>ORDER NO</Text>
+                  <Text style={[styles.thText, { flex: 2, minWidth: 140, paddingLeft: 10 }]}>NAME</Text>
+                  <Text style={[styles.thText, { flex: 1.4, minWidth: 110 }]}>VEHICLE</Text>
+                  <Text style={[styles.thText, { flex: 1.2, minWidth: 95 }]}>AMOUNT</Text>
+                  <Text style={[styles.thText, { flex: 1, minWidth: 80, textAlign: 'center' }]}>ACTION</Text>
                 </View>
 
                 {/* Table Rows */}
                 {recentWashesList.length > 0 ? (
                   recentWashesList.map((row, i) => {
-                    const isDeluxe = (row.packageName || '').toLowerCase().includes('deluxe') || (row.packageName || '').toLowerCase().includes('polish');
-                    const isCompleted = (row.statusName || '').toLowerCase().includes('completed') || (row.statusName || '').toLowerCase().includes('closed');
-                    const durationStr = row.durationMinutes != null ? `${row.durationMinutes} min` : '-';
                     const avatarColors = ['#4F46E5', '#0D9488', '#EA580C', '#2563EB', '#7C3AED'];
                     const avatarBg = avatarColors[i % avatarColors.length];
 
                     return (
                       <View key={row.orderId || i} style={styles.tableDataRow}>
                         {/* 1. ORDER NO */}
-                        <View style={{ width: 90, justifyContent: 'center' }}>
+                        <View style={{ flex: 1.1, minWidth: 90, justifyContent: 'center' }}>
                           <View style={styles.orderIdChip}>
                             <Text style={styles.orderIdText}>{formatOrderNo(row.orderNo)}</Text>
                           </View>
                         </View>
 
                         {/* 2. NAME */}
-                        <View style={[styles.customerCell, { width: 145, paddingLeft: 10 }]}>
+                        <View style={[styles.customerCell, { flex: 2, minWidth: 140, paddingLeft: 10 }]}>
                           <View style={[styles.customerAvatar, { backgroundColor: avatarBg }]}>
                             <Text style={styles.customerAvatarText}>
                               {(row.customerName || 'CU').slice(0, 2).toUpperCase()}
@@ -1579,61 +1572,25 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         </View>
 
                         {/* 3. VEHICLE */}
-                        <View style={[styles.vehicleCell, { width: 110 }]}>
+                        <View style={[styles.vehicleCell, { flex: 1.4, minWidth: 110 }]}>
                           <View style={styles.platePill}>
                             <Text style={styles.plateText} numberOfLines={1}>{row.vehicleNumber || '-'}</Text>
                           </View>
                         </View>
 
-                        {/* 4. PACKAGE */}
-                        <View style={{ width: 165, justifyContent: 'center', paddingRight: 6 }}>
-                          <View style={[styles.packagePill, isDeluxe ? styles.pkgDeluxePill : styles.pkgBasicPill]}>
-                            <Text style={[styles.packagePillText, isDeluxe ? styles.pkgDeluxeText : styles.pkgBasicText]} numberOfLines={1}>
-                              {row.packageName || 'Wash'}
-                            </Text>
-                          </View>
-                          <Text style={styles.carWashLabel}>{row.serviceCategoryName || 'CAR WASH'}</Text>
-                        </View>
-
-                        {/* 5. AMOUNT */}
-                        <View style={{ width: 95, justifyContent: 'center' }}>
+                        {/* 4. AMOUNT */}
+                        <View style={{ flex: 1.2, minWidth: 95, justifyContent: 'center' }}>
                           <Text style={styles.amountBoldText}>$ {row.totalAmount.toFixed(2)}</Text>
                         </View>
 
-                        {/* 6. STATUS */}
-                        <View style={{ width: 120, justifyContent: 'center' }}>
-                          <View style={[styles.paidBadge, !isCompleted && { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
-                            <Text style={[styles.paidCheckmark, !isCompleted && { color: '#2563EB' }]}>
-                              {isCompleted ? '✓' : '●'}
-                            </Text>
-                            <Text style={[styles.paidBadgeText, !isCompleted && { color: '#1D4ED8' }]} numberOfLines={1}>
-                              {row.statusName || (isCompleted ? 'Completed' : 'Active')}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {/* 7. BAY */}
-                        <View style={{ width: 100, justifyContent: 'center' }}>
-                          <View style={styles.bayBadge}>
-                            <Text style={styles.bayWaterDrop}>💧</Text>
-                            <Text style={styles.bayBadgeText} numberOfLines={1}>{row.bayName || 'Bay -'}</Text>
-                          </View>
-                        </View>
-
-                        {/* 8. TIME / WAIT */}
-                        <View style={{ width: 65, justifyContent: 'center' }}>
-                          <Text style={styles.waitTextNormal}>
-                            {durationStr}
-                          </Text>
-                        </View>
-
-                        {/* 9. ACTION - CLICK FOR FULL DETAILS */}
-                        <View style={{ width: 80, alignItems: 'center', justifyContent: 'center' }}>
+                        {/* 5. ACTION (View Button Opening Full Order Details Modal) */}
+                        <View style={{ flex: 1, minWidth: 80, alignItems: 'center', justifyContent: 'center' }}>
                           <TouchableOpacity 
                             style={styles.viewBtn} 
                             activeOpacity={0.8}
                             onPress={() => handleOpenOrderDetails(row)}
                           >
+                            <Ionicons name="eye-outline" size={13} color="#1D4ED8" style={{ marginRight: 4 }} />
                             <Text style={styles.viewBtnText}>View</Text>
                           </TouchableOpacity>
                         </View>
@@ -1802,6 +1759,20 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 <View style={styles.paidBadge}>
                   <Text style={styles.paidCheckmark}>✓</Text>
                   <Text style={styles.paidBadgeText}>{selectedWashOrder?.statusName || 'Completed'}</Text>
+                </View>
+              </View>
+              <View style={styles.modalDetailRow}>
+                <Text style={styles.modalDetailLabel}>Payment Mode</Text>
+                <View style={[styles.paidBadge, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}>
+                  <Ionicons name="card-outline" size={13} color="#0F172A" style={{ marginRight: 4 }} />
+                  <Text style={[styles.paidBadgeText, { color: '#0F172A' }]}>
+                    {(() => {
+                      const matchingTx = recentTransactionsList.find(
+                        (t) => t.orderId === selectedWashOrder?.orderId || t.orderNo === selectedWashOrder?.orderNo
+                      );
+                      return matchingTx?.payModeDescription || matchingTx?.payMode || 'CASH';
+                    })()}
+                  </Text>
                 </View>
               </View>
               <View style={styles.modalDetailRow}>
@@ -3192,18 +3163,21 @@ const styles = StyleSheet.create({
   },
   // ACTION Column
   viewBtn: {
-    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF6FF',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#BFDBFE',
     paddingVertical: 5,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     cursor: 'pointer',
   },
   viewBtnText: {
-    color: '#0F172A',
+    color: '#1D4ED8',
     fontWeight: '800',
-    fontSize: 12,
+    fontSize: 11.5,
   },
   historyBtn: {
     width: 28,
