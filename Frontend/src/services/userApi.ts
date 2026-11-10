@@ -116,3 +116,4 @@ export async function deleteUser(userId: string, permanent: boolean = false): Pr
   }
   return data;
 }
+

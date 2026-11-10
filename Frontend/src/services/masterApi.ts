@@ -283,3 +283,4 @@ export function getExportUrl(params: {
 
   return `${base}/api/carwash/export?${query.toString()}`;
 }
+
