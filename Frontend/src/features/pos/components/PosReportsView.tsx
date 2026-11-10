@@ -909,16 +909,26 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                     // Compute leader line coordinates with ample top clearance
                     const startPt = polarToXY(rOut + 3, midA);
-                    const isRight = Math.cos(toRad(midA)) >= 0;
                     const isTop = Math.sin(toRad(midA)) < 0;
+                    const isTopApex = midA < -30 && midA > -90;
+                    const isRight = isTopApex ? false : Math.cos(toRad(midA)) >= 0;
 
-                    const diagDist = 20;
-                    let rawKneeX = startPt.x + Math.cos(toRad(midA)) * diagDist;
-                    let rawKneeY = startPt.y + Math.sin(toRad(midA)) * diagDist;
+                    let rawKneeX: number;
+                    let rawKneeY: number;
 
-                    // Top slice leader line: pull up above the circle to avoid text overlap
-                    if (isTop && Math.sin(toRad(midA)) < -0.35) {
-                      rawKneeY = Math.min(rawKneeY, startPt.y - 18);
+                    if (isTopApex) {
+                      // Top slice (e.g. PAYNOW): route vertically up into pure whitespace above circle
+                      rawKneeX = startPt.x;
+                      rawKneeY = 16;
+                    } else {
+                      const diagDist = 20;
+                      rawKneeX = startPt.x + Math.cos(toRad(midA)) * diagDist;
+                      rawKneeY = startPt.y + Math.sin(toRad(midA)) * diagDist;
+
+                      // Top slice leader line: pull up above the circle to avoid text overlap
+                      if (isTop && Math.sin(toRad(midA)) < -0.35) {
+                        rawKneeY = Math.min(rawKneeY, startPt.y - 18);
+                      }
                     }
 
                     return {
@@ -933,6 +943,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       startPt,
                       isRight,
                       isTop,
+                      isTopApex,
                       rawKneeX,
                       rawKneeY,
                     };
@@ -1208,7 +1219,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
                         return (
                           <g key={`leader-${s.idx}`}>
-                            {/* Connecting Line (Diagonal + Horizontal) */}
+                            {/* Connecting Line (Diagonal/Vertical + Horizontal) */}
                             <path
                               d={`M ${s.startPt.x} ${s.startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
                               fill="none"
@@ -1228,10 +1239,20 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                               strokeWidth="2"
                             />
 
+                            {/* High-Contrast Frosted Badge Behind Text for 100% Guaranteed Legibility */}
+                            <rect
+                              x={s.isRight ? textX - 4 : textX - 86}
+                              y={endY - 14}
+                              width="90"
+                              height="40"
+                              fill="rgba(255, 255, 255, 0.94)"
+                              rx="6"
+                            />
+
                             {/* Dynamic Percentage */}
                             <text
                               x={textX}
-                              y={endY - 4}
+                              y={endY - 3}
                               textAnchor={textAnchor}
                               fill={s.style.primary}
                               fontSize="17"
@@ -2614,21 +2635,18 @@ const styles = StyleSheet.create({
   },
   channelInfographicGridWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    gap: 6,
     width: '100%',
-    marginTop: 6,
-    justifyContent: 'flex-start',
+    marginTop: 10,
+    justifyContent: 'space-between',
   },
   channelInfographicCard: {
-    flexGrow: 1,
-    flexShrink: 0,
-    flexBasis: '30%',
-    minWidth: 110,
+    flex: 1,
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
     paddingVertical: 7,
-    paddingHorizontal: 9,
+    paddingHorizontal: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderTopWidth: 3,
@@ -2772,7 +2790,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'space-between',
     gap: 10,
-    marginTop: 10,
+    marginTop: 12,
   },
   keyMetricRowCardNew: {
     flex: 1,
@@ -2780,11 +2798,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
     borderRadius: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 13,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: '#EDF2F7',
-    minHeight: 52,
+    minHeight: 54,
   },
   keyMetricIconCircle: {
     width: 36,
@@ -2853,8 +2871,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'column',
     justifyContent: 'space-between',
-    gap: 9,
-    marginVertical: 8,
+    gap: 8,
+    marginVertical: 10,
   },
   paymentMethodCardNew: {
     flex: 1,
@@ -2866,7 +2884,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#EDF2F7',
-    minHeight: 52,
+    minHeight: 50,
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any) : { elevation: 1 }),
   },
   paymentMethodIconBox: {
