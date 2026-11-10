@@ -17,6 +17,7 @@ import { BayOverviewCards } from '../components/BayOverviewCards';
 import { PosSettingsView } from '../components/PosSettingsView';
 import { BayMasterManagementView } from '../components/BayMasterManagementView';
 import { PosReportsView } from '../components/PosReportsView';
+import { PosCustomerHistoryView } from '../components/PosCustomerHistoryView';
 import { INITIAL_BAYS } from '../../../data/mockData';
 import { PosOrder, WashingBay } from '../../../types/pos.types';
 import { 
@@ -649,6 +650,15 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       {activeTab !== 'REPORTS' && (
         <PosTopNavbar 
           cashierName={cashierName} 
+          pageTitle={
+            activeTab === 'CUSTOMERS'
+              ? 'Customer History'
+              : activeTab === 'BAYS'
+              ? 'Bays'
+              : activeTab === 'SETTINGS'
+              ? 'Settings'
+              : 'Orders'
+          }
           onLogout={onLogout} 
           onSearch={setSearchQuery}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
@@ -769,6 +779,13 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             cashierName={cashierName}
             onBackToOrders={() => handleSelectTab('ORDERS')}
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+          />
+        ) : activeTab === 'CUSTOMERS' ? (
+          <PosCustomerHistoryView
+            cashierName={cashierName}
+            onBackToOrders={() => handleSelectTab('ORDERS')}
+            onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+            searchQuery={searchQuery}
           />
         ) : (
           <View style={styles.ordersContentWrapper}>

@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'r
 import { IconSearch, IconMenu, IconBell } from '../../../components/common/AppIcons';
 
 interface PosTopNavbarProps {
+  pageTitle?: string;
   onSearch?: (query: string) => void;
   onToggleSidebar?: () => void;
   cashierName?: string;
@@ -12,6 +13,7 @@ interface PosTopNavbarProps {
 }
 
 export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
+  pageTitle = 'Orders',
   onSearch,
   onToggleSidebar,
   cashierName = 'Cashier',
@@ -35,7 +37,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
         </TouchableOpacity>
 
         {/* Title */}
-        <Text style={styles.pageTitle}>Orders</Text>
+        <Text style={styles.pageTitle}>{pageTitle}</Text>
 
         {/* Rounded Search Input matching screenshot */}
         <View style={styles.searchBox}>
