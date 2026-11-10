@@ -1352,7 +1352,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
 
-        {/* Card 2: Key Metrics (4 Essential KPIs) */}
+        {/* Card 2: Key Metrics (4 Essential KPIs - Modern 2x2 Scorecard Grid) */}
         <View style={styles.rowThreeCard}>
           <View style={styles.cardHeaderRow}>
             <View>
@@ -1365,12 +1365,13 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
           </View>
 
-          <View style={styles.keyMetricsListNew}>
+          <View style={styles.keyMetricsGrid}>
             {[
               {
                 label: 'Avg Check (AOV)',
                 sub: 'Per wash order',
                 val: `$${summary.averageOrderValue.toFixed(2)}`,
+                tag: 'AOV',
                 icon: 'wallet-outline',
                 iconBg: '#EEF2FF',
                 iconColor: '#4F46E5',
@@ -1378,15 +1379,17 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               {
                 label: 'Completed Washes',
                 sub: `${closedWashesCount} closed • ${summary.totalBookings} booked`,
-                val: `${completedWashesCount}`,
+                val: `${completedWashesCount > 0 ? completedWashesCount : (closedWashesCount > 0 ? closedWashesCount : 0)}`,
+                tag: 'Fulfilled',
                 icon: 'car-sport-outline',
                 iconBg: '#ECFDF5',
                 iconColor: '#059669',
               },
               {
-                label: 'Avg Wash Duration',
+                label: 'Avg Duration',
                 sub: 'Door-to-door cycle',
                 val: `${summary.avgWashDurationMinutes} min`,
+                tag: 'Speed',
                 icon: 'timer-outline',
                 iconBg: '#FFFBEB',
                 iconColor: '#D97706',
@@ -1395,22 +1398,33 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 label: 'GST Collected',
                 sub: `Net: $${summary.totalNetRevenue.toFixed(2)}`,
                 val: `$${summary.totalGSTAmount.toFixed(2)}`,
+                tag: '9% GST',
                 icon: 'receipt-outline',
                 iconBg: '#F0F9FF',
                 iconColor: '#0284C7',
               },
             ].map((m) => (
-              <View key={m.label} style={styles.keyMetricRowCardNew}>
-                <View style={[styles.keyMetricIconCircle, { backgroundColor: m.iconBg }]}>
-                  <Ionicons name={m.icon as any} size={18} color={m.iconColor} />
+              <View key={m.label} style={styles.kpiTile}>
+                <View style={styles.kpiTileTopRow}>
+                  <View style={[styles.kpiTileIconCircle, { backgroundColor: m.iconBg }]}>
+                    <Ionicons name={m.icon as any} size={16} color={m.iconColor} />
+                  </View>
+                  <View style={[styles.kpiTileTag, { backgroundColor: m.iconBg }]}>
+                    <Text style={[styles.kpiTileTagText, { color: m.iconColor }]}>{m.tag}</Text>
+                  </View>
                 </View>
-                <View style={styles.keyMetricInfoCol}>
-                  <Text style={styles.keyMetricNameNew}>{m.label}</Text>
-                  <Text style={styles.keyMetricSubtextNew}>{m.sub}</Text>
+                <View style={styles.kpiTileBottom}>
+                  <Text style={styles.kpiTileValue}>{m.val}</Text>
+                  <Text style={styles.kpiTileLabel} numberOfLines={1}>{m.label}</Text>
+                  <Text style={styles.kpiTileSubtext} numberOfLines={1}>{m.sub}</Text>
                 </View>
-                <Text style={styles.keyMetricValueBoldNew}>{m.val}</Text>
               </View>
             ))}
+          </View>
+
+          <View style={styles.metricsFooterStrip}>
+            <Ionicons name="sparkles" size={13} color="#6366F1" style={{ marginRight: 6 }} />
+            <Text style={styles.metricsFooterText}>Live SQL metrics synced from operational wash bays</Text>
           </View>
         </View>
 
@@ -1432,8 +1446,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <View style={styles.paymentDistBarContainer}>
               <View style={styles.paymentDistBar}>
                 {payMixList.map((p, idx) => {
-                  const palette = ['#DC2626', '#2563EB', '#7C3AED', '#059669', '#D97706'];
-                  const segColor = palette[idx % palette.length];
+                  const chUpper = (p.paymentChannel || '').toUpperCase();
+                  let segColor = '#7C3AED';
+                  if (chUpper.includes('PAYNOW')) segColor = '#FF2A7A';
+                  else if (chUpper.includes('MEMBER')) segColor = '#FF9900';
+                  else if (chUpper.includes('CASH')) segColor = '#7C3AED';
+                  else if (chUpper.includes('CREDIT')) segColor = '#C026D3';
+                  else if (chUpper.includes('CARD')) segColor = '#2563EB';
+
                   const pct = Math.max(3, p.revenuePercentage || 0);
                   return (
                     <View
@@ -1454,53 +1474,73 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <View style={styles.paymentCardsListNew}>
             {payMixList.length > 0 ? (
               payMixList.map((p, idx) => {
-                const isCash = p.paymentChannel === 'CASH';
-                const isCredit = p.paymentChannel === 'CREDIT' || p.paymentChannel === 'CARD';
-                const isMember = p.paymentChannel === 'MEMBER';
+                const chUpper = (p.paymentChannel || '').toUpperCase();
+                let iconName = 'card-outline';
+                let themeColor = '#2563EB';
+                let themeBg = '#EFF6FF';
 
-                const iconName = isCash ? 'cash-outline' : isCredit ? 'card-outline' : isMember ? 'id-card-outline' : 'qr-code-outline';
-                const themeColor = isCash ? '#DC2626' : isCredit ? '#2563EB' : isMember ? '#7C3AED' : '#059669';
-                const themeBg = isCash ? '#FEF2F2' : isCredit ? '#EFF6FF' : isMember ? '#FAF5FF' : '#ECFDF5';
-                const themeBorder = isCash ? '#FEE2E2' : isCredit ? '#DBEAFE' : isMember ? '#F3E8FF' : '#D1FAE5';
+                if (chUpper.includes('PAYNOW')) {
+                  iconName = 'qr-code-outline';
+                  themeColor = '#FF2A7A';
+                  themeBg = '#FFF1F5';
+                } else if (chUpper.includes('MEMBER')) {
+                  iconName = 'ribbon-outline';
+                  themeColor = '#FF9900';
+                  themeBg = '#FFFBEB';
+                } else if (chUpper.includes('CASH')) {
+                  iconName = 'cash-outline';
+                  themeColor = '#7C3AED';
+                  themeBg = '#F5F3FF';
+                } else if (chUpper.includes('CREDIT')) {
+                  iconName = 'card-outline';
+                  themeColor = '#C026D3';
+                  themeBg = '#FDF4FF';
+                } else if (chUpper.includes('CARD')) {
+                  iconName = 'card-outline';
+                  themeColor = '#2563EB';
+                  themeBg = '#EFF6FF';
+                }
 
                 return (
                   <View
                     key={p.paymentChannel || idx}
-                    style={[styles.paymentMethodCardNew, { borderColor: themeBorder }]}
+                    style={styles.paymentMethodCardNew}
                   >
                     <View style={[styles.paymentMethodIconBox, { backgroundColor: themeBg }]}>
-                      <Ionicons name={iconName as any} size={20} color={themeColor} />
+                      <Ionicons name={iconName as any} size={18} color={themeColor} />
                     </View>
 
                     <View style={styles.paymentMethodInfoCol}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={[styles.paymentMethodTitle, { color: themeColor }]}>
-                          {p.paymentChannelName || p.paymentChannel}
-                        </Text>
-                        <View style={[styles.paymentSharePill, { backgroundColor: themeBg }]}>
-                          <Text style={[styles.paymentShareText, { color: themeColor }]}>
-                            {p.revenuePercentage}%
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.paymentMethodTitle}>
+                            {p.paymentChannelName || p.paymentChannel}
                           </Text>
+                          <View style={[styles.paymentSharePill, { backgroundColor: themeBg }]}>
+                            <Text style={[styles.paymentShareText, { color: themeColor }]}>
+                              {p.revenuePercentage}%
+                            </Text>
+                          </View>
                         </View>
+                        <Text style={styles.paymentMethodAmount}>${p.totalAmount.toFixed(2)}</Text>
                       </View>
-                      <Text style={styles.paymentMethodSub}>
-                        {p.transactionCount} transactions • Avg ${(p.totalAmount / (p.transactionCount || 1)).toFixed(2)}
-                      </Text>
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
+                        <Text style={styles.paymentMethodSub}>
+                          {p.transactionCount} {p.transactionCount === 1 ? 'order' : 'orders'} • Avg ${(p.totalAmount / (p.transactionCount || 1)).toFixed(2)}
+                        </Text>
+                        <Text style={styles.paymentMethodTxnCount}>{p.transactionCount} txns</Text>
+                      </View>
 
                       {/* Mini Channel Progress Bar */}
                       <View style={styles.paymentMiniTrack}>
                         <View
                           style={[
                             styles.paymentMiniFill,
-                            { width: `${Math.min(100, Math.max(4, p.revenuePercentage))}%`, backgroundColor: themeColor },
+                            { width: `${Math.min(100, Math.max(3, p.revenuePercentage))}%`, backgroundColor: themeColor },
                           ]}
                         />
                       </View>
-                    </View>
-
-                    <View style={styles.paymentMethodAmountCol}>
-                      <Text style={styles.paymentMethodAmount}>${p.totalAmount.toFixed(2)}</Text>
-                      <Text style={styles.paymentMethodTxnCount}>{p.transactionCount} txns</Text>
                     </View>
                   </View>
                 );
@@ -1518,13 +1558,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <Ionicons name="shield-checkmark" size={15} color="#059669" />
               <Text style={styles.reconcileText}>100% Reconciled</Text>
             </View>
-            <View style={styles.reconcileItem}>
-              <Text style={styles.reconcileLabel}>Net:</Text>
-              <Text style={styles.reconcileVal}>${summary.totalNetRevenue.toFixed(2)}</Text>
-            </View>
-            <View style={styles.reconcileItem}>
-              <Text style={styles.reconcileLabel}>GST:</Text>
-              <Text style={styles.reconcileVal}>${summary.totalGSTAmount.toFixed(2)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.reconcileItem}>
+                <Text style={styles.reconcileLabel}>Net:</Text>
+                <Text style={styles.reconcileVal}>${summary.totalNetRevenue.toFixed(2)}</Text>
+              </View>
+              <View style={styles.reconcileItem}>
+                <Text style={styles.reconcileLabel}>GST:</Text>
+                <Text style={styles.reconcileVal}>${summary.totalGSTAmount.toFixed(2)}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -2881,6 +2923,81 @@ const styles = StyleSheet.create({
     color: '#ED0712',
     letterSpacing: 0.5,
   },
+  keyMetricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12,
+    flex: 1,
+  },
+  kpiTile: {
+    ...(Platform.OS === 'web' ? ({ width: 'calc(50% - 5px)' } as any) : { width: '48%' }),
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    justifyContent: 'space-between',
+    minHeight: 104,
+  },
+  kpiTileTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  kpiTileIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kpiTileTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  kpiTileTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  kpiTileBottom: {
+    marginTop: 6,
+  },
+  kpiTileValue: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  kpiTileLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginTop: 2,
+  },
+  kpiTileSubtext: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 1,
+  },
+  metricsFooterStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+  metricsFooterText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
   keyMetricsListNew: {
     flex: 1,
     flexDirection: 'column',
@@ -2952,12 +3069,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   paymentDistBarContainer: {
-    marginTop: 10,
-    marginBottom: 6,
+    marginTop: 12,
+    marginBottom: 8,
   },
   paymentDistBar: {
-    height: 8,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#F1F5F9',
     flexDirection: 'row',
     overflow: 'hidden',
@@ -2966,38 +3083,35 @@ const styles = StyleSheet.create({
   paymentCardsListNew: {
     flex: 1,
     flexDirection: 'column',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginVertical: 10,
+    gap: 7,
+    marginVertical: 4,
   },
   paymentMethodCardNew: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#EDF2F7',
-    minHeight: 50,
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any) : { elevation: 1 }),
+    borderColor: '#F1F5F9',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 1 }),
   },
   paymentMethodIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   paymentMethodInfoCol: {
     flex: 1,
-    marginRight: 10,
   },
   paymentMethodTitle: {
     fontSize: 12.5,
     fontWeight: '800',
+    color: '#0F172A',
   },
   paymentSharePill: {
     paddingHorizontal: 6,
@@ -3005,40 +3119,38 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   paymentShareText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '800',
   },
   paymentMethodSub: {
     fontSize: 10.5,
     color: '#64748B',
     fontWeight: '600',
-    marginTop: 2,
   },
   paymentMiniTrack: {
-    height: 4,
-    borderRadius: 2,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: '#F1F5F9',
     marginTop: 5,
     overflow: 'hidden',
-    width: '90%',
+    width: '100%',
   },
   paymentMiniFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
   paymentMethodAmountCol: {
     alignItems: 'flex-end',
   },
   paymentMethodAmount: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '900',
     color: '#0F172A',
   },
   paymentMethodTxnCount: {
     fontSize: 10,
-    color: '#64748B',
-    fontWeight: '700',
-    marginTop: 2,
+    color: '#94A3B8',
+    fontWeight: '600',
   },
   paymentReconciliationFooter: {
     flexDirection: 'row',
