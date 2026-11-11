@@ -8,8 +8,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '1234',
     contactPerson: 'David Tan',
     phone: '9123 4567',
+    address: '10 Toh Guan Road, #01-02, Singapore 608838',
     billingCycle: 'Monthly 30-Day Credit',
     icon: '🏢',
+    isActive: true,
   },
   {
     id: 'dlr_b',
@@ -18,8 +20,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '2345',
     contactPerson: 'Ken Wong',
     phone: '9234 5678',
+    address: '25 Kaki Bukit Road 4, #01-14 Synergy @ KB, Singapore 417800',
     billingCycle: 'Monthly 30-Day Credit',
     icon: '🏬',
+    isActive: true,
   },
   {
     id: 'dlr_c',
@@ -28,8 +32,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '3456',
     contactPerson: 'Rachel Koh',
     phone: '9345 6789',
+    address: '1 Bukit Batok Crescent, #02-05 WCEGA Plaza, Singapore 658064',
     billingCycle: 'Fortnightly Credit',
     icon: '🚘',
+    isActive: true,
   },
   {
     id: 'dlr_d',
@@ -38,8 +44,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '4567',
     contactPerson: 'Raymond Lim',
     phone: '9456 7890',
+    address: '50 Ubi Ave 3, #01-08 Frontier, Singapore 408866',
     billingCycle: 'Monthly 30-Day Credit',
     icon: '🏎️',
+    isActive: true,
   },
   {
     id: 'dlr_e',
@@ -48,8 +56,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '5678',
     contactPerson: 'Simon Teo',
     phone: '9567 8901',
+    address: '180 Woodlands Industrial Park E5, Singapore 757512',
     billingCycle: 'Monthly 30-Day Credit',
     icon: '🚗',
+    isActive: true,
   },
   {
     id: 'dlr_f',
@@ -58,8 +68,10 @@ export const MOCK_DEALERS: DealerOption[] = [
     pin: '6789',
     contactPerson: 'Alex Chong',
     phone: '9678 9012',
+    address: '8 Soon Lee Road, Jurong Industrial Estate, Singapore 628073',
     billingCycle: 'Weekly Credit Term',
     icon: '🚚',
+    isActive: true,
   },
 ];
 

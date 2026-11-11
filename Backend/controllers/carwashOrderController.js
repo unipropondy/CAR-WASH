@@ -118,6 +118,25 @@ async function createOrder(req, res) {
     // Begin SQL Transaction
     await transaction.begin();
 
+    // 0. Day Management: Check if the business day is currently OPEN
+    const dayCheckReq = new sql.Request(transaction);
+    const dayCheckRes = await dayCheckReq.query(`
+      SELECT TOP 1 DayId, BusinessDate, DayStatus 
+      FROM dbo.CarWashDayMaster WITH (UPDLOCK, ROWLOCK)
+      WHERE DayStatus = 'OPEN';
+    `);
+
+    if (!dayCheckRes.recordset.length) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        dayClosed: true,
+        message: 'Business day is currently CLOSED. Please start a business day in Day Management before placing wash orders.',
+      });
+    }
+
+    const activeDayId = dayCheckRes.recordset[0].DayId;
+
     // 1. Fetch official package details from ServicePackageMaster (DO NOT trust client prices)
     const pkgReq = new sql.Request(transaction);
     pkgReq.input('packageId', sql.Int, parseInt(packageId, 10));
@@ -193,6 +212,7 @@ async function createOrder(req, res) {
 
     // 3. Insert into dbo.CarWashOrder
     const orderInsertReq = new sql.Request(transaction);
+    orderInsertReq.input('dayId', sql.Int, activeDayId);
     orderInsertReq.input('orderNo', sql.NVarChar(30), orderNo);
     orderInsertReq.input('customerName', sql.NVarChar(150), safeCustomerName);
     orderInsertReq.input('vehicleNumber', sql.NVarChar(30), safeVehicleNumber);
@@ -210,7 +230,7 @@ async function createOrder(req, res) {
 
     const insertResult = await orderInsertReq.query(`
       INSERT INTO dbo.CarWashOrder (
-        OrderNo, CustomerName, VehicleNumber, MobileNumber,
+        DayId, OrderNo, CustomerName, VehicleNumber, MobileNumber,
         VehicleTypeId, ServiceCategoryId, PackageId,
         PackagePrice, GSTPercent, GSTAmount, TotalAmount, CurrencyCode,
         PaymentStatus, StatusCode, CreatedDate
@@ -218,9 +238,10 @@ async function createOrder(req, res) {
       OUTPUT 
         INSERTED.OrderId, 
         INSERTED.OrderNo, 
+        INSERTED.DayId,
         INSERTED.CreatedDate
       VALUES (
-        @orderNo, @customerName, @vehicleNumber, @mobileNumber,
+        @dayId, @orderNo, @customerName, @vehicleNumber, @mobileNumber,
         @vehicleTypeId, @serviceCategoryId, @packageId,
         @packagePrice, @gstPercent, @gstAmount, @totalAmount, @currencyCode,
         @paymentStatus, @statusCode, GETDATE()
@@ -256,6 +277,7 @@ async function createOrder(req, res) {
       data: {
         orderId,
         orderNo: createdOrder.OrderNo,
+        dayId: createdOrder.DayId || activeDayId,
         customerName: safeCustomerName,
         vehicleNumber: safeVehicleNumber,
         mobileNumber: safeMobileNumber,
@@ -331,8 +353,8 @@ async function updatePayment(req, res) {
     checkReq.input('orderId', sql.Int, orderId);
     const checkResult = await checkReq.query(`
       SELECT 
-        OrderId, OrderNo, CustomerName, VehicleNumber, TotalAmount,
-        PayMode, PaymentStatus, StatusCode
+        OrderId, OrderNo, CustomerName, VehicleNumber, TotalAmount, GSTAmount, CurrencyCode,
+        PayMode, PaymentStatus, StatusCode, DayId
       FROM dbo.CarWashOrder
       WHERE OrderId = @orderId;
     `);
@@ -344,6 +366,28 @@ async function updatePayment(req, res) {
 
     const currentOrder = checkResult.recordset[0];
     const oldStatusCode = currentOrder.StatusCode;
+
+    // Check active business day
+    const activeDayReq = new sql.Request(transaction);
+    const activeDayRes = await activeDayReq.query(`
+      SELECT TOP 1 DayId, BusinessDate, DayStatus 
+      FROM dbo.CarWashDayMaster WITH (UPDLOCK, ROWLOCK)
+      WHERE DayStatus = 'OPEN';
+    `);
+    const activeDay = activeDayRes.recordset[0] || null;
+
+    // Resolve target DayId: preserve order's existing DayId or link to active day
+    const targetDayId = currentOrder.DayId || (activeDay ? activeDay.DayId : null);
+
+    // If day is closed and this is a new cash/card confirmation not linked to an open day
+    if (!targetDayId && (confirmPaid || !isCash)) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        dayClosed: true,
+        message: 'Business day is currently CLOSED. Cannot confirm payment without an active business day.',
+      });
+    }
 
     // Prevent duplicate payment confirmation
     if (confirmPaid && currentOrder.PaymentStatus === 'PAID') {
@@ -388,6 +432,7 @@ async function updatePayment(req, res) {
     // Update dbo.CarWashOrder
     const updReq = new sql.Request(transaction);
     updReq.input('orderId', sql.Int, orderId);
+    updReq.input('dayId', sql.Int, targetDayId);
     updReq.input('payMode', sql.Char(10), trimmedPayMode);
     updReq.input('paymentStatus', sql.VarChar(20), newPaymentStatus);
     updReq.input('paymentReference', sql.NVarChar(150), paymentReference || null);
@@ -396,6 +441,7 @@ async function updatePayment(req, res) {
     let sqlQuery = `
       UPDATE dbo.CarWashOrder
       SET 
+        DayId = ISNULL(DayId, @dayId),
         PayMode = @payMode,
         PaymentStatus = @paymentStatus,
         PaymentReference = ISNULL(@paymentReference, PaymentReference),
@@ -409,6 +455,38 @@ async function updatePayment(req, res) {
     sqlQuery += ` WHERE OrderId = @orderId;`;
 
     await updReq.query(sqlQuery);
+
+    // Record Payment Transaction into dbo.CarWashPaymentTransaction when paid
+    if (confirmPaid || !isCash) {
+      const txReq = new sql.Request(transaction);
+      const txNo = `TX-${currentOrder.OrderNo}-${Date.now().toString().slice(-4)}`;
+      txReq.input('txNo', sql.NVarChar(40), txNo);
+      txReq.input('orderId', sql.Int, orderId);
+      txReq.input('orderNo', sql.NVarChar(30), currentOrder.OrderNo);
+      txReq.input('dayId', sql.Int, targetDayId);
+      txReq.input('payMode', sql.Char(10), trimmedPayMode);
+      txReq.input('txType', sql.VarChar(20), 'PAYMENT');
+      txReq.input('amount', sql.Decimal(18, 2), currentOrder.TotalAmount);
+      txReq.input('gstAmount', sql.Decimal(18, 2), currentOrder.GSTAmount != null ? currentOrder.GSTAmount : 0);
+      txReq.input('netAmount', sql.Decimal(18, 2), currentOrder.TotalAmount);
+      txReq.input('currCode', sql.NVarChar(10), currentOrder.CurrencyCode || 'SGD');
+      txReq.input('paymentStatus', sql.VarChar(20), 'PAID');
+      txReq.input('payRef', sql.NVarChar(150), paymentReference || null);
+      txReq.input('processedBy', sql.NVarChar(100), changedBy);
+
+      await txReq.query(`
+        INSERT INTO dbo.CarWashPaymentTransaction (
+          TransactionNo, OrderId, OrderNo, DayId, PayMode, TransactionType,
+          Amount, GSTAmount, NetAmount, CurrencyCode, PaymentStatus,
+          PaymentReference, ProcessedBy, CreatedDate
+        )
+        VALUES (
+          @txNo, @orderId, @orderNo, @dayId, @payMode, @txType,
+          @amount, @gstAmount, @netAmount, @currCode, @paymentStatus,
+          @payRef, @processedBy, GETDATE()
+        );
+      `);
+    }
 
     // Insert history record if status changed or remarks provided
     const histRemarks =
@@ -791,13 +869,16 @@ async function updateStatus(req, res) {
 async function getOrders(req, res) {
   try {
     const pool = await getPool();
-    const { filter = 'ALL', search = '', date = 'today' } = req.query;
+    const { filter = 'ALL', search = '', date = 'today', dayId } = req.query;
 
     const request = pool.request();
     let whereConditions = [];
 
-    // Filter by date (defaults to today for active operational POS queue)
-    if (date === 'today') {
+    // Filter by specific dayId or by date
+    if (dayId) {
+      request.input('dayId', sql.Int, parseInt(dayId, 10));
+      whereConditions.push(`o.DayId = @dayId`);
+    } else if (date === 'today') {
       whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
     } else if (date && date !== 'all') {
       request.input('filterDate', sql.Date, date);
@@ -839,6 +920,7 @@ async function getOrders(req, res) {
       SELECT 
         o.OrderId,
         o.OrderNo,
+        o.DayId,
         o.CustomerName,
         o.VehicleNumber,
         o.MobileNumber,
@@ -909,6 +991,7 @@ async function getOrders(req, res) {
       return {
         orderId: row.OrderId,
         orderNo: row.OrderNo,
+        dayId: row.DayId,
         customerName: row.CustomerName,
         vehicleNumber: row.VehicleNumber,
         mobileNumber: row.MobileNumber,
@@ -980,6 +1063,7 @@ async function getOrderById(req, res) {
       SELECT 
         o.OrderId,
         o.OrderNo,
+        o.DayId,
         o.CustomerName,
         o.VehicleNumber,
         o.MobileNumber,
@@ -1248,6 +1332,7 @@ async function exportCarWashData(req, res) {
       SELECT 
         o.OrderId,
         o.OrderNo,
+        o.DayId,
         o.CustomerName,
         o.VehicleNumber,
         o.MobileNumber,

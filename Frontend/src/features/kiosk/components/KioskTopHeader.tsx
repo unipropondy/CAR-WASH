@@ -18,7 +18,7 @@ interface KioskTopHeaderProps {
 export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
   subtitle,
   onExitToPos,
-  showExitPos = true,
+  showExitPos = false,
   onBack,
   backLabel = 'Back',
 }) => {
@@ -78,7 +78,7 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
           </View>
         </View>
 
-        {/* TOP-RIGHT: Staff POS (optional) + Help Button */}
+        {/* TOP-RIGHT: Help Button (Staff POS is only displayed on Page 1) */}
         <View style={styles.sideColRight}>
           {showExitPos && onExitToPos && (
             <TouchableOpacity 

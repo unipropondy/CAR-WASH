@@ -7,7 +7,8 @@ import {
   ScrollView, 
   Modal, 
   ActivityIndicator,
-  Alert 
+  Alert,
+  Image 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
@@ -15,6 +16,7 @@ import { PaymentMode, VehicleOption, ServiceCategory, ServicePackage, CustomerDe
 import { fetchPaymodes, PayModeOption } from '../../../services/carwashOrderApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { getVehicleImageSource } from './Page2VehicleScreen';
 
 interface Page5PaymentScreenProps {
   vehicle: VehicleOption;
@@ -119,6 +121,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
   };
 
   const isWalkIn = !customerDetails?.vehicleNumber || customerDetails.vehicleNumber === 'WALK-IN';
+  const vehicleImgSource = getVehicleImageSource(vehicle);
 
   return (
     <View style={styles.container}>
@@ -133,9 +136,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
       {/* Main Title & Prompt Header */}
       <View style={styles.promptHeader}>
         <Text style={styles.mainTitle}>Select Payment Method</Text>
-        <Text style={styles.subtitle}>
-          Choose how you would like to complete your order payment.
-        </Text>
+        <View style={styles.titleUnderlineAccent} />
       </View>
 
       {/* Main Content Area - PORTRAIT OPTIMIZED */}
@@ -147,8 +148,22 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
         <View style={styles.portraitContainer}>
           {/* Order Summary Strip (Portrait Full-Width) */}
           <View style={styles.summaryBar}>
+            <View style={styles.summaryTopStrip} />
             <View style={styles.summaryBarTop}>
-              <View style={{ flex: 1 }}>
+              {/* Showroom Vehicle Image Thumbnail */}
+              <View style={styles.summaryVehicleImageBox}>
+                {vehicleImgSource ? (
+                  <Image
+                    source={vehicleImgSource}
+                    style={styles.summaryVehicleImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Ionicons name="car-sport" size={24} color={RED_BAY_COLORS.primary} />
+                )}
+              </View>
+
+              <View style={{ flex: 1, paddingLeft: 6 }}>
                 <Text style={styles.summaryLabel}>PACKAGE & VEHICLE</Text>
                 <Text style={styles.summaryPkgName}>{selectedPackage.name}</Text>
                 <Text style={styles.summarySub}>{vehicle.name} • {category.title}</Text>
@@ -177,9 +192,16 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
               </View>
 
               {customerDetails?.customerName && customerDetails.customerName !== 'Walk-in Customer' && (
-                <Text style={styles.customerNameTag}>
-                  👤 {customerDetails.customerName}{customerDetails.mobileNumber && customerDetails.mobileNumber !== '-' ? ` • 📞 +65 ${customerDetails.mobileNumber}` : ''}
-                </Text>
+                <View style={styles.customerInfoBlock}>
+                  <Text style={styles.customerNameTag}>
+                    👤 {customerDetails.customerName}
+                  </Text>
+                  {customerDetails.mobileNumber && customerDetails.mobileNumber !== '-' && (
+                    <Text style={styles.customerMobileTag}>
+                      • 📞 +65 {customerDetails.mobileNumber}
+                    </Text>
+                  )}
+                </View>
               )}
             </View>
           </View>
@@ -223,25 +245,25 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                     >
                       {isSelected && <View style={styles.paymentSelectedStrip} />}
 
-                      {/* Top Header Row: Icon on left, Status badge on right */}
-                      <View style={styles.payCardTopRow}>
-                        <View style={[styles.payIconBox, { backgroundColor: meta.badgeBg }]}>
-                          <Ionicons name={meta.iconName} size={22} color={meta.badgeColor} />
+                      {isSelected && (
+                        <View style={styles.activePill}>
+                          {isProcessing ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 4 }} />
+                          ) : (
+                            <Ionicons name="checkmark" size={12} color="#FFFFFF" style={{ marginRight: 3 }} />
+                          )}
+                          <Text style={styles.activePillText}>
+                            {isProcessing ? 'AUTHORIZING' : 'SELECTED'}
+                          </Text>
                         </View>
+                      )}
 
-                        {isSelected && (
-                          <View style={styles.activePill}>
-                            {isProcessing && (
-                              <ActivityIndicator size="small" color={RED_BAY_COLORS.primary} style={{ marginRight: 4 }} />
-                            )}
-                            <Text style={styles.activePillText}>
-                              {isProcessing ? 'AUTHORIZING' : 'SELECTED'}
-                            </Text>
-                          </View>
-                        )}
+                      {/* Centered Icon */}
+                      <View style={[styles.payIconBox, { backgroundColor: meta.badgeBg }]}>
+                        <Ionicons name={meta.iconName} size={28} color={meta.badgeColor} />
                       </View>
 
-                      {/* Middle Details: Title & Subtitle */}
+                      {/* Centered Details: Title & Subtitle */}
                       <View style={styles.payDetailsCol}>
                         <Text style={[styles.payModeTitle, isSelected && styles.payModeTitleSelected]}>
                           {pm.payMode}
@@ -285,13 +307,20 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     width: '100%',
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+  },
+  titleUnderlineAccent: {
+    width: 44,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: RED_BAY_COLORS.primary,
+    marginTop: 6,
   },
   stepBadge: {
     backgroundColor: '#FEF2F2',
@@ -340,17 +369,43 @@ const styles = StyleSheet.create({
   summaryBar: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     padding: 16,
-    gap: 10,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.04, 8, 2),
+    gap: 12,
+    position: 'relative',
+    overflow: 'hidden',
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
+  },
+  summaryTopStrip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: RED_BAY_COLORS.primary,
   },
   summaryBarTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+  },
+  summaryVehicleImageBox: {
+    width: 82,
+    height: 54,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    overflow: 'hidden',
+  },
+  summaryVehicleImage: {
+    width: '100%',
+    height: '100%',
   },
   summaryLabel: {
     fontSize: 10,
@@ -367,20 +422,24 @@ const styles = StyleSheet.create({
   summarySub: {
     fontSize: 11.5,
     color: '#64748B',
+    fontWeight: '600',
     marginTop: 1,
   },
   summaryPriceBox: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   summaryPrice: {
     fontSize: 20,
     fontWeight: '900',
     color: RED_BAY_COLORS.primary,
+    letterSpacing: 0.3,
   },
   summaryGst: {
     fontSize: 10,
     color: '#64748B',
-    fontWeight: '600',
+    fontWeight: '700',
+    marginTop: 1,
   },
   summaryBarDivider: {
     height: 1,
@@ -402,19 +461,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   plateTag: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#0F172A',
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   plateTagText: {
     fontSize: 11.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#FFFFFF',
+  },
+  customerInfoBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   customerNameTag: {
+    fontSize: 11.5,
+    color: '#334155',
+    fontWeight: '700',
+  },
+  customerMobileTag: {
     fontSize: 11.5,
     color: '#64748B',
     fontWeight: '600',
@@ -442,22 +509,24 @@ const styles = StyleSheet.create({
   paymentOptionCard: {
     width: '48.5%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 22,
+    paddingVertical: 20,
+    paddingHorizontal: 14,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     position: 'relative',
     overflow: 'hidden',
-    justifyContent: 'space-between',
-    minHeight: 110,
-    gap: 8,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.04, 8, 2),
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 142,
+    gap: 12,
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
   },
   paymentOptionCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFF8F8',
-    borderWidth: 2,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 6 }, 0.18, 10, 3),
+    backgroundColor: '#FFFDFD',
+    borderWidth: 2.5,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.22, 16, 4),
   },
   paymentSelectedStrip: {
     position: 'absolute',
@@ -469,14 +538,14 @@ const styles = StyleSheet.create({
   },
   payCardTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    justifyContent: 'center',
+    alignItems: 'center',
     width: '100%',
   },
   payIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -487,8 +556,9 @@ const styles = StyleSheet.create({
   },
   payDetailsCol: {
     width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 3,
-    marginVertical: 4,
   },
   payTitleRow: {
     flexDirection: 'row',
@@ -496,28 +566,40 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   payModeTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
     color: '#0F172A',
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   payModeTitleSelected: {
     color: RED_BAY_COLORS.primary,
   },
   activePill: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: RED_BAY_COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 2 }, 0.25, 4, 1),
   },
   activePillText: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '900',
-    color: RED_BAY_COLORS.primary,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   paySubtitle: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#334155',
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 1,
+    textAlign: 'center',
   },
   payDesc: {
     fontSize: 11,

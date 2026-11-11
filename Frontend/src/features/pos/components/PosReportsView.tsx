@@ -1784,8 +1784,24 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 <Ionicons name="car-sport" size={18} color="#ED0712" />
               </View>
               <View>
-                <Text style={styles.cardTitle}>Recent Washes</Text>
-                <Text style={styles.cardSubtitleText}>Live order tracking and fulfillment</Text>
+                <Text style={styles.cardTitle}>
+                  {selectedPeriodTab === 'DAILY'
+                    ? 'Daily Washes'
+                    : selectedPeriodTab === 'WEEKLY'
+                    ? 'Weekly Washes'
+                    : selectedPeriodTab === 'MONTHLY'
+                    ? 'Monthly Washes'
+                    : 'Yearly Washes'}
+                </Text>
+                <Text style={styles.cardSubtitleText}>
+                  {selectedPeriodTab === 'DAILY'
+                    ? 'Today’s order tracking and fulfillment'
+                    : selectedPeriodTab === 'WEEKLY'
+                    ? 'This week’s order tracking and fulfillment'
+                    : selectedPeriodTab === 'MONTHLY'
+                    ? 'This month’s order tracking and fulfillment'
+                    : 'This year’s order tracking and fulfillment'}
+                </Text>
               </View>
             </View>
             <View style={styles.countBadgePill}>
@@ -1915,8 +1931,24 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 <Ionicons name="flash-outline" size={18} color="#16A34A" />
               </View>
               <View>
-                <Text style={styles.cardTitle}>Recent Transactions</Text>
-                <Text style={styles.cardSubtitleText}>Live settlement activity feed</Text>
+                <Text style={styles.cardTitle}>
+                  {selectedPeriodTab === 'DAILY'
+                    ? 'Daily Transactions'
+                    : selectedPeriodTab === 'WEEKLY'
+                    ? 'Weekly Transactions'
+                    : selectedPeriodTab === 'MONTHLY'
+                    ? 'Monthly Transactions'
+                    : 'Yearly Transactions'}
+                </Text>
+                <Text style={styles.cardSubtitleText}>
+                  {selectedPeriodTab === 'DAILY'
+                    ? 'Today’s settlement activity feed'
+                    : selectedPeriodTab === 'WEEKLY'
+                    ? 'This week’s settlement activity feed'
+                    : selectedPeriodTab === 'MONTHLY'
+                    ? 'This month’s settlement activity feed'
+                    : 'This year’s settlement activity feed'}
+                </Text>
               </View>
             </View>
             <TouchableOpacity 

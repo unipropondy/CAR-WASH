@@ -18,6 +18,8 @@ import { PosSettingsView } from '../components/PosSettingsView';
 import { BayMasterManagementView } from '../components/BayMasterManagementView';
 import { PosReportsView } from '../components/PosReportsView';
 import { PosCustomerHistoryView } from '../components/PosCustomerHistoryView';
+import { SimpleDayModal } from '../../dayManagement/components/SimpleDayModal';
+import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 import { INITIAL_BAYS } from '../../../data/mockData';
 import { PosOrder, WashingBay } from '../../../types/pos.types';
 import { 
@@ -663,6 +665,9 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           onSearch={setSearchQuery}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           onPressNotification={() => setNotificationModalVisible(true)}
+          onPressDayManagement={() => {
+            useDayManagementStore.getState().openModal();
+          }}
           unreadCount={
             orders.filter((o) => o.statusCode === 30 || (o.paymentStatus === 'PAID' && !o.assignedBayId)).length +
             activeHelpAlerts.length
@@ -791,8 +796,10 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           <View style={styles.ordersContentWrapper}>
             {/* 1. Header: Today's Orders & Date */}
             <View style={styles.todayHeaderSection}>
-              <Text style={styles.todayTitle}>Today’s orders</Text>
-              <Text style={styles.todaySubtitle}>{formattedTodayDate}</Text>
+              <View>
+                <Text style={styles.todayTitle}>Today’s orders</Text>
+                <Text style={styles.todaySubtitle}>{formattedTodayDate}</Text>
+              </View>
             </View>
 
             {/* 2. Four Summary Cards */}
@@ -1287,6 +1294,9 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           </View>
         </View>
       </Modal>
+
+      {/* ================= MODAL: DAY MANAGEMENT POPUP ================= */}
+      <SimpleDayModal />
     </View>
   );
 };
@@ -1364,6 +1374,9 @@ const styles = StyleSheet.create({
     maxWidth: 1400,
   },
   todayHeaderSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 14,
   },
   todayTitle: {

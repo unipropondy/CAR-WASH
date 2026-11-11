@@ -265,10 +265,13 @@ async function getDateWiseWashTrend(req, res) {
 async function getRecentWashes(req, res) {
   try {
     const pool = await getPool();
-    const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 20;
+    const { start, end } = resolveDateRange(req.query);
+    const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
     const result = await pool.request()
       .input('TopCount', sql.Int, topCount)
+      .input('StartDate', sql.Date, start)
+      .input('EndDate', sql.Date, end)
       .execute('dbo.sp_CarWash_RecentWashes');
 
     const data = result.recordset.map((r) => ({
@@ -308,10 +311,13 @@ async function getRecentWashes(req, res) {
 async function getRecentTransactions(req, res) {
   try {
     const pool = await getPool();
-    const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 20;
+    const { start, end } = resolveDateRange(req.query);
+    const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
     const result = await pool.request()
       .input('TopCount', sql.Int, topCount)
+      .input('StartDate', sql.Date, start)
+      .input('EndDate', sql.Date, end)
       .execute('dbo.sp_CarWash_RecentTransactions');
 
     const data = result.recordset.map((r) => ({
@@ -359,8 +365,8 @@ async function getFullDashboard(req, res) {
       pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_BayUtilization'),
       pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_PaymentChannelMix'),
       pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_DateWiseWashTrend'),
-      pool.request().input('TopCount', sql.Int, 15).execute('dbo.sp_CarWash_RecentWashes'),
-      pool.request().input('TopCount', sql.Int, 15).execute('dbo.sp_CarWash_RecentTransactions'),
+      pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentWashes'),
+      pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentTransactions'),
     ]);
 
     const sRow = summaryRes.recordset[0] || {};

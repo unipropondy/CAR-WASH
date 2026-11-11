@@ -6,12 +6,14 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   ScrollView,
-  Platform 
+  Platform,
+  Image 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskNavButtons } from '../components/KioskNavButtons';
 import { CustomerDetails, DealerOption, VehicleOption, ServicePackage } from '../types/kiosk.types';
+import { getVehicleImageSource } from './Page2VehicleScreen';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 
@@ -124,6 +126,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
     ? `${selectedPackage.currencyCode || 'SGD'} $${selectedPackage.price.toFixed(2)}`
     : '';
 
+  const vehicleImgSource = getVehicleImageSource(selectedVehicle);
+
   return (
     <View style={styles.container}>
       {/* Top Center Logo & Header */}
@@ -136,18 +140,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
 
       {/* Main Title & Prompt Header */}
       <View style={styles.promptHeader}>
-        <View style={styles.stepBadge}>
-          <Text style={styles.stepBadgeText}>
-            {isDealer ? "STEP 5 • FLEET INFO" : "STEP 4 • CONTACT INFO"}
-          </Text>
-        </View>
         <Text style={styles.mainTitle}>
           {isDealer ? "Vehicle & Driver Details" : "Customer & Contact Details"}
-        </Text>
-        <Text style={styles.subtitle}>
-          {isDealer
-            ? `Logged in as ${dealer?.name || 'Dealer'}. Enter car plate or skip to use fleet billing.`
-            : "Please enter your name and mobile number. Vehicle plate is optional."}
         </Text>
         <View style={styles.titleUnderlineAccent} />
       </View>
@@ -189,9 +183,16 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderLeft}>
                 <View style={styles.sectionIconBadge}>
-                  <Ionicons name="clipboard-outline" size={18} color={RED_BAY_COLORS.primary} />
+                  <Ionicons name="id-card-outline" size={20} color={RED_BAY_COLORS.primary} />
                 </View>
-                <Text style={styles.cardSectionTitle}>Vehicle & Contact Details</Text>
+                <View>
+                  <Text style={styles.cardSectionTitle}>Vehicle & Contact Details</Text>
+                  <Text style={styles.cardSectionSubtitle}>Quick verification for wash queue</Text>
+                </View>
+              </View>
+              <View style={styles.secureBadge}>
+                <Ionicons name="shield-checkmark" size={12} color="#16A34A" />
+                <Text style={styles.secureBadgeText}>Fast Checkout</Text>
               </View>
             </View>
 
@@ -199,17 +200,16 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
-                  <Ionicons name="person-outline" size={14} color="#0F172A" />
                   <Text style={styles.fieldLabel}>
-                    {isDealer ? "DRIVER NAME" : "CUSTOMER NAME"}
+                    {isDealer ? "Driver Name" : "Customer Name"}
                   </Text>
                   <Text style={styles.requiredAsterisk}>*</Text>
                 </View>
                 <View style={[styles.badgePill, isNameValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired)]}>
                   <Ionicons 
                     name={isNameValid ? "checkmark-circle" : (hasAttemptedSubmit ? "alert-circle" : "ellipse")} 
-                    size={10} 
-                    color={isNameValid ? "#16A34A" : (hasAttemptedSubmit ? "#DC2626" : "#DC2626")} 
+                    size={11} 
+                    color={isNameValid ? "#16A34A" : "#DC2626"} 
                   />
                   <Text style={[styles.badgeText, isNameValid ? styles.badgeTextSuccess : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired)]}>
                     {isNameValid ? 'Done' : 'Required'}
@@ -223,10 +223,10 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 nameError && styles.modernInputBoxError,
               ]}>
                 <Ionicons 
-                  name="person" 
-                  size={16} 
-                  color={nameError ? "#EF4444" : (isNameValid ? "#0F172A" : "#94A3B8")} 
-                  style={{ marginRight: 8 }}
+                  name="person-outline" 
+                  size={19} 
+                  color={nameError ? "#EF4444" : (isNameValid ? RED_BAY_COLORS.primary : "#64748B")} 
+                  style={styles.fieldInputIcon}
                 />
                 <TextInput
                   style={styles.modernTextInput}
@@ -235,7 +235,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                     setCustomerName(text);
                     if (hasAttemptedSubmit) setHasAttemptedSubmit(false);
                   }}
-                  placeholder={isDealer ? "Driver Name (required)" : "e.g. Alex Tan"}
+                  placeholder={isDealer ? "Driver name (required)" : "Enter customer name"}
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="words"
                 />
@@ -257,15 +257,14 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
-                  <Ionicons name="call-outline" size={14} color="#0F172A" />
-                  <Text style={styles.fieldLabel}>MOBILE NUMBER</Text>
+                  <Text style={styles.fieldLabel}>Mobile Number</Text>
                   <Text style={styles.requiredAsterisk}>*</Text>
                 </View>
                 <View style={[styles.badgePill, isMobileValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired)]}>
                   <Ionicons 
                     name={isMobileValid ? "checkmark-circle" : (hasAttemptedSubmit ? "alert-circle" : "ellipse")} 
-                    size={10} 
-                    color={isMobileValid ? "#16A34A" : (hasAttemptedSubmit ? "#DC2626" : "#DC2626")} 
+                    size={11} 
+                    color={isMobileValid ? "#16A34A" : "#DC2626"} 
                   />
                   <Text style={[styles.badgeText, isMobileValid ? styles.badgeTextSuccess : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired)]}>
                     {isMobileValid ? 'Done' : 'Required'}
@@ -278,10 +277,12 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 isMobileValid && styles.modernInputBoxFilled,
                 mobileError && styles.modernInputBoxError,
               ]}>
-                <View style={styles.mobilePrefixPill}>
-                  <Text style={styles.mobilePrefixCountry}>SG</Text>
-                  <Text style={styles.mobilePrefixText}>+65</Text>
-                </View>
+                <Ionicons 
+                  name="call-outline" 
+                  size={19} 
+                  color={mobileError ? "#EF4444" : (isMobileValid ? RED_BAY_COLORS.primary : "#64748B")} 
+                  style={styles.fieldInputIcon}
+                />
                 <TextInput
                   style={styles.modernTextInput}
                   value={mobileNumber}
@@ -289,7 +290,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                     setMobileNumber(text);
                     if (hasAttemptedSubmit) setHasAttemptedSubmit(false);
                   }}
-                  placeholder="e.g. 9123 4567"
+                  placeholder="Enter mobile number"
                   placeholderTextColor="#94A3B8"
                   keyboardType="phone-pad"
                   maxLength={15}
@@ -300,13 +301,11 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   </TouchableOpacity>
                 )}
               </View>
-              {mobileError ? (
+              {mobileError && (
                 <View style={styles.errorRow}>
                   <Ionicons name="warning" size={13} color="#EF4444" />
                   <Text style={styles.errorText}>{mobileError}</Text>
                 </View>
-              ) : (
-                <Text style={styles.fieldHelpText}>SMS receipt and bay readiness notification will be sent here.</Text>
               )}
             </View>
 
@@ -317,13 +316,13 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
-                  <Ionicons name="car-outline" size={15} color="#475569" />
-                  <Text style={styles.fieldLabelOptional}>VEHICLE REGISTRATION NUMBER</Text>
+                  <Text style={styles.fieldLabel}>Vehicle Registration Number</Text>
+                  <Text style={styles.fieldOptionalHint}>(Optional)</Text>
                 </View>
                 <View style={[styles.badgePill, hasPlate ? styles.badgePillSuccess : styles.badgePillOptional]}>
                   <Ionicons 
                     name={hasPlate ? "checkmark-circle" : "information-circle-outline"} 
-                    size={10} 
+                    size={11} 
                     color={hasPlate ? "#16A34A" : "#64748B"} 
                   />
                   <Text style={[styles.badgeText, hasPlate ? styles.badgeTextSuccess : styles.badgeTextOptional]}>
@@ -332,15 +331,18 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={[styles.modernPlateBox, hasPlate && styles.modernPlateBoxFilled]}>
-                <View style={styles.sgPill}>
-                  <Text style={styles.sgPillText}>SG</Text>
-                </View>
+              <View style={[styles.modernInputBox, hasPlate && styles.modernPlateBoxFilled]}>
+                <Ionicons 
+                  name="car-outline" 
+                  size={19} 
+                  color={hasPlate ? RED_BAY_COLORS.primary : "#64748B"} 
+                  style={styles.fieldInputIcon}
+                />
                 <TextInput
-                  style={styles.modernPlateInput}
+                  style={styles.modernTextInput}
                   value={vehicleNumber}
                   onChangeText={(text) => setVehicleNumber(text.toUpperCase())}
-                  placeholder="e.g. SBA 1234 A (or leave blank)"
+                  placeholder="Enter vehicle plate (optional)"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="characters"
                   maxLength={10}
@@ -355,9 +357,6 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   </TouchableOpacity>
                 )}
               </View>
-              <Text style={styles.fieldHelpText}>
-                Optional. Leave blank to process as standard Walk-In order.
-              </Text>
             </View>
           </View>
 
@@ -366,37 +365,55 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.summaryTopStrip} />
 
             <View style={styles.summaryHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="receipt-outline" size={16} color="#0F172A" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={styles.summaryReceiptBadge}>
+                  <Ionicons name="receipt-outline" size={15} color={RED_BAY_COLORS.primary} />
+                </View>
                 <Text style={styles.summaryTitle}>ORDER SUMMARY</Text>
-              </View>
-              <View style={styles.summaryStationBadge}>
-                <Text style={styles.summaryStationText}>EXPRESS BAY</Text>
               </View>
             </View>
 
             {/* Vehicle Chosen Row */}
             <View style={styles.summaryItemRow}>
-              <View style={styles.summaryIconBox}>
-                <Ionicons name="car-sport" size={20} color="#2563EB" />
+              <View style={styles.summaryVehicleImageBox}>
+                {vehicleImgSource ? (
+                  <Image
+                    source={vehicleImgSource}
+                    style={styles.summaryVehicleImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Ionicons name="car-sport" size={24} color={RED_BAY_COLORS.primary} />
+                )}
               </View>
-              <View style={{ flex: 1 }}>
+              <View style={styles.summaryItemInfo}>
                 <Text style={styles.summaryItemLabel}>VEHICLE TYPE</Text>
                 <Text style={styles.summaryItemValue}>
                   {selectedVehicle?.name || 'Standard Vehicle'}
                 </Text>
+                <Text style={styles.summaryItemSub}>
+                  {selectedVehicle?.description || 'Selected Category'}
+                </Text>
               </View>
             </View>
 
+            {/* Divider Line */}
+            <View style={styles.summaryDivider} />
+
             {/* Package Chosen Row */}
             <View style={styles.summaryItemRow}>
-              <View style={[styles.summaryIconBox, { backgroundColor: '#FEF2F2' }]}>
-                <Ionicons name="sparkles" size={18} color={RED_BAY_COLORS.primary} />
+              <View style={styles.summaryPackageIconBox}>
+                <Ionicons name="sparkles" size={22} color={RED_BAY_COLORS.primary} />
               </View>
-              <View style={{ flex: 1 }}>
+              <View style={styles.summaryItemInfo}>
                 <Text style={styles.summaryItemLabel}>SERVICE PACKAGE</Text>
                 <Text style={styles.summaryItemValue}>
                   {selectedPackage?.name || 'Selected Package'}
+                </Text>
+                <Text style={styles.summaryItemSub}>
+                  {selectedPackage?.durationMinutes 
+                    ? `${selectedPackage.durationMinutes} mins service` 
+                    : 'Complete car care'}
                 </Text>
               </View>
               {selectedPackage && (
@@ -421,10 +438,10 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
           isSubmitting
             ? 'Processing Order...'
             : isDealer
-              ? 'CONTINUE TO CREDIT SUMMARY ›'
+              ? 'CONTINUE TO CREDIT SUMMARY'
               : selectedPackage
-                ? `Proceed to Payment (${priceFormatted}) ›`
-                : 'Proceed to Payment ›'
+                ? `Proceed to Payment (${priceFormatted})`
+                : 'Proceed to Payment'
         }
       />
     </View>
@@ -531,24 +548,43 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sectionIconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardSectionTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   cardSectionSubtitle: {
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#64748B',
     marginTop: 1,
+  },
+  secureBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  secureBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#16A34A',
+    letterSpacing: 0.3,
   },
   requiredPill: {
     flexDirection: 'row',
@@ -608,7 +644,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   fieldGroup: {
-    gap: 6,
+    gap: 8,
   },
   labelRow: {
     flexDirection: 'row',
@@ -618,32 +654,37 @@ const styles = StyleSheet.create({
   labelWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   fieldLabel: {
-    fontSize: 11.5,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
     color: '#0F172A',
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
+  },
+  fieldOptionalHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginLeft: 6,
   },
   fieldLabelOptional: {
-    fontSize: 11.5,
+    fontSize: 13,
     fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.3,
+    color: '#0F172A',
+    letterSpacing: 0.2,
   },
   requiredAsterisk: {
     color: '#DC2626',
     fontSize: 14,
     fontWeight: '900',
-    marginLeft: 1,
+    marginLeft: 3,
   },
   badgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 2.5,
+    paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
   },
@@ -652,7 +693,7 @@ const styles = StyleSheet.create({
     borderColor: '#FECACA',
   },
   badgePillOptional: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     borderColor: '#E2E8F0',
   },
   badgePillSuccess: {
@@ -682,47 +723,39 @@ const styles = StyleSheet.create({
   modernInputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    paddingHorizontal: 12,
-    height: 48,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    height: 52,
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+  },
+  fieldInputIcon: {
+    marginRight: 10,
   },
   modernInputBoxFilled: {
-    borderColor: '#0284C7',
+    borderColor: '#0F172A',
     backgroundColor: '#FFFFFF',
   },
   modernInputBoxError: {
     borderColor: '#EF4444',
     backgroundColor: '#FEF2F2',
   },
-  mobilePrefixPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF2F6',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginRight: 10,
-    gap: 6,
-  },
-  mobilePrefixCountry: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#334155',
-    letterSpacing: 0.5,
-  },
-  mobilePrefixText: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
   modernTextInput: {
     flex: 1,
-    fontSize: 14.5,
+    height: '100%',
+    fontSize: 15,
     fontWeight: '700',
     color: '#0F172A',
+    paddingVertical: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    ...(Platform.OS === 'web' ? ({
+      outlineStyle: 'none',
+      outlineWidth: 0,
+      borderStyle: 'none',
+    } as any) : {}),
   },
   errorRow: {
     flexDirection: 'row',
@@ -747,40 +780,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     marginVertical: 4,
   },
-  modernPlateBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    paddingHorizontal: 10,
-    height: 50,
-  },
   modernPlateBoxFilled: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFFFFF',
-  },
-  sgPill: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-  sgPillText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  modernPlateInput: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
-    letterSpacing: 1.2,
+    backgroundColor: '#FFFDFD',
   },
   clearBtn: {
     padding: 4,
@@ -790,14 +792,14 @@ const styles = StyleSheet.create({
   summaryCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 22,
+    padding: 18,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     position: 'relative',
     overflow: 'hidden',
-    gap: 10,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.04, 8, 2),
+    gap: 12,
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
   },
   summaryTopStrip: {
     position: 'absolute',
@@ -805,71 +807,104 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 4,
-    backgroundColor: '#0F172A',
+    backgroundColor: RED_BAY_COLORS.primary,
   },
   summaryHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 8,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
+  summaryReceiptBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   summaryTitle: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.6,
   },
-  summaryStationBadge: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  summaryStationText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#475569',
-  },
   summaryItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 4,
+    gap: 14,
+    paddingVertical: 2,
   },
-  summaryIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#EFF6FF',
+  summaryVehicleImageBox: {
+    width: 82,
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    overflow: 'hidden',
+  },
+  summaryVehicleImage: {
+    width: '100%',
+    height: '100%',
+  },
+  summaryPackageIconBox: {
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  summaryItemInfo: {
+    flex: 1,
+    gap: 2,
+  },
   summaryItemLabel: {
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#94A3B8',
-    letterSpacing: 0.5,
+    color: '#64748B',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   summaryItemValue: {
-    fontSize: 14,
+    fontSize: 15.5,
     fontWeight: '900',
     color: '#0F172A',
-    marginTop: 1,
+    letterSpacing: 0.2,
+  },
+  summaryItemSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 2,
   },
   summaryPriceBox: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   summaryPriceText: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '900',
     color: RED_BAY_COLORS.primary,
+    letterSpacing: 0.3,
   },
   summaryGstText: {
-    fontSize: 9.5,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: '#64748B',
+    marginTop: 1,
   },
 });
 

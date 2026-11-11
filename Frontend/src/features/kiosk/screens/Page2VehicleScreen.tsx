@@ -92,7 +92,8 @@ const VEHICLE_LOCAL_ASSETS: Record<string, any> = {
   coupe: require('../../../../assets/images/vehicles/coupe.png'),
 };
 
-function getVehicleImageSource(item: VehicleOption): any {
+export function getVehicleImageSource(item?: VehicleOption | null): any {
+  if (!item) return null;
   if (item.imageUrl && item.hasImage) {
     return { uri: item.imageUrl };
   }
@@ -236,31 +237,33 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
                   {/* Top Red Strip when selected */}
                   {isSelected && <View style={styles.cardSelectedStrip} />}
 
-                  {/* Body: Vehicle Image & Name */}
-                  <View style={styles.cardBody}>
-                    <View style={styles.imageContainer}>
-                      {imgSource ? (
-                        <Image
-                          source={imgSource}
-                          style={styles.vehicleImage}
-                          resizeMode="contain"
+                  {/* Body: Vehicle Image Showcase with Pedestal */}
+                  <View style={[styles.imageShowcase, isSelected && styles.imageShowcaseSelected]}>
+                    {imgSource ? (
+                      <Image
+                        source={imgSource}
+                        style={styles.vehicleImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <View style={[styles.iconBox, isSelected && styles.iconBoxSelected]}>
+                        <Ionicons
+                          name={meta.iconName}
+                          size={38}
+                          color={isSelected ? RED_BAY_COLORS.primary : meta.accentColor}
                         />
-                      ) : (
-                        <View style={[styles.iconBox, isSelected && styles.iconBoxSelected]}>
-                          <Ionicons
-                            name={meta.iconName}
-                            size={34}
-                            color={isSelected ? RED_BAY_COLORS.primary : meta.accentColor}
-                          />
-                        </View>
-                      )}
-                    </View>
+                      </View>
+                    )}
+                    <View style={styles.pedestalShadow} />
+                  </View>
 
+                  {/* Info: Name & Subtitle */}
+                  <View style={styles.cardInfo}>
                     <Text style={[styles.vehicleName, isSelected && styles.vehicleNameSelected]} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={styles.vehicleSizeHint} numberOfLines={1}>
-                      {meta.sizeLabel}
+                    <Text style={styles.vehicleSizeHint} numberOfLines={2}>
+                      {item.description || meta.sizeLabel}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -358,30 +361,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 14,
+    rowGap: 16,
     width: '100%',
-    maxWidth: 580,
+    maxWidth: 600,
   },
   vehicleCard: {
     width: '48.5%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
+    borderRadius: 22,
+    paddingHorizontal: 10,
+    paddingTop: 12,
+    paddingBottom: 14,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     overflow: 'hidden',
-    minHeight: 160,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.05, 10, 2),
+    minHeight: 185,
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 12, 3),
   },
   vehicleCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFF8F8',
-    borderWidth: 2,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 6 }, 0.2, 12, 4),
+    backgroundColor: '#FFFAFA',
+    borderWidth: 2.5,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.22, 16, 4),
   },
   cardSelectedStrip: {
     position: 'absolute',
@@ -391,21 +395,36 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: RED_BAY_COLORS.primary,
   },
-  cardBody: {
-    alignItems: 'center',
+  imageShowcase: {
     width: '100%',
-    paddingVertical: 4,
-  },
-  imageContainer: {
-    width: '100%',
-    height: 90,
+    height: 104,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    padding: 6,
     marginBottom: 8,
+  },
+  imageShowcaseSelected: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FEE2E2',
   },
   vehicleImage: {
     width: '100%',
     height: 90,
+    zIndex: 2,
+  },
+  pedestalShadow: {
+    position: 'absolute',
+    bottom: 6,
+    width: '75%',
+    height: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.05)',
+    zIndex: 1,
   },
   iconBox: {
     width: 52,
@@ -421,12 +440,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
   },
+  cardInfo: {
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 4,
+  },
   vehicleName: {
-    fontSize: 16,
+    fontSize: 16.5,
     fontWeight: '900',
     color: '#0F172A',
     textAlign: 'center',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   vehicleNameSelected: {
     color: RED_BAY_COLORS.primary,
@@ -437,5 +461,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
     textAlign: 'center',
+    lineHeight: 15,
+    paddingHorizontal: 4,
   },
 });

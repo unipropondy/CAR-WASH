@@ -96,6 +96,14 @@ import {
 } from '../../../services/printerApi';
 
 import {
+  fetchAllDealers,
+  createDealer,
+  updateDealer,
+  deleteDealer,
+  DealerRecord,
+} from '../../../services/dealerApi';
+
+import {
   fetchActiveHelpRequests,
   resolveHelpRequest,
   clearAllHelpRequests,
@@ -129,7 +137,7 @@ type NavId =
   | 'export'
   | 'alerts';
 
-type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'BAYS' | 'COMPANY' | 'PRINTERS';
+type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'BAYS' | 'DEALERS' | 'COMPANY' | 'PRINTERS';
 
 export interface BackofficeScreenProps {
   onLogout?: () => void;
@@ -403,6 +411,19 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [bStatus, setBStatus] = useState('AVAILABLE');
   const [bRemarks, setBRemarks] = useState('');
 
+  // 3e. Dealers
+  const [dealers, setDealers] = useState<DealerRecord[]>([]);
+  const [dealerModalOpen, setDealerModalOpen] = useState(false);
+  const [editingDealer, setEditingDealer] = useState<DealerRecord | null>(null);
+  const [dCode, setDCode] = useState('');
+  const [dName, setDName] = useState('');
+  const [dPhone, setDPhone] = useState('');
+  const [dContactPerson, setDContactPerson] = useState('');
+  const [dAddress, setDAddress] = useState('');
+  const [dPin, setDPin] = useState('1234');
+  const [dLogo, setDLogo] = useState('');
+  const [dActive, setDActive] = useState(true);
+
   // 3e. Company Profile
   const [compSettings, setCompSettings] = useState<CompanySettings | null>(null);
   const [compName, setCompName] = useState('');
@@ -445,6 +466,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       } else if (settingsTab === 'BAYS') {
         const data = await fetchBayMasterList();
         setBays(data);
+      } else if (settingsTab === 'DEALERS') {
+        const data = await fetchAllDealers(true);
+        setDealers(data);
       } else if (settingsTab === 'COMPANY') {
         const data = await fetchCompanySettings();
         if (data) {
@@ -670,6 +694,87 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       loadSettingsData();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to delete bay');
+    }
+  };
+
+  // Dealer Save
+  const handleSaveDealer = async () => {
+    if (!dCode.trim()) {
+      showAlert('Validation Error', 'Unique Dealer ID/Code is required.');
+      return;
+    }
+    if (!dName.trim()) {
+      showAlert('Validation Error', 'Dealer Name is required.');
+      return;
+    }
+    if (!dPhone.trim()) {
+      showAlert('Validation Error', 'Contact Number is required.');
+      return;
+    }
+    if (!dAddress.trim()) {
+      showAlert('Validation Error', 'Dealer Address is required.');
+      return;
+    }
+    try {
+      if (editingDealer) {
+        await updateDealer(editingDealer.dealerId, {
+          uniqueCode: dCode.trim().toUpperCase(),
+          dealerName: dName.trim(),
+          contactNumber: dPhone.trim(),
+          contactPerson: dContactPerson.trim(),
+          address: dAddress.trim(),
+          securityPin: dPin.trim() || '1234',
+          logoUrl: dLogo,
+          isActive: dActive,
+        });
+        showAlert('Success', `Dealer "${dName}" updated successfully.`);
+      } else {
+        await createDealer({
+          uniqueCode: dCode.trim().toUpperCase(),
+          dealerName: dName.trim(),
+          contactNumber: dPhone.trim(),
+          contactPerson: dContactPerson.trim(),
+          address: dAddress.trim(),
+          securityPin: dPin.trim() || '1234',
+          logoUrl: dLogo,
+          isActive: dActive,
+        });
+        showAlert('Success', `Dealer "${dName}" created with Unique ID "${dCode.trim().toUpperCase()}".`);
+      }
+      setDealerModalOpen(false);
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Operation failed');
+    }
+  };
+
+  const handleDeleteDealer = async (id: number | string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (!window.confirm('Are you sure you want to delete this dealer account?')) return;
+      try {
+        await deleteDealer(id);
+        showAlert('Success', 'Dealer account deleted.');
+        loadSettingsData();
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to delete dealer');
+      }
+    } else {
+      Alert.alert('Confirm Delete', 'Are you sure you want to delete this dealer account?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDealer(id);
+              showAlert('Success', 'Dealer account deleted.');
+              loadSettingsData();
+            } catch (err: any) {
+              showAlert('Error', err.message || 'Failed to delete dealer');
+            }
+          },
+        },
+      ]);
     }
   };
 
@@ -1178,6 +1283,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           { id: 'CATEGORIES', label: 'Categories' },
           { id: 'PACKAGES', label: 'Service Packages' },
           { id: 'BAYS', label: 'Washing Bays' },
+          { id: 'DEALERS', label: 'Dealers' },
           { id: 'COMPANY', label: 'Station Profile' },
           { id: 'PRINTERS', label: 'Printers' },
         ].map((tab) => (
@@ -1513,6 +1619,135 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               </View>
             </View>
           ))}
+        </View>
+      )}
+
+      {/* Tab: Dealers */}
+      {settingsTab === 'DEALERS' && (
+        <View style={styles.glassCard}>
+          <View style={styles.cardHeaderAction}>
+            <View>
+              <Text style={styles.cardHeading}>Dealer Accounts (DealerMaster)</Text>
+              <Text style={styles.cardSubhead}>
+                Manage commercial dealer accounts, unique IDs, contact details, and custom logos
+              </Text>
+            </View>
+            <Pressable
+              style={styles.btnPrimary}
+              onPress={() => {
+                setEditingDealer(null);
+                setDCode(`DLR-${String((dealers.length || 0) + 1).padStart(2, '0')}`);
+                setDName('');
+                setDPhone('');
+                setDContactPerson('');
+                setDAddress('');
+                setDPin('1234');
+                setDLogo('');
+                setDActive(true);
+                setDealerModalOpen(true);
+              }}
+            >
+              <Ionicons name="add" size={16} color={C.white} />
+              <Text style={styles.btnPrimaryText}>Add Dealer</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 0.8 }]}>LOGO</Text>
+            <Text style={[styles.th, { flex: 1.1 }]}>UNIQUE ID</Text>
+            <Text style={[styles.th, { flex: 1.8 }]}>DEALER NAME</Text>
+            <Text style={[styles.th, { flex: 1.3 }]}>CONTACT NO</Text>
+            <Text style={[styles.th, { flex: 2.2 }]}>ADDRESS</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>PIN</Text>
+            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
+          </View>
+
+          {dealers.map((d) => (
+            <View key={d.dealerId || d.uniqueCode} style={styles.tableRow}>
+              {/* Logo Column */}
+              <View style={{ flex: 0.8, justifyContent: 'center' }}>
+                {d.logoUrl ? (
+                  <Image source={{ uri: d.logoUrl }} style={styles.tableThumb} resizeMode="contain" />
+                ) : (
+                  <View style={styles.tableThumbPlaceholder}>
+                    <Ionicons name="business-outline" size={16} color={C.textMuted} />
+                  </View>
+                )}
+              </View>
+
+              {/* Unique ID */}
+              <Text style={[styles.td, styles.textAccent, { flex: 1.1, fontWeight: '800' }]}>
+                {d.uniqueCode}
+              </Text>
+
+              {/* Dealer Name */}
+              <View style={{ flex: 1.8, justifyContent: 'center' }}>
+                <Text style={[styles.td, styles.textWhite, { fontWeight: '700' }]}>{d.dealerName}</Text>
+                {d.contactPerson ? (
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                    Attn: {d.contactPerson}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* Contact Number */}
+              <Text style={[styles.td, styles.textSec, { flex: 1.3 }]}>
+                {d.contactNumber || '-'}
+              </Text>
+
+              {/* Address */}
+              <Text style={[styles.td, styles.textSec, { flex: 2.2 }]} numberOfLines={2}>
+                {d.address || '-'}
+              </Text>
+
+              {/* Security PIN */}
+              <Text style={[styles.td, styles.textSec, { flex: 0.9, letterSpacing: 2, fontFamily: 'monospace' }]}>
+                {d.securityPin || '1234'}
+              </Text>
+
+              {/* Status */}
+              <View style={{ flex: 1 }}>
+                <View style={[styles.statusBadge, d.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                  <Text style={[styles.statusBadgeText, d.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                    {d.isActive ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={[styles.actionRow, { flex: 1 }]}>
+                <Pressable
+                  style={styles.btnAction}
+                  onPress={() => {
+                    setEditingDealer(d);
+                    setDCode(d.uniqueCode);
+                    setDName(d.dealerName);
+                    setDPhone(d.contactNumber || '');
+                    setDContactPerson(d.contactPerson || '');
+                    setDAddress(d.address || '');
+                    setDPin(d.securityPin || '1234');
+                    setDLogo(d.logoUrl || '');
+                    setDActive(d.isActive);
+                    setDealerModalOpen(true);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                </Pressable>
+                <Pressable style={styles.btnAction} onPress={() => handleDeleteDealer(d.dealerId)}>
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </Pressable>
+              </View>
+            </View>
+          ))}
+
+          {dealers.length === 0 && !settingsLoading && (
+            <View style={{ padding: 30, alignItems: 'center' }}>
+              <Text style={{ color: C.textMuted, fontSize: 13 }}>
+                No dealers registered yet. Click "+ Add Dealer" to create one.
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -1894,6 +2129,144 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPrinterModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSavePrinter}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Dealer Modal */}
+      <Modal visible={dealerModalOpen} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxWidth: 540 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editingDealer ? 'Edit Dealer Account' : 'Add New Dealer Account'}</Text>
+              <Pressable onPress={() => setDealerModalOpen(false)}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 520 }}>
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1.2 }]}>
+                  <Text style={styles.fieldLabel}>UNIQUE DEALER ID / CODE *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={dCode}
+                    onChangeText={setDCode}
+                    placeholder="e.g. DLR-A-01"
+                    autoCapitalize="characters"
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 0.8 }]}>
+                  <Text style={styles.fieldLabel}>SECURITY PIN *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={dPin}
+                    onChangeText={setDPin}
+                    placeholder="4 digits"
+                    maxLength={6}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DEALER / COMPANY NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={dName}
+                  onChangeText={setDName}
+                  placeholder="e.g. Dealer A - Apex Automotive"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>CONTACT NUMBER *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={dPhone}
+                    onChangeText={setDPhone}
+                    placeholder="+65 9123 4567"
+                    keyboardType="phone-pad"
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>CONTACT PERSON</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={dContactPerson}
+                    onChangeText={setDContactPerson}
+                    placeholder="e.g. David Tan"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DEALER ADDRESS *</Text>
+                <TextInput
+                  style={[styles.fieldInput, { height: 60, textAlignVertical: 'top' }]}
+                  value={dAddress}
+                  onChangeText={setDAddress}
+                  placeholder="e.g. 10 Toh Guan Road, #01-02, Singapore 608838"
+                  multiline
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DEALER LOGO IMAGE</Text>
+                <View style={styles.uploadRow}>
+                  {dLogo ? (
+                    <View style={styles.previewBox}>
+                      <Image source={{ uri: dLogo }} style={styles.previewImg} resizeMode="contain" />
+                      <Pressable style={styles.previewRemoveBtn} onPress={() => setDLogo('')}>
+                        <Ionicons name="trash" size={12} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={styles.previewBoxPlaceholder}>
+                      <Ionicons name="business-outline" size={24} color={C.textMuted} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Pressable
+                      style={styles.btnUpload}
+                      onPress={() => handlePickImage((base64) => setDLogo(base64))}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                      <Text style={styles.btnUploadText}>{dLogo ? 'Change Logo' : 'Upload Logo Image'}</Text>
+                    </Pressable>
+                    <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL / cloud)</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={[styles.formGroup, { marginTop: 4 }]}>
+                <Text style={styles.fieldLabel}>ACCOUNT STATUS</Text>
+                <View style={styles.groupPickerRow}>
+                  <Pressable
+                    style={[styles.groupPill, dActive && styles.groupPillActive]}
+                    onPress={() => setDActive(true)}
+                  >
+                    <Text style={[styles.groupPillText, dActive && { color: C.white, fontWeight: '700' }]}>Active</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.groupPill, !dActive && styles.groupPillActive]}
+                    onPress={() => setDActive(false)}
+                  >
+                    <Text style={[styles.groupPillText, !dActive && { color: C.white, fontWeight: '700' }]}>Inactive</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <Pressable style={styles.btnSecondary} onPress={() => setDealerModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} onPress={handleSaveDealer}>
+                <Text style={styles.btnPrimaryText}>Save Dealer</Text>
+              </Pressable>
             </View>
           </View>
         </View>

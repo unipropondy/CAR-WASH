@@ -8,6 +8,8 @@ const config = {
   server: process.env.DB_SERVER,
   port: parseInt(process.env.DB_PORT || '1433', 10),
   database: process.env.DB_NAME,
+  connectionTimeout: 45000,
+  requestTimeout: 45000,
   options: {
     encrypt: false,
     trustServerCertificate: true,
@@ -25,19 +27,33 @@ let pool = null;
 /**
  * Get or initialize the MSSQL connection pool
  */
-async function getPool() {
+async function getPool(retries = 3, delayMs = 2000) {
   if (pool && pool.connected) {
     return pool;
   }
 
-  try {
-    pool = await sql.connect(config);
-    console.log(`[Database] Connected to SQL Server database "${config.database}" at ${config.server}:${config.port}`);
-    return pool;
-  } catch (err) {
-    console.error('[Database] Connection failed:', err.message);
-    pool = null;
-    throw err;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      if (pool) {
+        try { await pool.close(); } catch (_) {}
+        pool = null;
+      }
+      const newPool = new sql.ConnectionPool(config);
+      await newPool.connect();
+      pool = newPool;
+      console.log(`[Database] Connected to SQL Server database "${config.database}" at ${config.server}:${config.port}`);
+      return pool;
+    } catch (err) {
+      console.error(`[Database] Connection attempt ${attempt}/${retries} failed:`, err.message);
+      if (pool) {
+        try { await pool.close(); } catch (_) {}
+        pool = null;
+      }
+      if (attempt === retries) {
+        throw err;
+      }
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
   }
 }
 

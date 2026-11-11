@@ -1,6 +1,9 @@
-import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Modal } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { IconSearch, IconMenu, IconBell } from '../../../components/common/AppIcons';
+import { DayStatusIndicator } from '../../dayManagement/components/DayStatusIndicator';
+import { makeShadow } from '../../../theme/shadows';
 
 interface PosTopNavbarProps {
   pageTitle?: string;
@@ -10,6 +13,7 @@ interface PosTopNavbarProps {
   onLogout?: () => void;
   onPressNotification?: () => void;
   unreadCount?: number;
+  onPressDayManagement?: () => void;
 }
 
 export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
@@ -20,7 +24,10 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
   onLogout,
   onPressNotification,
   unreadCount = 0,
+  onPressDayManagement,
 }) => {
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
   return (
     <View style={styles.navbarContainer}>
       {/* Left side: Menu Button, Orders Title, and Search Input */}
@@ -53,8 +60,11 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
         </View>
       </View>
 
-      {/* Right side: Notification button & Cashier profile */}
+      {/* Right side: Day status, Notification button & Cashier profile */}
       <View style={styles.rightSection}>
+        {/* Global Business Day Status Indicator */}
+        <DayStatusIndicator onPress={onPressDayManagement} />
+
         {/* Notification Button */}
         <TouchableOpacity
           style={styles.notificationBtn}
@@ -77,7 +87,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
         <TouchableOpacity
           style={styles.cashierProfile}
           activeOpacity={0.75}
-          onPress={onLogout}
+          onPress={() => setShowLogoutModal(true)}
           accessibilityRole="button"
           accessibilityLabel="Cashier profile / logout"
         >
@@ -87,6 +97,86 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
           <Text style={styles.cashierLabel}>{cashierName}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Logout Confirmation Modal */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdropTouch}
+            activeOpacity={1}
+            onPress={() => setShowLogoutModal(false)}
+          />
+          <View style={styles.logoutModalCard}>
+            {/* Close (X) button */}
+            <TouchableOpacity
+              style={styles.modalCloseBtn}
+              onPress={() => setShowLogoutModal(false)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Ionicons name="close" size={18} color="#64748B" />
+            </TouchableOpacity>
+
+            <View style={styles.modalContent}>
+              {/* Layered Squircle Icon Badge */}
+              <View style={styles.logoutSquircle}>
+                <View style={styles.logoutSquircleInner}>
+                  <Ionicons name="log-out" size={24} color="#E60012" />
+                </View>
+              </View>
+
+              <Text style={styles.logoutModalTitle}>Confirm Sign Out</Text>
+              <Text style={styles.logoutModalMessage}>
+                Are you sure you want to log out of the POS system? You will be returned to the sign-in screen.
+              </Text>
+
+              {/* Active Session Info Card */}
+              <View style={styles.userSessionCard}>
+                <View style={styles.userSessionAvatar}>
+                  <Text style={styles.userSessionAvatarText}>CS</Text>
+                </View>
+                <View style={styles.userSessionDetails}>
+                  <Text style={styles.userSessionName}>{cashierName}</Text>
+                  <Text style={styles.userSessionRole}>Active Cashier Session</Text>
+                </View>
+                <View style={styles.userSessionBadge}>
+                  <View style={styles.activeDot} />
+                  <Text style={styles.userSessionBadgeText}>ONLINE</Text>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={styles.logoutModalActions}>
+                <TouchableOpacity
+                  style={styles.logoutCancelBtn}
+                  onPress={() => setShowLogoutModal(false)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.logoutCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.logoutConfirmBtn}
+                  onPress={() => {
+                    setShowLogoutModal(false);
+                    if (onLogout) onLogout();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="log-out-outline" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.logoutConfirmBtnText}>Log Out</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -214,5 +304,185 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 9999,
+  },
+  modalBackdropTouch: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  logoutModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    ...makeShadow('#0F172A', { width: 0, height: 20 }, 0.22, 40, 12),
+    zIndex: 10,
+    position: 'relative',
+  },
+  modalCloseBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  modalContent: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  logoutSquircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1.5,
+    borderColor: '#FECDD3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  logoutSquircleInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...makeShadow('#E60012', { width: 0, height: 3 }, 0.15, 8, 2),
+  },
+  logoutModalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  logoutModalMessage: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 18,
+    paddingHorizontal: 10,
+  },
+  userSessionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    width: '100%',
+    marginBottom: 20,
+  },
+  userSessionAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  userSessionAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  userSessionDetails: {
+    flex: 1,
+  },
+  userSessionName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  userSessionRole: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 1,
+  },
+  userSessionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+    marginRight: 5,
+  },
+  userSessionBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.5,
+  },
+  logoutModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  logoutCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E60012',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...makeShadow('#E60012', { width: 0, height: 4 }, 0.25, 8, 3),
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  logoutConfirmBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

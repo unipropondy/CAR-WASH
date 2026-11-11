@@ -19,8 +19,12 @@ export interface DealerOption {
   pin: string;
   contactPerson?: string;
   phone?: string;
+  address?: string;
   billingCycle: string;
   icon?: string;
+  logo?: any;
+  logoUrl?: string;
+  isActive?: boolean;
 }
 
 export interface VehicleOption {

@@ -14,6 +14,8 @@ const salesReportRoutes = require('./routes/salesReportRoutes');
 const printerRoutes = require('./routes/printerRoutes');
 const companySettingsRoutes = require('./routes/companySettingsRoutes');
 const userRoutes = require('./routes/userRoutes');
+const dayManagementRoutes = require('./routes/dayManagementRoutes');
+const dealerRoutes = require('./routes/dealerRoutes');
 const { getPool } = require('./config/db');
 
 const app = express();
@@ -52,6 +54,8 @@ app.use('/api/carwash/printers', printerRoutes);
 app.use('/api/settings/company', companySettingsRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/dealers', dealerRoutes);
+app.use('/api/day-management', dayManagementRoutes);
 app.use('/api/carwash', carwashRoutes);
 app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
 

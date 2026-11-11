@@ -40,6 +40,38 @@ interface OrderQueueTableProps {
   isRefreshing?: boolean;
 }
 
+interface AvatarTheme {
+  bg: string;
+  text: string;
+  border: string;
+}
+
+const AVATAR_THEMES: AvatarTheme[] = [
+  { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }, // Royal Blue
+  { bg: '#F5F3FF', text: '#7C3AED', border: '#DDD6FE' }, // Violet / Purple
+  { bg: '#FFF7ED', text: '#EA580C', border: '#FED7AA' }, // Tangerine
+  { bg: '#ECFDF5', text: '#059669', border: '#A7F3D0' }, // Emerald
+  { bg: '#FDF2F8', text: '#DB2777', border: '#FBCFE8' }, // Pink / Rose
+  { bg: '#F0FDFA', text: '#0D9488', border: '#99F6E4' }, // Teal
+  { bg: '#FFFBEB', text: '#D97706', border: '#FDE68A' }, // Amber
+  { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' }, // Indigo
+  { bg: '#FEF2F2', text: '#DC2626', border: '#FECACA' }, // Crimson
+  { bg: '#F0F9FF', text: '#0284C7', border: '#BAE6FD' }, // Sky Blue
+];
+
+const getInitials = (name?: string): string => {
+  if (!name || !name.trim()) return 'CU';
+  const clean = name.trim().replace(/[^a-zA-Z0-9\s]/g, '');
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    if (/^\d+$/.test(words[1]) && words[0].length >= 2) {
+      return words[0].slice(0, 2).toUpperCase();
+    }
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase() || 'CU';
+};
+
 export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   orders,
   searchQuery = '',
@@ -128,18 +160,16 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
     return { pill: styles.pkgBasicPill, text: styles.pkgBasicText };
   };
 
-  const getCustomerAvatarColor = (name: string) => {
+  const getCustomerAvatarTheme = (name?: string, index?: number): AvatarTheme => {
+    if (typeof index === 'number') {
+      return AVATAR_THEMES[index % AVATAR_THEMES.length];
+    }
     const n = (name || '').trim().toLowerCase();
-    if (n.includes('loki')) return '#4F46E5'; // Indigo
-    if (n.includes('rachel')) return '#0D9488'; // Teal
-    if (n.includes('bryan')) return '#EA580C'; // Orange
-    if (n.includes('marcus')) return '#059669'; // Emerald
-    const colors = ['#4F46E5', '#0D9488', '#EA580C', '#059669', '#2563EB', '#7C3AED'];
     let hash = 0;
     for (let i = 0; i < n.length; i++) {
       hash = n.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return colors[Math.abs(hash) % colors.length];
+    return AVATAR_THEMES[Math.abs(hash) % AVATAR_THEMES.length];
   };
 
   const parseWaitMinutes = (waitTime?: string): number => {
@@ -271,9 +301,10 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   };
 
   const formatOrderNo = (orderNo?: string | number): string => {
-    if (!orderNo) return '0000';
+    if (!orderNo) return '#0000';
     const str = String(orderNo).trim();
-    return str.length >= 4 ? str.slice(-4) : str.padStart(4, '0');
+    const digits = str.length >= 4 ? str.slice(-4) : str.padStart(4, '0');
+    return `#${digits}`;
   };
 
   return (
@@ -464,39 +495,50 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   // @ts-ignore
                   onMouseLeave={() => setHoveredRow(null)}
                 >
-                  {/* 1. ORDER NO: Monospace ID Chip with last 4 digits */}
+                  {/* 1. ORDER NO: Monospace ID without background box */}
                   <View style={{ width: '10%', justifyContent: 'center' }}>
-                    <View style={styles.orderIdChip}>
-                      <Text style={styles.orderIdText} numberOfLines={1}>
-                        {formatOrderNo(order.orderNumber)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* 2. NAME: Colored Avatar + Name */}
-                  <View style={[styles.customerCell, { width: '15%' }]}>
-                    <View
-                      style={[
-                        styles.customerAvatar,
-                        { backgroundColor: getCustomerAvatarColor(order.customerName) },
-                      ]}
-                    >
-                      <Text style={styles.customerAvatarText}>
-                        {(order.customerName || 'CU').slice(0, 2).toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text style={styles.customerNameText} numberOfLines={1}>
-                      {order.customerName || 'Customer'}
+                    <Text style={styles.orderIdText} numberOfLines={1}>
+                      {formatOrderNo(order.orderNumber)}
                     </Text>
                   </View>
 
-                  {/* 3. VEHICLE: Dark Plate Pill */}
+                  {/* 2. NAME: Modern Soft-Tinted Avatar + Name + Subtitle */}
+                  <View style={[styles.customerCell, { width: '15%' }]}>
+                    {(() => {
+                      const avatarTheme = getCustomerAvatarTheme(order.customerName, idx);
+                      return (
+                        <>
+                          <View
+                            style={[
+                              styles.customerAvatar,
+                              {
+                                backgroundColor: avatarTheme.bg,
+                                borderColor: avatarTheme.border,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.customerAvatarText, { color: avatarTheme.text }]}>
+                              {getInitials(order.customerName)}
+                            </Text>
+                          </View>
+                          <View style={styles.customerInfoBlock}>
+                            <Text style={styles.customerNameText} numberOfLines={1}>
+                              {order.customerName || 'Customer'}
+                            </Text>
+                            <Text style={styles.customerSubText} numberOfLines={1}>
+                              {order.customerMobile ? order.customerMobile : 'Walk-in'}
+                            </Text>
+                          </View>
+                        </>
+                      );
+                    })()}
+                  </View>
+
+                  {/* 3. VEHICLE: Plate without background box */}
                   <View style={[styles.vehicleCell, { width: '12%' }]}>
-                    <View style={styles.platePill}>
-                      <Text style={styles.plateText} numberOfLines={1}>
-                        {order.vehiclePlate}
-                      </Text>
-                    </View>
+                    <Text style={styles.plateText} numberOfLines={1}>
+                      {order.vehiclePlate}
+                    </Text>
                   </View>
 
                   {/* 4. PACKAGE: Colored Pill + CAR WASH */}
@@ -717,18 +759,12 @@ const styles = StyleSheet.create({
   },
   // ORDER Column
   orderIdChip: {
-    backgroundColor: '#F1F4F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 10,
     alignSelf: 'flex-start',
     alignItems: 'center',
     justifyContent: 'center',
   },
   orderIdText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.5,
@@ -738,39 +774,51 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    overflow: 'hidden',
+    paddingRight: 6,
   },
   customerAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   customerAvatarText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  customerInfoBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
   },
   customerNameText: {
     fontSize: 13,
     fontWeight: '800',
     color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  customerSubText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 1.5,
   },
   // VEHICLE Column
   vehicleCell: {
     justifyContent: 'center',
   },
   platePill: {
-    backgroundColor: '#0F172A',
-    borderRadius: 8,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
     alignSelf: 'flex-start',
   },
   plateText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#0F172A',
     letterSpacing: 0.5,
   },
   vehicleModelText: {

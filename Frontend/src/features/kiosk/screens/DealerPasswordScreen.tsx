@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ScrollView, 
+  Image,
+  Platform 
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
-import { KioskNavButtons } from '../components/KioskNavButtons';
 import { DealerOption } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
@@ -23,13 +31,16 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
   const [isVerifying, setIsVerifying] = useState(false);
+
+  const pinLength = Math.max(4, dealer.pin ? dealer.pin.length : 4);
+  const pinSlots = Array.from({ length: pinLength }, (_, i) => i);
+  const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
 
   const handleKeyPress = (char: string) => {
     if (isVerifying) return;
     setErrorMessage(null);
-    if (pin.length < 8) {
+    if (pin.length < pinLength) {
       const nextPin = pin + char;
       setPin(nextPin);
       // Auto-verify when matching dealer PIN
@@ -37,7 +48,12 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
         setIsVerifying(true);
         setTimeout(() => {
           onSuccess();
-        }, 250);
+        }, 220);
+      } else if (nextPin.length === pinLength) {
+        setTimeout(() => {
+          setErrorMessage(`Incorrect PIN for ${dealer.name}. Please try again.`);
+          setPin('');
+        }, 220);
       }
     }
   };
@@ -57,7 +73,7 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
   const handleVerifyPin = () => {
     if (isVerifying) return;
     if (!pin) {
-      setErrorMessage('Please enter your dealer PIN.');
+      setErrorMessage('Please enter your security PIN.');
       return;
     }
 
@@ -71,11 +87,27 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
     }
   };
 
-  const keypadKeys = [
-    ['1', '2', '3'],
-    ['4', '5', '6'],
-    ['7', '8', '9'],
-    ['CLEAR', '0', '⌫'],
+  const keypadRows = [
+    [
+      { label: '1', value: '1' },
+      { label: '2', value: '2' },
+      { label: '3', value: '3' },
+    ],
+    [
+      { label: '4', value: '4' },
+      { label: '5', value: '5' },
+      { label: '6', value: '6' },
+    ],
+    [
+      { label: '7', value: '7' },
+      { label: '8', value: '8' },
+      { label: '9', value: '9' },
+    ],
+    [
+      { label: 'CLEAR', value: 'CLEAR', isAction: true },
+      { label: '0', value: '0' },
+      { label: 'BACKSPACE', value: 'BACKSPACE', isAction: true },
+    ],
   ];
 
   return (
@@ -88,6 +120,12 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
         backLabel="Dealers"
       />
 
+      {/* Main Title Header */}
+      <View style={styles.promptHeader}>
+        <Text style={styles.title}>Enter Security PIN</Text>
+        <View style={styles.titleUnderlineAccent} />
+      </View>
+
       <ScrollView 
         contentContainerStyle={styles.scrollContent} 
         showsVerticalScrollIndicator={false}
@@ -97,70 +135,127 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
             {/* Top Accent Strip */}
             <View style={styles.cardAccentStrip} />
 
-            {/* Selected Dealer Badge Header */}
-            <View style={styles.dealerHeaderPill}>
-              <View style={styles.dealerIconBadge}>
-                <Text style={styles.dealerIcon}>{dealer.icon || '🏢'}</Text>
+            {/* Selected Dealer Header Pill */}
+            <View style={styles.dealerHeaderCard}>
+              <View style={styles.dealerLogoBox}>
+                {logoSource ? (
+                  <Image source={logoSource} style={styles.dealerLogoImage} resizeMode="contain" />
+                ) : (
+                  <Text style={styles.dealerLogoEmoji}>{dealer.icon || '🏢'}</Text>
+                )}
               </View>
-              <View style={styles.dealerInfo}>
-                <Text style={styles.accountLabel}>VERIFYING ACCOUNT</Text>
+              <View style={styles.dealerInfoCol}>
+                <Text style={styles.accountTag}>AUTHORIZED DEALER</Text>
                 <Text style={styles.dealerNameText}>{dealer.name}</Text>
-                <Text style={styles.dealerCodeText}>Code: {dealer.code} • {dealer.billingCycle}</Text>
               </View>
             </View>
 
-            {/* PIN Input Display */}
-            <View style={styles.inputSection}>
-              <Text style={styles.inputLabel}>ENTER DEALER SECURITY PIN</Text>
-              <View style={[styles.inputBox, errorMessage ? styles.inputBoxError : null]}>
-                <TextInput
-                  style={styles.textInput}
-                  value={pin}
-                  onChangeText={(text) => {
-                    setErrorMessage(null);
-                    setPin(text);
-                  }}
-                  secureTextEntry={!showPin}
-                  placeholder="••••"
-                  placeholderTextColor="#94A3B8"
-                  keyboardType="numeric"
-                  maxLength={8}
-                />
+            {/* Tactile PIN Indicator Section */}
+            <View style={styles.pinSection}>
+              <View style={styles.pinHeaderRow}>
+                <Text style={styles.pinSectionLabel}>SECURITY PIN</Text>
                 <TouchableOpacity
                   style={styles.toggleVisibilityBtn}
                   onPress={() => setShowPin(!showPin)}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name={showPin ? "eye-off-outline" : "eye-outline"} size={18} color="#64748B" />
+                  <Ionicons 
+                    name={showPin ? "eye-off-outline" : "eye-outline"} 
+                    size={16} 
+                    color="#64748B" 
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={styles.toggleVisibilityText}>
+                    {showPin ? "Hide" : "Show"}
+                  </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Modern PIN Slot Dots */}
+              <View style={styles.pinDotsRow}>
+                {pinSlots.map((index) => {
+                  const isFilled = pin.length > index;
+                  const isCurrent = pin.length === index;
+
+                  return (
+                    <View
+                      key={index}
+                      style={[
+                        styles.pinDot,
+                        isFilled && styles.pinDotFilled,
+                        isCurrent && styles.pinDotCurrent,
+                        errorMessage ? styles.pinDotError : null,
+                      ]}
+                    >
+                      {isFilled && showPin && (
+                        <Text style={styles.pinDotDigit}>{pin[index]}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Hardware Keyboard Fallback Input (transparent) */}
+              <TextInput
+                style={styles.hiddenInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').slice(0, pinLength);
+                  setErrorMessage(null);
+                  setPin(cleaned);
+                  if (cleaned === dealer.pin) {
+                    setIsVerifying(true);
+                    setTimeout(() => onSuccess(), 200);
+                  } else if (cleaned.length === pinLength) {
+                    setTimeout(() => {
+                      setErrorMessage(`Incorrect PIN for ${dealer.name}. Please try again.`);
+                      setPin('');
+                    }, 220);
+                  }
+                }}
+                keyboardType="numeric"
+                maxLength={pinLength}
+                autoFocus={Platform.OS === 'web'}
+                secureTextEntry={!showPin}
+              />
+
+              {/* Error Banner */}
               {errorMessage && (
                 <View style={styles.errorBanner}>
-                  <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                  <Ionicons name="alert-circle" size={15} color="#EF4444" />
                   <Text style={styles.errorMessage}>{errorMessage}</Text>
                 </View>
               )}
             </View>
 
-            {/* Touch-Friendly Onscreen Keypad */}
+            {/* Touch-Friendly Tactile Keypad */}
             <View style={styles.keypad}>
-              {keypadKeys.map((row, rowIndex) => (
+              {keypadRows.map((row, rowIndex) => (
                 <View key={rowIndex} style={styles.keypadRow}>
-                  {row.map((key) => {
-                    const isAction = key === 'CLEAR' || key === '⌫';
+                  {row.map((btn) => {
+                    const isAction = btn.isAction;
+
                     return (
                       <TouchableOpacity
-                        key={key}
-                        style={[styles.keypadButton, isAction && styles.keypadButtonAction]}
+                        key={btn.value}
+                        style={[
+                          styles.keypadButton, 
+                          isAction && styles.keypadButtonAction,
+                        ]}
                         onPress={() => {
-                          if (key === 'CLEAR') handleClear();
-                          else if (key === '⌫') handleBackspace();
-                          else handleKeyPress(key);
+                          if (btn.value === 'CLEAR') handleClear();
+                          else if (btn.value === 'BACKSPACE') handleBackspace();
+                          else handleKeyPress(btn.value);
                         }}
-                        activeOpacity={0.7}
+                        activeOpacity={0.75}
                       >
-                        <Text style={[styles.keypadButtonText, isAction && styles.keypadButtonTextAction]}>
-                          {key}
-                        </Text>
+                        {btn.value === 'BACKSPACE' ? (
+                          <Ionicons name="backspace-outline" size={24} color="#334155" />
+                        ) : btn.value === 'CLEAR' ? (
+                          <Text style={styles.keypadActionText}>CLEAR</Text>
+                        ) : (
+                          <Text style={styles.keypadDigitText}>{btn.label}</Text>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -170,13 +265,6 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
           </View>
         </View>
       </ScrollView>
-
-      {/* Navigation Buttons: Pinned at bottom */}
-      <KioskNavButtons
-        onContinue={handleVerifyPin}
-        continueDisabled={!pin}
-        continueLabel="Verify & Continue ›"
-      />
     </View>
   );
 };
@@ -186,8 +274,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  promptHeader: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    width: '100%',
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.3,
+  },
+  titleUnderlineAccent: {
+    width: 36,
+    height: 3,
+    backgroundColor: RED_BAY_COLORS.primary,
+    borderRadius: 2,
+    marginTop: 6,
+  },
   scrollContent: {
-    paddingVertical: 18,
+    paddingVertical: 20,
     paddingHorizontal: 16,
     alignItems: 'center',
     flexGrow: 1,
@@ -199,13 +310,14 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    padding: 20,
+    padding: 22,
     position: 'relative',
     overflow: 'hidden',
-    ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
+    gap: 16,
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
   },
   cardAccentStrip: {
     position: 'absolute',
@@ -215,83 +327,126 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: RED_BAY_COLORS.primary,
   },
-  dealerHeaderPill: {
+
+  /* Dealer Header Card */
+  dealerHeaderCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     backgroundColor: '#F8FAFC',
     padding: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 16,
   },
-  dealerIconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#FEF2F2',
+  dealerLogoBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
   },
-  dealerIcon: {
-    fontSize: 22,
+  dealerLogoImage: {
+    width: '100%',
+    height: '100%',
   },
-  dealerInfo: {
+  dealerLogoEmoji: {
+    fontSize: 26,
+  },
+  dealerInfoCol: {
     flex: 1,
+    gap: 2,
   },
-  accountLabel: {
+  accountTag: {
     fontSize: 9.5,
-    fontWeight: '800',
+    fontWeight: '900',
     color: RED_BAY_COLORS.primary,
     letterSpacing: 1,
   },
   dealerNameText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
     color: '#0F172A',
-    marginTop: 1,
   },
-  dealerCodeText: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 1,
-  },
-  inputSection: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  inputBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  /* PIN Display Section */
+  pinSection: {
     backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    position: 'relative',
   },
-  inputBoxError: {
-    borderColor: '#EF4444',
-    backgroundColor: '#FFF8F8',
+  pinHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  textInput: {
-    flex: 1,
-    color: '#0F172A',
-    fontSize: 22,
+  pinSectionLabel: {
+    fontSize: 10.5,
     fontWeight: '900',
-    letterSpacing: 6,
+    color: '#64748B',
+    letterSpacing: 1,
   },
   toggleVisibilityBtn: {
-    padding: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  toggleVisibilityText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  pinDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  pinDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinDotCurrent: {
+    borderColor: RED_BAY_COLORS.primary,
+    backgroundColor: '#FFF1F2',
+  },
+  pinDotFilled: {
+    backgroundColor: RED_BAY_COLORS.primary,
+    borderColor: RED_BAY_COLORS.primary,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 2 }, 0.35, 6, 2),
+  },
+  pinDotError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEE2E2',
+  },
+  pinDotDigit: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  hiddenInput: {
+    position: 'absolute',
+    opacity: 0.01,
+    width: 1,
+    height: 1,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -301,7 +456,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    marginTop: 8,
     borderWidth: 1,
     borderColor: '#FECACA',
   },
@@ -311,34 +465,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1,
   },
+
+  /* Keypad */
   keypad: {
-    gap: 8,
+    gap: 10,
   },
   keypadRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   keypadButton: {
     flex: 1,
-    height: 52,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1,
+    height: 56,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 4, 1),
   },
   keypadButtonAction: {
     backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1',
   },
-  keypadButtonText: {
+  keypadDigitText: {
     color: '#0F172A',
-    fontSize: 19,
-    fontWeight: '800',
-  },
-  keypadButtonTextAction: {
-    color: '#475569',
-    fontSize: 13,
+    fontSize: 22,
     fontWeight: '900',
+  },
+  keypadActionText: {
+    color: '#475569',
+    fontSize: 12.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
 });

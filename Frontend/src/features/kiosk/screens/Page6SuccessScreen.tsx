@@ -5,7 +5,8 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   ScrollView, 
-  Platform 
+  Platform,
+  Image 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
@@ -13,6 +14,7 @@ import { KioskOrder } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { printOrderReceipt, triggerBrowserReceiptPrint } from '../../../services/printerApi';
+import { getVehicleImageSource } from './Page2VehicleScreen';
 
 interface Page6SuccessScreenProps {
   order: KioskOrder;
@@ -46,7 +48,6 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
       }
     } catch (err: any) {
       console.warn('Auto print receipt fallback:', err?.message);
-      // Trigger client browser receipt fallback if applicable
       triggerBrowserReceiptPrint(order);
       setPrintStatus('DONE');
       setPrintMessage('✓ Bill ticket printed via station receipt printer');
@@ -75,10 +76,6 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
     return () => clearInterval(timer);
   }, [onNewCustomer]);
 
-  const handlePrint = () => {
-    executePrint(true);
-  };
-
   const rawMobile = (order.customerDetails?.mobileNumber || '').replace(/\D/g, '');
   const formattedMobile = rawMobile.length >= 8 
     ? `+65 ${rawMobile}` 
@@ -89,6 +86,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
   const isWalkIn = !order.customerDetails?.vehicleNumber || order.customerDetails.vehicleNumber === 'WALK-IN';
   const displayPlate = isWalkIn ? 'WALK-IN' : order.customerDetails.vehicleNumber;
   const isPaid = String(order.paymentStatus).toUpperCase() === 'PAID';
+  const vehicleImgSource = getVehicleImageSource(order.vehicle);
 
   return (
     <View style={styles.container}>
@@ -100,18 +98,10 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 
       {/* Main Title & Status Prompt Header */}
       <View style={styles.promptHeader}>
-        <View style={[styles.successPill, isDealer && styles.dealerSuccessPill]}>
-          <Ionicons name="checkmark-circle" size={15} color={isDealer ? "#D97706" : "#059669"} />
-          <Text style={[styles.successPillText, isDealer && styles.dealerSuccessPillText]}>
-            {isDealer ? "DEALER CREDIT ORDER CONFIRMED" : "PAYMENT CONFIRMED & QUEUED"}
-          </Text>
-        </View>
         <Text style={styles.mainTitle}>
           {isDealer ? "Dealer Order Registered" : "Order Placed Successfully!"}
         </Text>
-        <Text style={styles.subtitle}>
-          Your vehicle is queued in the system. Watch the bay monitors for your bill number.
-        </Text>
+        <View style={styles.titleUnderlineAccent} />
       </View>
 
       {/* Main Content Area - PORTRAIT OPTIMIZED */}
@@ -121,203 +111,159 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.portraitContainer}>
-          {/* ================= CARD 1: OFFICIAL QUEUE TICKET ================= */}
-          <View style={styles.ticketCard}>
-            <View style={styles.ticketAccentStrip} />
+          {/* THE UNIFIED DIGITAL QUEUE PASS */}
+          <View style={styles.unifiedPassCard}>
+            <View style={styles.passTopAccent} />
 
-            {/* Ticket Header */}
-            <View style={styles.ticketHeaderRow}>
-              <View style={styles.ticketBadge}>
-                <Ionicons name="receipt-outline" size={15} color={RED_BAY_COLORS.primary} />
-                <Text style={styles.ticketBadgeText}>OFFICIAL QUEUE TICKET</Text>
+            {/* TOP TICKET SECTION: QUEUE NUMBER HERO */}
+            <View style={styles.passHeroSection}>
+              <View style={styles.passHeaderRow}>
+                <View style={styles.passBadge}>
+                  <Ionicons name="receipt" size={14} color={RED_BAY_COLORS.primary} />
+                  <Text style={styles.passBadgeText}>OFFICIAL QUEUE PASS</Text>
+                </View>
+                <View style={styles.liveQueuePill}>
+                  <View style={styles.livePulseDot} />
+                  <Text style={styles.liveQueueText}>BAY QUEUE ACTIVE</Text>
+                </View>
               </View>
-              <View style={styles.liveQueuePill}>
-                <View style={styles.livePulseDot} />
-                <Text style={styles.liveQueueText}>BAY QUEUE ACTIVE</Text>
-              </View>
-            </View>
 
-            {/* Prominent Bill Number Box */}
-            <View style={styles.billBox}>
-              <Text style={styles.billLabel}>YOUR BILL / QUEUE NUMBER</Text>
-              <Text style={styles.billNumber}>{order.billNumber}</Text>
-              <View style={styles.trackingHintRow}>
-                <Ionicons name="information-circle-outline" size={13} color="#94A3B8" />
-                <Text style={styles.trackingHintText}>
-                  Display this number or keep receipt to collect your vehicle
-                </Text>
-              </View>
-            </View>
-
-            {/* Bay Assignment Notice */}
-            <View style={styles.bayAssignmentBox}>
-              <View style={styles.bayIconCircle}>
-                <Ionicons name="car-sport" size={22} color="#0284C7" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.bayTitle}>Proceed to Wash Bay Queue</Text>
-                <Text style={styles.baySubtitle}>
-                  Estimated wash time: ~10-15 mins once bay opens.
-                </Text>
+              {/* Pedestal with Bill / Queue Number */}
+              <View style={styles.billPedestal}>
+                <Text style={styles.billPedestalLabel}>YOUR BILL / QUEUE NUMBER</Text>
+                <Text style={styles.billPedestalNumber}>{order.billNumber}</Text>
+                <View style={styles.billHintRow}>
+                  <Ionicons name="information-circle-outline" size={13} color="#94A3B8" />
+                  <Text style={styles.billHintText}>
+                    Keep your receipt or quote this number at Bay #01
+                  </Text>
+                </View>
               </View>
             </View>
 
-            {/* Print Action Area */}
-            <View style={styles.printActionBox}>
-              <TouchableOpacity
-                style={[styles.printBtn, printStatus === 'DONE' && styles.printBtnDone]}
-                onPress={handlePrint}
-                activeOpacity={0.8}
-              >
-                <Ionicons 
-                  name={printStatus === 'DONE' ? "checkmark-done" : "print-outline"} 
-                  size={18} 
-                  color={printStatus === 'DONE' ? "#059669" : "#1E293B"} 
-                />
-                <Text style={[styles.printBtnText, printStatus === 'DONE' && styles.printBtnTextDone]}>
-                  {printStatus === 'PRINTING' ? "Printing Thermal Ticket..." : printStatus === 'DONE' ? printMessage : "Print Thermal Receipt 🖨️"}
-                </Text>
-              </TouchableOpacity>
+            {/* Serrated Perforated Divider */}
+            <View style={styles.perforationContainer}>
+              <View style={styles.notchLeft} />
+              <View style={styles.perforationLine} />
+              <View style={styles.notchRight} />
             </View>
 
-            {/* Auto-return countdown */}
-            <View style={styles.countdownBanner}>
-              <Ionicons name="time-outline" size={13} color="#64748B" />
-              <Text style={styles.countdownText}>
-                Kiosk returns to home in <Text style={{ fontWeight: '800', color: RED_BAY_COLORS.primary }}>{countdown}s</Text>
-              </Text>
-            </View>
-          </View>
-
-          {/* ================= CARD 2: ORDER & BILLING SUMMARY ================= */}
-          <View style={styles.receiptCard}>
-            <View style={styles.receiptTopStrip} />
-
-            <View style={styles.receiptHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="document-text-outline" size={16} color="#0F172A" />
-                <Text style={styles.receiptHeaderTitle}>
-                  {isDealer ? "DEALER ORDER BREAKDOWN" : "ORDER & BILLING SUMMARY"}
-                </Text>
-              </View>
-              <Text style={styles.receiptTime}>{order.createdAt}</Text>
-            </View>
-
-            <View style={styles.detailsGrid}>
-              {/* Dealer specifics if applicable */}
-              {isDealer && order.selectedDealer && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Authorized Dealer:</Text>
-                  <View style={styles.dealerPill}>
-                    <Text style={styles.dealerPillText}>{order.selectedDealer.name}</Text>
+            {/* BOTTOM SECTION: VEHICLE & ORDER BREAKDOWN */}
+            <View style={styles.passBodySection}>
+              {/* Showroom Vehicle & Package Spotlight */}
+              <View style={styles.vehicleSpotlight}>
+                <View style={styles.vehicleImageBox}>
+                  {vehicleImgSource ? (
+                    <Image
+                      source={vehicleImgSource}
+                      style={styles.vehicleImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Ionicons name="car-sport" size={28} color={RED_BAY_COLORS.primary} />
+                  )}
+                </View>
+                <View style={styles.vehicleInfoCol}>
+                  <Text style={styles.spotlightPkgName}>{order.selectedPackage?.name || 'Wash Service'}</Text>
+                  <Text style={styles.spotlightVehType}>{order.vehicle?.name || 'Standard Vehicle'}</Text>
+                  <View style={styles.plateRow}>
+                    {isWalkIn ? (
+                      <View style={styles.walkInPlatePill}>
+                        <Text style={styles.walkInPlateText}>WALK-IN</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.sgPlatePill}>
+                        <Text style={styles.sgTag}>SG</Text>
+                        <Text style={styles.sgPlateNumber}>{displayPlate}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
-              )}
-
-              {/* Customer Name */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>
-                  {isDealer ? "Driver / Rep:" : "Customer Name:"}
-                </Text>
-                <Text style={styles.detailVal}>
-                  {order.customerDetails?.customerName || 'Walk-in Customer'}
-                </Text>
               </View>
 
-              {/* Vehicle Number */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Vehicle Plate:</Text>
-                {isWalkIn ? (
-                  <View style={styles.walkInPlatePill}>
-                    <Text style={styles.walkInPlateText}>WALK-IN</Text>
-                  </View>
-                ) : (
-                  <View style={styles.sgPlatePill}>
-                    <Text style={styles.sgTag}>SG</Text>
-                    <Text style={styles.sgPlateNumber}>{displayPlate}</Text>
-                  </View>
+              {/* Meta Details Grid */}
+              <View style={styles.metaGrid}>
+                {isDealer && order.selectedDealer && (
+                  <>
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaLabel}>Authorized Dealer</Text>
+                      <Text style={[styles.metaValue, { color: '#D97706', fontWeight: '800' }]}>
+                        {order.selectedDealer.name}
+                      </Text>
+                    </View>
+                    <View style={styles.metaDivider} />
+                  </>
                 )}
-              </View>
 
-              {/* Vehicle Type */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Vehicle Type:</Text>
-                <Text style={styles.detailVal}>{order.vehicle?.name || 'Standard Vehicle'}</Text>
-              </View>
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>{isDealer ? "Driver / Rep" : "Customer Name"}</Text>
+                  <Text style={styles.metaValue}>{order.customerDetails?.customerName || 'Walk-in Customer'}</Text>
+                </View>
+                <View style={styles.metaDivider} />
 
-              {/* Contact Mobile */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Contact Mobile:</Text>
-                <Text style={[styles.detailVal, formattedMobile === 'Not provided' && { color: '#94A3B8', fontWeight: '500' }]}>
-                  {formattedMobile}
-                </Text>
-              </View>
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>Contact Mobile</Text>
+                  <Text style={[styles.metaValue, formattedMobile === 'Not provided' && { color: '#94A3B8', fontWeight: '500' }]}>
+                    {formattedMobile}
+                  </Text>
+                </View>
+                <View style={styles.metaDivider} />
 
-              {/* Service & Package */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Service Package:</Text>
-                <Text style={[styles.detailVal, { color: RED_BAY_COLORS.primary, fontWeight: '800' }]}>
-                  {order.selectedPackage?.name || 'Service Package'}
-                </Text>
-              </View>
-
-              {/* Payment Method & Status */}
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Payment Method:</Text>
-                <View style={styles.paymentInfoRow}>
-                  <View style={[styles.payBadge, isDealer && styles.creditPayBadge]}>
-                    <Text style={[styles.payBadgeText, isDealer && styles.creditPayBadgeText]}>
-                      {order.paymentMode || 'CASH'}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusBadge, isPaid ? styles.statusBadgePaid : styles.statusBadgePending]}>
-                    <Text style={[styles.statusBadgeText, isPaid ? styles.statusBadgeTextPaid : styles.statusBadgeTextPending]}>
-                      {order.paymentStatus || 'PAID'}
-                    </Text>
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>Payment</Text>
+                  <View style={styles.paymentBadgesRow}>
+                    <View style={[styles.payModePill, isDealer && styles.creditPayModePill]}>
+                      <Text style={[styles.payModePillText, isDealer && styles.creditPayModePillText]}>
+                        {order.paymentMode || 'CASH'}
+                      </Text>
+                    </View>
+                    <View style={[styles.paidPill, !isPaid && styles.pendingPill]}>
+                      <Ionicons 
+                        name={isPaid ? "checkmark-circle" : "time-outline"} 
+                        size={12} 
+                        color={isPaid ? "#059669" : "#D97706"} 
+                      />
+                      <Text style={[styles.paidPillText, !isPaid && styles.pendingPillText]}>
+                        {order.paymentStatus || 'PAID'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </View>
 
-              {/* Total Row */}
-              <View style={styles.totalRow}>
+              {/* Total Banner */}
+              <View style={styles.totalBanner}>
                 <View>
-                  <Text style={styles.totalLabel}>
+                  <Text style={styles.totalBannerLabel}>
                     {isDealer ? "TOTAL BILLED TO ACCOUNT" : "TOTAL AMOUNT PAID"}
                   </Text>
-                  <Text style={styles.gstText}>
+                  <Text style={styles.totalBannerGst}>
                     Includes Singapore 9% GST (${(order.gstAmount || 0).toFixed(2)})
                   </Text>
                 </View>
-                <Text style={styles.totalPrice}>SGD ${(order.totalAmount || 0).toFixed(2)}</Text>
+                <Text style={styles.totalBannerPrice}>SGD ${(order.totalAmount || 0).toFixed(2)}</Text>
               </View>
             </View>
           </View>
+
+          {/* Centered Start New Order Button */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={onNewCustomer}
+            activeOpacity={0.88}
+          >
+            <Text style={styles.actionBtnText}>Start New Order</Text>
+          </TouchableOpacity>
+
+          {/* Auto return countdown */}
+          <View style={styles.autoReturnRow}>
+            <Ionicons name="time-outline" size={13} color="#94A3B8" />
+            <Text style={styles.autoReturnText}>
+              Kiosk returns to home in <Text style={styles.countdownHighlight}>{countdown}s</Text>
+            </Text>
+          </View>
         </View>
       </ScrollView>
-
-      {/* Kiosk Bottom Nav Bar */}
-      <View style={styles.bottomBarOuter}>
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={styles.bottomPrintBtn}
-            onPress={handlePrint}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="receipt-outline" size={18} color="#334155" />
-            <Text style={styles.bottomPrintText}>Print Bill</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.doneBtn}
-            onPress={onNewCustomer}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.doneBtnText}>
-              {isDealer ? "Start Next Order ›" : "Start New Order ›"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
     </View>
   );
 };
@@ -329,7 +275,7 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -337,72 +283,46 @@ const styles = StyleSheet.create({
     width: '100%',
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
-  successPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 12,
-    paddingVertical: 3,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    marginBottom: 4,
-  },
-  dealerSuccessPill: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
-  successPillText: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    color: '#065F46',
-    letterSpacing: 0.8,
-  },
-  dealerSuccessPillText: {
-    color: '#92400E',
-  },
   mainTitle: {
     fontSize: 22,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.3,
   },
-  subtitle: {
-    fontSize: 12.5,
-    color: '#64748B',
-    marginTop: 2,
-    fontWeight: '500',
-    textAlign: 'center',
+  titleUnderlineAccent: {
+    width: 36,
+    height: 3,
+    backgroundColor: RED_BAY_COLORS.primary,
+    borderRadius: 2,
+    marginTop: 6,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
     flexGrow: 1,
   },
   portraitContainer: {
     width: '100%',
-    maxWidth: 560,
+    maxWidth: 540,
     gap: 14,
   },
-  /* Ticket Card */
-  ticketCard: {
+
+  /* Unified Pass Card */
+  unifiedPassCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 24,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     position: 'relative',
     overflow: 'hidden',
-    gap: 10,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.05, 10, 2),
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
   },
-  ticketAccentStrip: {
+  passTopAccent: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -410,20 +330,22 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: RED_BAY_COLORS.primary,
   },
-  ticketHeaderRow: {
+  passHeroSection: {
+    padding: 18,
+    gap: 12,
+  },
+  passHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
-  ticketBadge: {
+  passBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  ticketBadgeText: {
+  passBadgeText: {
     fontSize: 11.5,
     fontWeight: '900',
     color: '#0F172A',
@@ -435,7 +357,7 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#A7F3D0',
@@ -452,345 +374,305 @@ const styles = StyleSheet.create({
     color: '#047857',
     letterSpacing: 0.5,
   },
-  billBox: {
+  billPedestal: {
     backgroundColor: '#0F172A',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
+    gap: 4,
+    borderWidth: 1,
     borderColor: '#1E293B',
+    ...makeShadow('#000000', { width: 0, height: 4 }, 0.15, 8, 2),
   },
-  billLabel: {
+  billPedestalLabel: {
     fontSize: 10,
     fontWeight: '900',
     color: '#94A3B8',
     letterSpacing: 1.4,
-    marginBottom: 2,
   },
-  billNumber: {
-    fontSize: 32,
+  billPedestalNumber: {
+    fontSize: 28,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 2,
+    letterSpacing: 1.8,
     fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
     marginVertical: 2,
   },
-  trackingHintRow: {
+  billHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginTop: 4,
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  trackingHintText: {
-    fontSize: 10,
-    color: '#CBD5E1',
-    fontWeight: '600',
-  },
-  bayAssignmentBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#F0F9FF',
-    borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#BAE6FD',
-  },
-  bayIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bayTitle: {
-    fontSize: 12.5,
-    fontWeight: '900',
-    color: '#0369A1',
-  },
-  baySubtitle: {
-    fontSize: 10.5,
-    color: '#0284C7',
-    fontWeight: '500',
-  },
-  printActionBox: {
     marginTop: 2,
   },
-  printBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-  },
-  printBtnDone: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#10B981',
-  },
-  printBtnText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  printBtnTextDone: {
-    color: '#065F46',
-  },
-  countdownBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  countdownText: {
+  billHintText: {
     fontSize: 10.5,
-    color: '#64748B',
+    color: '#94A3B8',
     fontWeight: '600',
   },
 
-  /* Receipt Card */
-  receiptCard: {
-    width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    position: 'relative',
-    overflow: 'hidden',
-    gap: 8,
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.04, 8, 2),
-  },
-  receiptTopStrip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: '#0F172A',
-  },
-  receiptHeader: {
+  /* Perforation Line & Notches */
+  perforationContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    height: 20,
+    marginHorizontal: -1.5,
+    position: 'relative',
   },
-  receiptHeaderTitle: {
-    fontSize: 12,
+  notchLeft: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    marginLeft: -10,
+    borderRightWidth: 1.5,
+    borderRightColor: '#E2E8F0',
+  },
+  perforationLine: {
+    flex: 1,
+    height: 1,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    marginHorizontal: 8,
+  },
+  notchRight: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    marginRight: -10,
+    borderLeftWidth: 1.5,
+    borderLeftColor: '#E2E8F0',
+  },
+
+  /* Pass Body Breakdown */
+  passBodySection: {
+    padding: 18,
+    paddingTop: 10,
+    gap: 12,
+  },
+  vehicleSpotlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+  },
+  vehicleImageBox: {
+    width: 86,
+    height: 58,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    overflow: 'hidden',
+  },
+  vehicleImage: {
+    width: '100%',
+    height: '100%',
+  },
+  vehicleInfoCol: {
+    flex: 1,
+    gap: 2,
+  },
+  spotlightPkgName: {
+    fontSize: 16,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
-  receiptTime: {
-    fontSize: 10.5,
-    color: '#64748B',
+  spotlightVehType: {
+    fontSize: 12,
     fontWeight: '600',
+    color: '#64748B',
   },
-  detailsGrid: {
-    gap: 8,
-  },
-  detailRow: {
+  plateRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  detailLabel: {
-    fontSize: 11.5,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  detailVal: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  dealerPill: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  dealerPillText: {
-    color: '#1D4ED8',
-    fontWeight: '800',
-    fontSize: 11,
-  },
-  walkInPlatePill: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  walkInPlateText: {
-    color: '#475569',
-    fontWeight: '800',
-    fontSize: 11,
-    letterSpacing: 0.5,
+    marginTop: 2,
   },
   sgPlatePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
+    backgroundColor: '#0F172A',
     borderRadius: 6,
     overflow: 'hidden',
   },
   sgTag: {
-    backgroundColor: '#EF4444',
+    backgroundColor: RED_BAY_COLORS.primary,
     color: '#FFFFFF',
     fontSize: 9.5,
     fontWeight: '900',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    letterSpacing: 0.5,
   },
   sgPlateNumber: {
-    color: '#0F172A',
-    fontSize: 11.5,
-    fontWeight: '800',
-    paddingHorizontal: 6,
-    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    letterSpacing: 0.8,
   },
-  paymentInfoRow: {
+  walkInPlatePill: {
+    backgroundColor: '#0F172A',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+  },
+  walkInPlateText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+
+  /* Meta Grid */
+  metaGrid: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  metaLabel: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  metaValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  metaDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  paymentBadgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  payBadge: {
+  payModePill: {
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  creditPayModePill: {
+    backgroundColor: '#FEF3C7',
+  },
+  payModePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  creditPayModePillText: {
+    color: '#92400E',
+  },
+  paidPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#A7F3D0',
   },
-  payBadgeText: {
-    color: '#334155',
+  paidPillText: {
     fontSize: 10.5,
-    fontWeight: '800',
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: 0.5,
   },
-  creditPayBadge: {
+  pendingPill: {
     backgroundColor: '#FEF3C7',
     borderColor: '#FDE68A',
   },
-  creditPayBadgeText: {
+  pendingPillText: {
     color: '#B45309',
-    fontWeight: '900',
-  },
-  statusBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  statusBadgePaid: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
-  },
-  statusBadgePending: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FCD34D',
-  },
-  statusBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-  },
-  statusBadgeTextPaid: {
-    color: '#047857',
-  },
-  statusBadgeTextPending: {
-    color: '#B45309',
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1.5,
-    borderTopColor: '#E2E8F0',
-    paddingTop: 8,
-    marginTop: 2,
-  },
-  totalLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: 0.4,
-  },
-  totalPrice: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: RED_BAY_COLORS.primary,
-  },
-  gstText: {
-    fontSize: 10,
-    color: '#94A3B8',
   },
 
-  /* Bottom Bar */
-  bottomBarOuter: {
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    width: '100%',
-    ...makeShadow('#000000', { width: 0, height: -2 }, 0.04, 6, 1),
-  },
-  bottomBar: {
+  /* Total Banner */
+  totalBanner: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    maxWidth: 720,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  bottomPrintBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 13,
-    paddingHorizontal: 18,
-    borderRadius: 12,
+    backgroundColor: '#FFF1F2',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderWidth: 1.5,
-    borderColor: '#CBD5E1',
+    borderColor: '#FFE4E6',
   },
-  bottomPrintText: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#334155',
+  totalBannerLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#9F1239',
+    letterSpacing: 0.6,
   },
-  doneBtn: {
-    flex: 1,
+  totalBannerGst: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#BE123C',
+    marginTop: 2,
+  },
+  totalBannerPrice: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: RED_BAY_COLORS.primary,
+    letterSpacing: 0.3,
+  },
+
+  /* Action Button & Countdown */
+  actionBtn: {
+    width: '100%',
+    backgroundColor: RED_BAY_COLORS.primary,
+    borderRadius: 18,
+    paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: RED_BAY_COLORS.primary,
-    paddingVertical: 13,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 4 }, 0.3, 10, 3),
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 6 }, 0.25, 12, 3),
   },
-  doneBtnText: {
-    fontSize: 14.5,
+  actionBtnText: {
+    fontSize: 16,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
+  },
+  autoReturnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  autoReturnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  countdownHighlight: {
+    color: RED_BAY_COLORS.primary,
+    fontWeight: '800',
   },
 });

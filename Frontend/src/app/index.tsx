@@ -187,6 +187,9 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<View />} />
           <Route path="/orders" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/day-management" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/day-start" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/day-end" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/customer-login'} replace />} />
         </Routes>
       )}

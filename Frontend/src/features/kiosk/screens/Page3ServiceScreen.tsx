@@ -190,19 +190,14 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
       {/* Main Title & Prompt Header */}
       <View style={styles.promptHeader}>
-        <View style={styles.stepBadge}>
-          <Text style={styles.stepBadgeText}>
-            {viewStep === 'CATEGORIES' ? "STEP 2 OF 5: SERVICE CATEGORY" : "STEP 2 OF 5: SERVICE PACKAGE"}
-          </Text>
-        </View>
         <Text style={styles.mainTitle}>
           {viewStep === 'CATEGORIES' ? "Select a Service Category" : "Choose Your Package"}
         </Text>
-        <Text style={styles.subtitle}>
-          {viewStep === 'CATEGORIES' 
-            ? "Choose between exterior wash, paint polishing, or Alcare interior sanitization."
-            : `Available packages for ${selectedCategory?.title || 'CAR WASH'}.`}
-        </Text>
+        {viewStep === 'CATEGORIES' && (
+          <Text style={styles.subtitle}>
+            Choose between exterior wash, paint polishing, or Alcare interior sanitization.
+          </Text>
+        )}
         <View style={styles.titleUnderlineAccent} />
       </View>
 
@@ -292,7 +287,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
                         {/* Bottom View Packages Action Button */}
                         <View style={[styles.cardActionBtn, { backgroundColor: meta.btnColor }]}>
-                          <Text style={styles.cardActionBtnText}>View Packages →</Text>
+                          <Text style={styles.cardActionBtnText}>View Packages</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -305,20 +300,25 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           {/* ================= STEP 2: PACKAGE SELECTION ================= */}
           {viewStep === 'PACKAGES' && (
             <View style={{ width: '100%' }}>
-              {/* Category Switcher Pill */}
+              {/* Category Switcher Banner */}
               <TouchableOpacity
                 style={styles.categorySwitcherPill}
                 onPress={() => setViewStep('CATEGORIES')}
                 activeOpacity={0.8}
               >
                 <View style={styles.switchCatLeft}>
-                  <Ionicons name="car-sport" size={16} color={RED_BAY_COLORS.primary} />
-                  <Text style={styles.switchCatText}>
-                    Category: <Text style={styles.switchCatHighlight}>{selectedCategory?.title}</Text>
-                  </Text>
+                  <View style={styles.switchCatIconBox}>
+                    <Ionicons name="car-sport" size={18} color={RED_BAY_COLORS.primary} />
+                  </View>
+                  <View style={styles.switchCatTextCol}>
+                    <Text style={styles.switchCatKicker}>CURRENT CATEGORY</Text>
+                    <Text style={styles.switchCatTitle}>
+                      {selectedCategory?.title || 'CAR WASH'}
+                    </Text>
+                  </View>
                 </View>
                 <View style={styles.changePill}>
-                  <Ionicons name="repeat-outline" size={13} color="#FFFFFF" />
+                  <Ionicons name="swap-horizontal" size={15} color="#FFFFFF" />
                   <Text style={styles.changePillText}>Change Category</Text>
                 </View>
               </TouchableOpacity>
@@ -372,7 +372,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                       >
                         {isSelected && <View style={styles.pkgSelectedStrip} />}
 
-                        {/* Top Row: Duration & Radio Check */}
+                        {/* Top Row: Duration */}
                         <View style={styles.pkgTopRow}>
                           <View style={[styles.durationBadge, isSelected && styles.durationBadgeSelected]}>
                             <Ionicons 
@@ -383,14 +383,6 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             <Text style={[styles.durationText, isSelected && styles.durationTextSelected]}>
                               {pkg.durationMinutes ? `${pkg.durationMinutes} mins` : 'Express Service'}
                             </Text>
-                          </View>
-
-                          <View style={[styles.packageCheck, isSelected && styles.packageCheckSelected]}>
-                            {isSelected ? (
-                              <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                            ) : (
-                              <View style={styles.packageCheckDot} />
-                            )}
                           </View>
                         </View>
 
@@ -438,11 +430,6 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                           <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
                             {isSelected ? 'Selected' : 'Select Package'}
                           </Text>
-                          <Ionicons 
-                            name={isSelected ? "checkmark" : "arrow-forward"} 
-                            size={14} 
-                            color={isSelected ? "#FFFFFF" : "#0F172A"} 
-                          />
                         </View>
                       </TouchableOpacity>
                     );
@@ -668,7 +655,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 
-  /* Category Switcher Pill */
+  /* Category Switcher Banner */
   categorySwitcherPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -676,39 +663,59 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+    ...makeShadow('#000000', { width: 0, height: 4 }, 0.05, 10, 2),
   },
   switchCatLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 12,
   },
-  switchCatText: {
-    fontSize: 12,
+  switchCatIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  switchCatTextCol: {
+    justifyContent: 'center',
+    gap: 2,
+  },
+  switchCatKicker: {
+    fontSize: 10,
+    fontWeight: '800',
     color: '#64748B',
-    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
-  switchCatHighlight: {
-    color: '#0F172A',
+  switchCatTitle: {
+    fontSize: 16,
     fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.3,
   },
   changePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: '#0F172A',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    ...makeShadow('#0F172A', { width: 0, height: 2 }, 0.2, 4, 1),
   },
   changePillText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   /* Packages 2-Column Responsive Square Grid */
@@ -722,18 +729,17 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   packageCard: {
-    width: '48%',
-    aspectRatio: 0.98,
-    minHeight: 270,
+    width: '48.5%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 14,
-    borderWidth: 2,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     position: 'relative',
     overflow: 'hidden',
     justifyContent: 'space-between',
-    ...makeShadow('#000000', { width: 0, height: 4 }, 0.05, 10, 2),
+    gap: 8,
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
   },
   packageCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
@@ -751,8 +757,9 @@ const styles = StyleSheet.create({
   },
   pkgTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    marginBottom: 2,
   },
   durationBadge: {
     flexDirection: 'row',
@@ -773,26 +780,6 @@ const styles = StyleSheet.create({
   },
   durationTextSelected: {
     color: RED_BAY_COLORS.primary,
-  },
-  packageCheck: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-  },
-  packageCheckSelected: {
-    borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: RED_BAY_COLORS.primary,
-  },
-  packageCheckDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#CBD5E1',
   },
   pkgHeaderBlock: {
     gap: 4,
@@ -840,25 +827,25 @@ const styles = StyleSheet.create({
   },
   pkgFeatureList: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 8,
-    gap: 5,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
     borderWidth: 1,
     borderColor: '#EDF2F7',
-    flex: 1,
-    justifyContent: 'center',
-    marginVertical: 2,
+    marginVertical: 4,
   },
   pkgFeatureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   pkgFeatureText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#334155',
     fontWeight: '600',
     flex: 1,
+    lineHeight: 16,
   },
   pkgFeatureTextSelected: {
     color: '#0F172A',
@@ -868,20 +855,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    height: 38,
-    borderRadius: 10,
+    height: 42,
+    borderRadius: 12,
     backgroundColor: '#F1F5F9',
-    marginTop: 4,
+    marginTop: 6,
   },
   pkgActionBtnSelected: {
     backgroundColor: RED_BAY_COLORS.primary,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 2 }, 0.25, 4, 1),
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 3 }, 0.3, 6, 2),
   },
   pkgActionBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 13.5,
+    fontWeight: '900',
     color: '#0F172A',
+    letterSpacing: 0.3,
   },
   pkgActionBtnTextSelected: {
     color: '#FFFFFF',

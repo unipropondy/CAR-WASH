@@ -47,11 +47,6 @@ export const KioskNavButtons: React.FC<KioskNavButtonsProps> = ({
               >
                 {continueLabel}
               </Text>
-              <Ionicons
-                name="chevron-forward"
-                size={22}
-                color={continueDisabled ? '#94A3B8' : '#FFFFFF'}
-              />
             </View>
           )}
         </TouchableOpacity>

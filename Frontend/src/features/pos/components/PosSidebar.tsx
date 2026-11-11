@@ -303,21 +303,6 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
           </View>
         )}
 
-        {/* Direct "Switch to Kiosk" Button */}
-        {currentMode === 'POS' && (
-          <TouchableOpacity
-            style={styles.launchKioskBtn}
-            onPress={handleKioskClick}
-            activeOpacity={0.85}
-          >
-            <View style={styles.launchKioskLeft}>
-              <Text style={styles.launchKioskIcon}>🖥️</Text>
-              <Text style={styles.launchKioskText}>Switch to Kiosk</Text>
-            </View>
-            <Text style={styles.launchKioskArrow}>›</Text>
-          </TouchableOpacity>
-        )}
-
         {/* Station Information Card */}
         <View style={styles.stationCard}>
           <View style={styles.stationInfoLeft}>

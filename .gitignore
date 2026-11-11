@@ -32,6 +32,8 @@ credentials.yaml
 credentials.yml
 service-account.json
 *serviceaccount*.json
+dealers_store.json
+*_store.json
 
 # Private keys, certificates, tokens
 *.pem
