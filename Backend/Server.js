@@ -1,3 +1,15 @@
+// Polyfill Promise.withResolvers for Node.js < 22 runtimes (e.g. Node 18/20 in containers)
+if (typeof Promise.withResolvers !== 'function') {
+  Promise.withResolvers = function () {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -24,7 +36,10 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    // Dynamically reflect origin to satisfy credentials: true requirements in web browsers
+    callback(null, true);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
   credentials: true,

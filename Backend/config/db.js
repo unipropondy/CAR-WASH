@@ -1,3 +1,15 @@
+// Polyfill Promise.withResolvers for Node.js < 22 runtimes (e.g. Node 18/20 in containers)
+if (typeof Promise.withResolvers !== 'function') {
+  Promise.withResolvers = function () {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 const sql = require('mssql');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -37,6 +49,14 @@ async function getPool(retries = 3, delayMs = 2000) {
       if (pool) {
         try { await pool.close(); } catch (_) {}
         pool = null;
+      }
+      // Alternate between Dyndns and direct IP if connection attempt fails
+      if (attempt === 2 && config.server === 'myerpcloud.dyndns.org') {
+        config.server = '202.156.19.151';
+        console.log(`[Database] Retrying attempt ${attempt} with direct IP ${config.server}`);
+      } else if (attempt === 3 && config.server === '202.156.19.151') {
+        config.server = 'myerpcloud.dyndns.org';
+        console.log(`[Database] Retrying attempt ${attempt} with hostname ${config.server}`);
       }
       const newPool = new sql.ConnectionPool(config);
       await newPool.connect();
