@@ -112,7 +112,10 @@ const renderSvg = (
 interface PeriodRangeInfo {
   startISO: string;
   endISO: string;
-  displayDate: string;
+  weekdayLabel?: string;
+  mainDateText: string;
+  subDateText?: string;
+  arrowLabel?: string;
 }
 
 const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeInfo => {
@@ -130,16 +133,11 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
   if (tab === 'DAILY') {
     const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
     const iso = toISO(d);
-    const display = d.toLocaleDateString('en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
     return {
       startISO: iso,
       endISO: iso,
-      displayDate: display,
+      weekdayLabel: d.toLocaleDateString('en-GB', { weekday: 'short' }),
+      mainDateText: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     };
   }
 
@@ -151,7 +149,9 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     return {
       startISO: toISO(start),
       endISO: toISO(end),
-      displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+      mainDateText: formatFriendly(start),
+      arrowLabel: '➔',
+      subDateText: formatFriendly(end),
     };
   }
 
@@ -161,7 +161,8 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     return {
       startISO: toISO(start),
       endISO: toISO(end),
-      displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+      mainDateText: start.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+      subDateText: `${formatFriendly(start)} – ${formatFriendly(end)}`,
     };
   }
 
@@ -171,7 +172,8 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
   return {
     startISO: toISO(start),
     endISO: toISO(end),
-    displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+    mainDateText: `Year ${anchor.getFullYear()}`,
+    subDateText: `01 Jan – 31 Dec ${anchor.getFullYear()}`,
   };
 };
 
@@ -571,12 +573,31 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           activeOpacity={0.7}
           accessibilityLabel="Previous date"
         >
-          <Text style={styles.compactNavArrow}>‹</Text>
+          <Ionicons name="chevron-back" size={15} color="#334155" />
         </TouchableOpacity>
 
         <View style={styles.compactDateCenter}>
-          <Text style={styles.compactCalendarIcon}>📅</Text>
-          <Text style={styles.compactDateText}>{dateRange.displayDate}</Text>
+          <View style={styles.calendarIconCircle}>
+            <Ionicons name="calendar-outline" size={13} color="#E60012" />
+          </View>
+
+          {dateRange.weekdayLabel ? (
+            <View style={styles.weekdayBadge}>
+              <Text style={styles.weekdayBadgeText}>{dateRange.weekdayLabel.toUpperCase()}</Text>
+            </View>
+          ) : null}
+
+          <Text style={styles.compactDateText}>{dateRange.mainDateText}</Text>
+
+          {dateRange.arrowLabel ? (
+            <Text style={styles.compactArrowText}>➔</Text>
+          ) : null}
+
+          {dateRange.subDateText ? (
+            <View style={styles.subRangeBadge}>
+              <Text style={styles.subRangeText}>{dateRange.subDateText}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.compactNavRight}>
@@ -596,7 +617,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             activeOpacity={0.7}
             accessibilityLabel="Next date"
           >
-            <Text style={styles.compactNavArrow}>›</Text>
+            <Ionicons name="chevron-forward" size={15} color="#334155" />
           </TouchableOpacity>
         </View>
       </View>
@@ -2597,22 +2618,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    paddingVertical: 6,
+    borderRadius: 16,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    marginVertical: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   compactNavBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2639,14 +2661,58 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  compactCalendarIcon: {
-    fontSize: 15,
+  calendarIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekdayBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  weekdayBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
   },
   compactDateText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.2,
+  },
+  compactArrowText: {
+    fontSize: 12,
+    color: '#ED0712',
+    fontWeight: '800',
+    marginHorizontal: 3,
+  },
+  subRangeBadge: {
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginLeft: 4,
+  },
+  subRangeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  compactCalendarIcon: {
+    fontSize: 15,
   },
   compactNavRight: {
     flexDirection: 'row',
@@ -2655,15 +2721,16 @@ const styles = StyleSheet.create({
   },
   compactTodayPill: {
     backgroundColor: '#0F172A',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    paddingVertical: 4.5,
+    paddingHorizontal: 11,
+    borderRadius: 14,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   compactTodayPillText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 
   /* 3. ROW 1: 4 KPI CARDS */
