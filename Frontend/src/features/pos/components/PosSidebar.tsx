@@ -8,7 +8,7 @@ import {
   IconSettings,
 } from '../../../components/common/AppIcons';
 
-export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'REPORTS' | 'SETTINGS';
+export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
 
 interface PosSidebarProps {
   activeTab: PosNavTab;
@@ -171,6 +171,7 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
     { id: 'ORDERS', label: 'Orders' },
     { id: 'BAYS', label: 'Bays' },
     { id: 'CUSTOMERS', label: 'Customers' },
+    { id: 'HISTORY', label: 'History' },
     { id: 'REPORTS', label: 'Reports' },
     { id: 'SETTINGS', label: 'Settings' },
   ];
@@ -198,6 +199,8 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
         return <IconCarWashBay size={16} color={iconColor} strokeWidth={2.2} />;
       case 'CUSTOMERS':
         return <IconUsers size={16} color={iconColor} strokeWidth={2.2} />;
+      case 'HISTORY':
+        return <Text style={{ fontSize: 16 }}>📜</Text>;
       case 'REPORTS':
         return <IconReports size={16} color={iconColor} strokeWidth={2.2} />;
       case 'SETTINGS':

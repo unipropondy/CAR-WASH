@@ -202,10 +202,11 @@ async function createOrder(req, res) {
     const datePrefix = `${yyyy}${mm}${dd}`;
 
     const seqReq = new sql.Request(transaction);
+    seqReq.input('activeDayId', sql.Int, activeDayId);
     const seqResult = await seqReq.query(`
       SELECT COUNT(*) AS todayOrders 
       FROM dbo.CarWashOrder 
-      WHERE CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
+      WHERE DayId = @activeDayId OR CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
     `);
     const todayOrders = (seqResult.recordset[0]?.todayOrders || 0) + 1;
     const orderNo = `RB${datePrefix}-${String(todayOrders).padStart(4, '0')}`;
@@ -874,12 +875,36 @@ async function getOrders(req, res) {
     const request = pool.request();
     let whereConditions = [];
 
-    // Filter by specific dayId or by date
+    // Check for an active open business day from CarWashDayMaster
+    let activeDay = null;
+    try {
+      const activeDayRes = await pool.request().query(`
+        SELECT TOP 1 DayId, BusinessDate, StartedDate, DayStatus 
+        FROM dbo.CarWashDayMaster 
+        WHERE DayStatus = 'OPEN' 
+        ORDER BY DayId DESC;
+      `);
+      if (activeDayRes.recordset.length > 0) {
+        activeDay = activeDayRes.recordset[0];
+      }
+    } catch (dayErr) {
+      console.warn('[getOrders] Day check error:', dayErr.message);
+    }
+
+    // Filter by specific dayId, or active business day, or date
     if (dayId) {
       request.input('dayId', sql.Int, parseInt(dayId, 10));
       whereConditions.push(`o.DayId = @dayId`);
     } else if (date === 'today') {
-      whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
+      if (activeDay) {
+        // Business Day spans across midnight until Day End is clicked:
+        // Include all orders belonging to this active day, OR created since this day started
+        request.input('activeDayId', sql.Int, activeDay.DayId);
+        request.input('activeStartedDate', sql.DateTime, activeDay.StartedDate || activeDay.BusinessDate);
+        whereConditions.push(`(o.DayId = @activeDayId OR o.CreatedDate >= @activeStartedDate)`);
+      } else {
+        whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
+      }
     } else if (date && date !== 'all') {
       request.input('filterDate', sql.Date, date);
       whereConditions.push(`CAST(o.CreatedDate AS DATE) = @filterDate`);

@@ -28,6 +28,7 @@
       ]
     },
     "extra": {
+      "apiUrl": "http://car-wash.railway.internal:5000",
       "eas": {
         "projectId": "8794d2c8-89f4-41c6-a6fc-fdfcae04b407"
       }

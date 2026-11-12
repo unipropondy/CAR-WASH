@@ -14,6 +14,22 @@ import Constants from 'expo-constants';
 export const DEFAULT_BACKEND_PORT = 5000;
 export const STORAGE_CUSTOM_API_KEY = '@redbay_custom_api_url';
 
+/**
+ * Normalizes URL with protocol (http:// or https://) and defaults
+ * Railway private internal networking (.railway.internal) to backend port 5000 if not specified.
+ */
+export function normalizeApiUrl(rawUrl: string): string {
+  let clean = rawUrl.trim().replace(/\/+$/, '');
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = `http://${clean}`;
+  }
+  // If railway.internal domain without port, append :DEFAULT_BACKEND_PORT (5000)
+  if (clean.includes('.railway.internal') && !clean.match(/:\d+$/)) {
+    clean = `${clean}:${DEFAULT_BACKEND_PORT}`;
+  }
+  return clean;
+}
+
 // Runtime in-memory override cache
 let customApiBaseUrl: string | null = null;
 
@@ -22,7 +38,7 @@ if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorag
   try {
     const saved = window.localStorage.getItem(STORAGE_CUSTOM_API_KEY);
     if (saved && saved.trim().length > 0) {
-      customApiBaseUrl = saved.trim().replace(/\/+$/, '');
+      customApiBaseUrl = normalizeApiUrl(saved);
     }
   } catch (e) {
     // Ignore localStorage access restrictions
@@ -41,7 +57,7 @@ export function getCustomApiBaseUrl(): string | null {
  */
 export function setCustomApiBaseUrl(url: string | null): void {
   if (url && url.trim().length > 0) {
-    const cleanUrl = url.trim().replace(/\/+$/, '');
+    const cleanUrl = normalizeApiUrl(url);
     customApiBaseUrl = cleanUrl;
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -73,21 +89,21 @@ export function setCustomApiBaseUrl(url: string | null): void {
 export function getApiBaseUrl(): string {
   // 1. Runtime custom override
   if (customApiBaseUrl && customApiBaseUrl.trim().length > 0) {
-    return customApiBaseUrl;
+    return normalizeApiUrl(customApiBaseUrl);
   }
 
   // 2. Environment variable override (preferred for modern Expo 51+ builds)
   if (process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_URL.trim().length > 0) {
-    const envUrl = process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/+$/, '');
+    const envUrl = process.env.EXPO_PUBLIC_API_URL.trim();
     if (envUrl !== 'http://' && envUrl !== 'https://') {
-      return envUrl;
+      return normalizeApiUrl(envUrl);
     }
   }
 
   // 3. Extra configuration in app.json (if explicitly set and non-empty)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (extraUrl && typeof extraUrl === 'string' && extraUrl.trim().length > 0) {
-    return extraUrl.trim().replace(/\/+$/, '');
+    return normalizeApiUrl(extraUrl);
   }
 
   // 4. Web browser environment: dynamically use current browser host
@@ -110,7 +126,7 @@ export function getApiBaseUrl(): string {
         return `http://${hostname}:${DEFAULT_BACKEND_PORT}`;
       }
     }
-    return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+    return `http://car-wash.railway.internal:${DEFAULT_BACKEND_PORT}`;
   }
 
   // 5. Native React Native environment (Expo Go / Dev Client on Android/iOS)
@@ -127,8 +143,8 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 6. Safe default fallback for emulators & local bridges
-  return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+  // 6. Safe default fallback for emulators & Railway private mesh
+  return `http://car-wash.railway.internal:${DEFAULT_BACKEND_PORT}`;
 }
 
 export const API_BASE_URL = getApiBaseUrl();

@@ -93,10 +93,24 @@ async function calculateDayMetrics(pool, dayId) {
   if (!dmRes.recordset.length) return null;
   const dayMaster = dmRes.recordset[0];
   const openingCash = Number(dayMaster.OpeningCash || 0);
+  const isDayOpen = dayMaster.DayStatus === 'OPEN';
+  const startedDate = dayMaster.StartedDate || dayMaster.BusinessDate;
+  const endedDate = dayMaster.EndedDate || new Date();
 
   // 2. Orders summary for this day
   const ordersReq = pool.request();
   ordersReq.input('dayId', sql.Int, dayId);
+  ordersReq.input('startedDate', sql.DateTime, startedDate);
+  ordersReq.input('endedDate', sql.DateTime, endedDate);
+
+  const orderCondition = isDayOpen
+    ? `(DayId = @dayId OR (DayId IS NULL AND CreatedDate >= @startedDate))`
+    : `(DayId = @dayId OR (DayId IS NULL AND CreatedDate >= @startedDate AND CreatedDate <= @endedDate))`;
+
+  const orderConditionPrefixed = isDayOpen
+    ? `(o.DayId = @dayId OR (o.DayId IS NULL AND o.CreatedDate >= @startedDate))`
+    : `(o.DayId = @dayId OR (o.DayId IS NULL AND o.CreatedDate >= @startedDate AND o.CreatedDate <= @endedDate))`;
+
   const ordersRes = await ordersReq.query(`
     SELECT
       COUNT(*) AS TotalOrders,
@@ -112,20 +126,22 @@ async function calculateDayMetrics(pool, dayId) {
       ISNULL(SUM(CASE WHEN StatusCode = 70 THEN 1 ELSE 0 END), 0) AS ClosedWashOrderCount,
       ISNULL(SUM(CASE WHEN StatusCode = 80 THEN 1 ELSE 0 END), 0) AS CancelledWashOrderCount
     FROM dbo.CarWashOrder
-    WHERE DayId = @dayId;
+    WHERE ${orderCondition};
   `);
   const ord = ordersRes.recordset[0] || {};
 
   // 3. Tender breakdown
   const tenderReq = pool.request();
   tenderReq.input('dayId', sql.Int, dayId);
+  tenderReq.input('startedDate', sql.DateTime, startedDate);
+  tenderReq.input('endedDate', sql.DateTime, endedDate);
   const tenderRes = await tenderReq.query(`
     SELECT
       RTRIM(ISNULL(PayMode, 'UNSPECIFIED')) AS PayMode,
       COUNT(*) AS TransactionCount,
       ISNULL(SUM(TotalAmount), 0) AS TotalAmount
     FROM dbo.CarWashOrder
-    WHERE DayId = @dayId AND PaymentStatus = 'PAID'
+    WHERE ${orderCondition} AND PaymentStatus = 'PAID'
     GROUP BY RTRIM(ISNULL(PayMode, 'UNSPECIFIED'));
   `);
 
@@ -156,6 +172,8 @@ async function calculateDayMetrics(pool, dayId) {
   // 4. Package-wise breakdown
   const pkgReq = pool.request();
   pkgReq.input('dayId', sql.Int, dayId);
+  pkgReq.input('startedDate', sql.DateTime, startedDate);
+  pkgReq.input('endedDate', sql.DateTime, endedDate);
   const pkgRes = await pkgReq.query(`
     SELECT
       ISNULL(sp.PackageName, 'Custom Wash') AS PackageName,
@@ -164,7 +182,7 @@ async function calculateDayMetrics(pool, dayId) {
       ISNULL(SUM(o.PackagePrice), 0) AS PackagePrice
     FROM dbo.CarWashOrder o
     LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
-    WHERE o.DayId = @dayId AND o.PaymentStatus = 'PAID'
+    WHERE ${orderConditionPrefixed} AND o.PaymentStatus = 'PAID'
     GROUP BY ISNULL(sp.PackageName, 'Custom Wash')
     ORDER BY TotalAmount DESC;
   `);

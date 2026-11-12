@@ -12,7 +12,11 @@ import {
 import { useDayManagementStore } from '../store/dayManagementStore';
 import { useAuthStore } from '../../auth/store/authStore';
 
-export const SimpleDayModal: React.FC = () => {
+interface SimpleDayModalProps {
+  onViewHistory?: () => void;
+}
+
+export const SimpleDayModal: React.FC<SimpleDayModalProps> = ({ onViewHistory }) => {
   const user = useAuthStore((state) => state.user);
   const isOpen = useDayManagementStore((state) => state.isOpen);
   const activeDayId = useDayManagementStore((state) => state.activeDayId);
@@ -206,6 +210,19 @@ export const SimpleDayModal: React.FC = () => {
                   )}
                 </TouchableOpacity>
               </View>
+
+              {onViewHistory && (
+                <TouchableOpacity
+                  style={styles.modalHistoryLink}
+                  onPress={() => {
+                    closeModal();
+                    onViewHistory();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalHistoryLinkText}>📜 View Previous Days & History ➜</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             // ==========================================
@@ -308,6 +325,19 @@ export const SimpleDayModal: React.FC = () => {
                   )}
                 </TouchableOpacity>
               </View>
+
+              {onViewHistory && (
+                <TouchableOpacity
+                  style={styles.modalHistoryLink}
+                  onPress={() => {
+                    closeModal();
+                    onViewHistory();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalHistoryLinkText}>📜 View Previous Days & History ➜</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -687,5 +717,21 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.6,
+  },
+  modalHistoryLink: {
+    marginTop: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  modalHistoryLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
   },
 });

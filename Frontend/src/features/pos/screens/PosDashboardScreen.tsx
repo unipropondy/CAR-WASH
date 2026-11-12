@@ -18,6 +18,7 @@ import { PosSettingsView } from '../components/PosSettingsView';
 import { BayMasterManagementView } from '../components/BayMasterManagementView';
 import { PosReportsView } from '../components/PosReportsView';
 import { PosCustomerHistoryView } from '../components/PosCustomerHistoryView';
+import { BusinessDayHistoryView } from '../components/BusinessDayHistoryView';
 import { SimpleDayModal } from '../../dayManagement/components/SimpleDayModal';
 import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 import { INITIAL_BAYS } from '../../../data/mockData';
@@ -86,6 +87,13 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+
+  // Business Day Store & History Selection State
+  const isDayOpen = useDayManagementStore((state) => state.isOpen);
+  const activeDayId = useDayManagementStore((state) => state.activeDayId);
+  const activeBusinessDate = useDayManagementStore((state) => state.businessDate);
+  const activeDay = useDayManagementStore((state) => state.activeDay);
+  const [selectedHistoryDay, setSelectedHistoryDay] = useState<any | null>(null);
 
   // Modal States
   const [assignModalVisible, setAssignModalVisible] = useState(false);
@@ -250,11 +258,14 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   };
 
   // Load orders and bays dynamically from dbo.BayMaster and dbo.CarWashOrder
-  const loadOrders = async (silent: boolean = false) => {
+  const loadOrders = async (silent: boolean = false, targetDayId?: number) => {
     try {
       if (!silent) setIsRefreshing(true);
+      const effectiveDayId = targetDayId !== undefined ? targetDayId : selectedHistoryDay?.dayId;
       const [apiOrders, bayMasterList] = await Promise.all([
-        fetchCarWashOrders('ALL', '', 'today'),
+        effectiveDayId
+          ? fetchCarWashOrders('ALL', '', '', effectiveDayId)
+          : fetchCarWashOrders('ALL', '', 'today'),
         fetchBayMasterList().catch((err) => {
           console.warn('Failed to fetch BayMaster list:', err);
           return [] as BayMasterRecord[];
@@ -280,6 +291,27 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     } finally {
       setLoadingOrders(false);
       setIsRefreshing(false);
+    }
+  };
+
+  // Re-fetch when selected historical day changes
+  useEffect(() => {
+    loadOrders(false);
+  }, [selectedHistoryDay]);
+
+  const formatFriendlyDate = (dateVal: any) => {
+    if (!dateVal) return '';
+    try {
+      const dt = new Date(dateVal);
+      if (isNaN(dt.getTime())) return String(dateVal);
+      return dt.toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return String(dateVal);
     }
   };
 
@@ -657,6 +689,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               ? 'Customer History'
               : activeTab === 'BAYS'
               ? 'Bays'
+              : activeTab === 'HISTORY'
+              ? 'Business Day History'
               : activeTab === 'SETTINGS'
               ? 'Settings'
               : 'Orders'
@@ -792,14 +826,68 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
             searchQuery={searchQuery}
           />
+        ) : activeTab === 'HISTORY' ? (
+          <BusinessDayHistoryView
+            onBackToOrders={() => handleSelectTab('ORDERS')}
+            onSelectDayToViewInOrders={(day) => {
+              setSelectedHistoryDay(day);
+              handleSelectTab('ORDERS');
+            }}
+          />
         ) : (
           <View style={styles.ordersContentWrapper}>
-            {/* 1. Header: Today's Orders & Date */}
+            {/* 1. Header: Business Day / Today's Orders & Date */}
             <View style={styles.todayHeaderSection}>
-              <View>
-                <Text style={styles.todayTitle}>Today’s orders</Text>
-                <Text style={styles.todaySubtitle}>{formattedTodayDate}</Text>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <Text style={styles.todayTitle}>
+                    {selectedHistoryDay
+                      ? `Day #${selectedHistoryDay.dayId} Orders (History)`
+                      : isDayOpen
+                      ? `Day #${activeDayId || 1} Orders`
+                      : "Today’s orders"}
+                  </Text>
+                  {selectedHistoryDay ? (
+                    <View style={styles.historyTag}>
+                      <Text style={styles.historyTagText}>HISTORICAL RECORD</Text>
+                    </View>
+                  ) : isDayOpen ? (
+                    <View style={styles.activeDayTag}>
+                      <Text style={styles.activeDayTagText}>ACTIVE BUSINESS DAY</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.closedDayTag}>
+                      <Text style={styles.closedDayTagText}>DAY CLOSED</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={styles.todaySubtitle}>
+                  {selectedHistoryDay
+                    ? `Business Date: ${formatFriendlyDate(selectedHistoryDay.businessDate)} • Closed • ${orders.length} total orders recorded`
+                    : isDayOpen
+                    ? `Business Date: ${formatFriendlyDate(activeBusinessDate || activeDay?.businessDate || formattedTodayDate)} • Started ${formatFriendlyDate(activeDay?.startedDate || activeBusinessDate || formattedTodayDate)}`
+                    : `${formattedTodayDate} • Business day is currently closed (Start Day to begin)`}
+                </Text>
               </View>
+
+              {selectedHistoryDay ? (
+                <TouchableOpacity
+                  style={styles.returnActiveBtn}
+                  onPress={() => setSelectedHistoryDay(null)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.returnActiveBtnText}>◀ Return to Active Day</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.historyShortcutBtn}
+                  onPress={() => handleSelectTab('HISTORY')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.historyShortcutBtnText}>📜 Day History</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* 2. Four Summary Cards */}
@@ -1296,7 +1384,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       </Modal>
 
       {/* ================= MODAL: DAY MANAGEMENT POPUP ================= */}
-      <SimpleDayModal />
+      <SimpleDayModal
+        onViewHistory={() => {
+          handleSelectTab('HISTORY');
+        }}
+      />
     </View>
   );
 };
@@ -1390,6 +1482,74 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#64748B',
     marginTop: 2,
+  },
+  historyTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  historyTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
+  },
+  activeDayTag: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  activeDayTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.5,
+  },
+  closedDayTag: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  closedDayTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#B91C1C',
+    letterSpacing: 0.5,
+  },
+  returnActiveBtn: {
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  returnActiveBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12.5,
+  },
+  historyShortcutBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  historyShortcutBtnText: {
+    color: '#334155',
+    fontWeight: '700',
+    fontSize: 12.5,
   },
   summaryCardsRow: {
     flexDirection: 'row',

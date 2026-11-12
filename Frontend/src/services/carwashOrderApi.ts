@@ -174,12 +174,17 @@ export async function fetchCarWashOrders(
   filter: string = 'ALL',
   search: string = '',
   date: string = 'today',
+  dayId?: number,
   token?: string
 ): Promise<ApiOrder[]> {
   const queryParams = new URLSearchParams();
   if (filter) queryParams.append('filter', filter);
   if (search) queryParams.append('search', search);
-  if (date) queryParams.append('date', date);
+  if (dayId) {
+    queryParams.append('dayId', String(dayId));
+  } else if (date) {
+    queryParams.append('date', date);
+  }
 
   const url = `${getBaseUrl()}/orders?${queryParams.toString()}`;
   const headers: Record<string, string> = {};
