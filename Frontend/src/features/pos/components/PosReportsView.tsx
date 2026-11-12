@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -109,6 +109,72 @@ const renderSvg = (
   return <View style={{ width: size, height: size }} />;
 };
 
+interface PeriodRangeInfo {
+  startISO: string;
+  endISO: string;
+  displayDate: string;
+}
+
+const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeInfo => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const formatFriendly = (d: Date, withWeekday = false) => {
+    return d.toLocaleDateString('en-GB', {
+      weekday: withWeekday ? 'short' : undefined,
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  if (tab === 'DAILY') {
+    const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+    const iso = toISO(d);
+    const display = d.toLocaleDateString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    return {
+      startISO: iso,
+      endISO: iso,
+      displayDate: display,
+    };
+  }
+
+  if (tab === 'WEEKLY') {
+    const dayOfWeek = anchor.getDay(); // 0 = Sun, 1 = Mon...
+    const diffToMonday = anchor.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), diffToMonday);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    return {
+      startISO: toISO(start),
+      endISO: toISO(end),
+      displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+    };
+  }
+
+  if (tab === 'MONTHLY') {
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    return {
+      startISO: toISO(start),
+      endISO: toISO(end),
+      displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+    };
+  }
+
+  // YEARLY
+  const start = new Date(anchor.getFullYear(), 0, 1);
+  const end = new Date(anchor.getFullYear(), 11, 31);
+  return {
+    startISO: toISO(start),
+    endISO: toISO(end),
+    displayDate: `${formatFriendly(start)} — ${formatFriendly(end)}`,
+  };
+};
+
 export const PosReportsView: React.FC<PosReportsViewProps> = ({
   orders = [],
   bays = [],
@@ -117,37 +183,97 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   onToggleSidebar,
 }) => {
   const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('MONTHLY');
+  const [anchorDate, setAnchorDate] = useState<Date>(new Date());
   const [dashboardData, setDashboardData] = useState<FullDashboardPayload | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTrendIdx, setActiveTrendIdx] = useState<number>(0);
 
-  const loadDashboard = useCallback(async (tab: ReportPeriodTab, isManual = false) => {
-    if (isManual) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
-    setLoadError(null);
-    try {
-      const data = await fetchFullSalesDashboard(tab);
-      setDashboardData(data);
-      if (data.washTrend && data.washTrend.length > 0) {
-        setActiveTrendIdx(data.washTrend.length - 1);
+  const dateRange = useMemo(() => {
+    return calculatePeriodRange(selectedPeriodTab, anchorDate);
+  }, [selectedPeriodTab, anchorDate]);
+
+  const isCurrentDate = useMemo(() => {
+    const today = new Date();
+    return (
+      today.getFullYear() === anchorDate.getFullYear() &&
+      today.getMonth() === anchorDate.getMonth() &&
+      today.getDate() === anchorDate.getDate()
+    );
+  }, [anchorDate]);
+
+  const handlePrevious = () => {
+    setAnchorDate((prev) => {
+      const next = new Date(prev);
+      if (selectedPeriodTab === 'DAILY') {
+        next.setDate(next.getDate() - 1);
+      } else if (selectedPeriodTab === 'WEEKLY') {
+        next.setDate(next.getDate() - 7);
+      } else if (selectedPeriodTab === 'MONTHLY') {
+        next.setMonth(next.getMonth() - 1);
+      } else if (selectedPeriodTab === 'YEARLY') {
+        next.setFullYear(next.getFullYear() - 1);
       }
-    } catch (err: any) {
-      console.warn('Failed to load sales dashboard:', err);
-      setLoadError(err?.message || 'Could not fetch dashboard metrics');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+      return next;
+    });
+  };
+
+  const handleNext = () => {
+    setAnchorDate((prev) => {
+      const next = new Date(prev);
+      if (selectedPeriodTab === 'DAILY') {
+        next.setDate(next.getDate() + 1);
+      } else if (selectedPeriodTab === 'WEEKLY') {
+        next.setDate(next.getDate() + 7);
+      } else if (selectedPeriodTab === 'MONTHLY') {
+        next.setMonth(next.getMonth() + 1);
+      } else if (selectedPeriodTab === 'YEARLY') {
+        next.setFullYear(next.getFullYear() + 1);
+      }
+      return next;
+    });
+  };
+
+  const handleResetToCurrent = () => {
+    setAnchorDate(new Date());
+  };
+
+  const loadDashboard = useCallback(
+    async (
+      tab: ReportPeriodTab,
+      isManual: boolean = false,
+      customStart?: string,
+      customEnd?: string
+    ) => {
+      if (isManual) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setLoadError(null);
+      try {
+        const start = customStart || dateRange.startISO;
+        const end = customEnd || dateRange.endISO;
+        const data = await fetchFullSalesDashboard(tab, start, end);
+        setDashboardData(data);
+        if (data.washTrend && data.washTrend.length > 0) {
+          setActiveTrendIdx(data.washTrend.length - 1);
+        }
+      } catch (err: any) {
+        console.warn('Failed to load sales dashboard:', err);
+        setLoadError(err?.message || 'Could not fetch dashboard metrics');
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [dateRange.startISO, dateRange.endISO]
+  );
 
   useEffect(() => {
-    loadDashboard(selectedPeriodTab);
-  }, [selectedPeriodTab, loadDashboard]);
+    loadDashboard(selectedPeriodTab, false, dateRange.startISO, dateRange.endISO);
+  }, [selectedPeriodTab, dateRange.startISO, dateRange.endISO, loadDashboard]);
 
   // Live SQL Server metrics extracted from dashboard payload
   const summary = dashboardData?.summary || {
@@ -433,6 +559,46 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      {/* ============================================================== */}
+      {/* 2.1 SLEEK COMPACT DATE NAVIGATION BAR */}
+      {/* ============================================================== */}
+      <View style={styles.compactDateBar}>
+        <TouchableOpacity
+          style={styles.compactNavBtn}
+          onPress={handlePrevious}
+          activeOpacity={0.7}
+          accessibilityLabel="Previous date"
+        >
+          <Text style={styles.compactNavArrow}>‹</Text>
+        </TouchableOpacity>
+
+        <View style={styles.compactDateCenter}>
+          <Text style={styles.compactCalendarIcon}>📅</Text>
+          <Text style={styles.compactDateText}>{dateRange.displayDate}</Text>
+        </View>
+
+        <View style={styles.compactNavRight}>
+          {!isCurrentDate && (
+            <TouchableOpacity
+              style={styles.compactTodayPill}
+              onPress={handleResetToCurrent}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.compactTodayPillText}>Today</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.compactNavBtn}
+            onPress={handleNext}
+            activeOpacity={0.7}
+            accessibilityLabel="Next date"
+          >
+            <Text style={styles.compactNavArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ============================================================== */}
@@ -2423,6 +2589,81 @@ const styles = StyleSheet.create({
   periodTabTextActive: {
     color: '#FFFFFF',
     fontWeight: '900',
+  },
+
+  /* 2.1 SLEEK COMPACT DATE BAR */
+  compactDateBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  compactNavBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          userSelect: 'none',
+        } as any)
+      : {}),
+  },
+  compactNavArrow: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#334155',
+    lineHeight: 20,
+    marginTop: -2,
+  },
+  compactDateCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  compactCalendarIcon: {
+    fontSize: 15,
+  },
+  compactDateText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  compactNavRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  compactTodayPill: {
+    backgroundColor: '#0F172A',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  compactTodayPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   /* 3. ROW 1: 4 KPI CARDS */

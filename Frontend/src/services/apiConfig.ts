@@ -93,8 +93,9 @@ export function getApiBaseUrl(): string {
   }
 
   // 2. Environment variable override (preferred for modern Expo 51+ builds)
-  if (process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_URL.trim().length > 0) {
-    const envUrl = process.env.EXPO_PUBLIC_API_URL.trim();
+  const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
+  if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
+    const envUrl = envApiUrl.trim();
     if (envUrl !== 'http://' && envUrl !== 'https://') {
       return normalizeApiUrl(envUrl);
     }

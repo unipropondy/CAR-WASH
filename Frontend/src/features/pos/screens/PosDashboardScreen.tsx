@@ -261,7 +261,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const loadOrders = async (silent: boolean = false, targetDayId?: number) => {
     try {
       if (!silent) setIsRefreshing(true);
-      const effectiveDayId = targetDayId !== undefined ? targetDayId : selectedHistoryDay?.dayId;
+      const effectiveDayId =
+        targetDayId !== undefined
+          ? targetDayId
+          : (selectedHistoryDay?.dayId || (isDayOpen && activeDayId ? activeDayId : undefined));
+
       const [apiOrders, bayMasterList] = await Promise.all([
         effectiveDayId
           ? fetchCarWashOrders('ALL', '', '', effectiveDayId)
@@ -294,10 +298,10 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     }
   };
 
-  // Re-fetch when selected historical day changes
+  // Re-fetch when selected historical day or active business day changes
   useEffect(() => {
     loadOrders(false);
-  }, [selectedHistoryDay]);
+  }, [selectedHistoryDay, isDayOpen, activeDayId]);
 
   const formatFriendlyDate = (dateVal: any) => {
     if (!dateVal) return '';

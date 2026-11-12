@@ -136,9 +136,16 @@ export function mapTabToPeriodParam(tab: ReportPeriodTab): string {
 /**
  * Fetch full sales dashboard payload from the backend SQL Server stored procedures
  */
-export async function fetchFullSalesDashboard(periodTab: ReportPeriodTab = 'MONTHLY'): Promise<FullDashboardPayload> {
+export async function fetchFullSalesDashboard(
+  periodTab: ReportPeriodTab = 'MONTHLY',
+  startDate?: string,
+  endDate?: string
+): Promise<FullDashboardPayload> {
   const periodParam = mapTabToPeriodParam(periodTab);
-  const url = `${getApiBaseUrl()}/api/carwash/reports/dashboard?period=${periodParam}`;
+  let url = `${getApiBaseUrl()}/api/carwash/reports/dashboard?period=${periodParam}`;
+  if (startDate && endDate) {
+    url += `&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+  }
   
   const response = await apiFetch(url, {
     method: 'GET',

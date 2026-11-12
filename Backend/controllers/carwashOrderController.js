@@ -895,16 +895,14 @@ async function getOrders(req, res) {
     if (dayId) {
       request.input('dayId', sql.Int, parseInt(dayId, 10));
       whereConditions.push(`o.DayId = @dayId`);
+    } else if (activeDay) {
+      // Business Day spans across midnight until Day End is clicked:
+      // Always prioritize active Business Day orders regardless of calendar date
+      request.input('activeDayId', sql.Int, activeDay.DayId);
+      request.input('activeStartedDate', sql.DateTime, activeDay.StartedDate || activeDay.BusinessDate);
+      whereConditions.push(`(o.DayId = @activeDayId OR (o.DayId IS NULL AND o.CreatedDate >= @activeStartedDate))`);
     } else if (date === 'today') {
-      if (activeDay) {
-        // Business Day spans across midnight until Day End is clicked:
-        // Include all orders belonging to this active day, OR created since this day started
-        request.input('activeDayId', sql.Int, activeDay.DayId);
-        request.input('activeStartedDate', sql.DateTime, activeDay.StartedDate || activeDay.BusinessDate);
-        whereConditions.push(`(o.DayId = @activeDayId OR o.CreatedDate >= @activeStartedDate)`);
-      } else {
-        whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
-      }
+      whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
     } else if (date && date !== 'all') {
       request.input('filterDate', sql.Date, date);
       whereConditions.push(`CAST(o.CreatedDate AS DATE) = @filterDate`);
