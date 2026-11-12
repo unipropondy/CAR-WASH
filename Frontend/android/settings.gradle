@@ -1,5 +1,5 @@
 pluginManagement {
-  def getRNVersion() {
+  def getRNVersion = { ->
     try {
       def stdout = providers.exec {
         commandLine("node", "-e", "console.log(require('react-native/package.json').version);")
@@ -16,7 +16,7 @@ pluginManagement {
   def version = getRNVersion()
   def (_, reactNativeMinor, reactNativePatch) = version.split("-")[0].tokenize('.').collect { it.toInteger() }
 
-  def getPluginDir() {
+  def getPluginDir = { ->
     try {
       def path = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute(null, rootDir).text.trim()
       if (path && new File(path).exists()) {
@@ -102,7 +102,7 @@ if (getRNMinorVersion() < 75) {
 }
 
 include ':app'
-def getFinalPluginDir() {
+def getFinalPluginDir = { ->
   try {
     def p = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()
     if (p && new File(p).exists()) return new File(p).getParentFile()
