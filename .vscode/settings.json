@@ -3,6 +3,20 @@
   "java.import.gradle.offline.enabled": true,
   "java.autobuild.enabled": false,
   "java.configuration.updateBuildConfiguration": "disabled",
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/.metadata/**",
+    "**/archetype/**",
+    "**/META-INF/maven/**",
+    "**/Frontend/android/**",
+    "**/android/**"
+  ],
+  "java.project.resourceFilters": [
+    "node_modules",
+    ".git",
+    "Frontend/android",
+    "android"
+  ],
   "gradle.autoDetect": "off",
   "gradle.nestedProjects": false,
   "files.exclude": {
