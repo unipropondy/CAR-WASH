@@ -3,27 +3,37 @@ import Constants from 'expo-constants';
 
 /**
  * RedBay Car Wash POS & Kiosk - Centralized API Configuration
- * Supports ALL Internet Networks:
- *   - Local Development (PC localhost / 127.0.0.1)
- *   - Office / Branch Local Area Networks (LAN)
- *   - Mobile Data (4G / 5G cellular)
- *   - Remote / Cloud Hosted HTTPS servers (AWS, DigitalOcean, Railway, etc.)
- *   - Native Android APK & Web deployments
+ * Production URL: https://car-wash.up.railway.app (Railway Public HTTPS)
+ * Works on:
+ *   - Android APK (any Wi-Fi or mobile data)
+ *   - Web browser (HTTPS)
+ *   - Local Development
  */
 
 export const DEFAULT_BACKEND_PORT = 5000;
 export const STORAGE_CUSTOM_API_KEY = '@redbay_custom_api_url';
 
+// ===========================================================================
+// PRODUCTION BACKEND URL — Railway Public HTTPS (no port needed)
+// ===========================================================================
+export const PRODUCTION_API_URL = 'https://car-wash.up.railway.app';
+
 /**
- * Normalizes URL with protocol (http:// or https://) and defaults
- * Railway private internal networking (.railway.internal) to backend port 5000 if not specified.
+ * Normalizes URL with protocol (http:// or https://)
+ * Never appends :5000 to HTTPS Railway public URLs — Railway handles that.
  */
 export function normalizeApiUrl(rawUrl: string): string {
   let clean = rawUrl.trim().replace(/\/+$/, '');
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-    clean = `http://${clean}`;
+    clean = `https://${clean}`;
   }
-  // If railway.internal domain without port, append :DEFAULT_BACKEND_PORT (5000)
+  // NEVER append port to public Railway HTTPS URLs (.up.railway.app)
+  if (clean.includes('.up.railway.app')) {
+    // Strip any stray port that may have been appended
+    clean = clean.replace(/:\d+$/, '');
+    return clean;
+  }
+  // For railway.internal (private), use port 5000
   if (clean.includes('.railway.internal') && !clean.match(/:\d+$/)) {
     clean = `${clean}:${DEFAULT_BACKEND_PORT}`;
   }
@@ -75,44 +85,48 @@ export function setCustomApiBaseUrl(url: string | null): void {
 }
 
 /**
- * Determine the correct API base URL dynamically based on environment,
- * network configuration, and device platform.
+ * Determine the correct API base URL dynamically based on environment.
  *
  * Evaluation Order:
  * 1. Runtime Custom API URL Override (Settings / Diagnostics)
  * 2. Environment Variable `EXPO_PUBLIC_API_URL` (from .env or build pipeline)
  * 3. Expo Constants `Constants.expoConfig?.extra?.apiUrl` (app.json)
- * 4. Web Browser dynamic origin detection (preserves HTTPS / hostname)
- * 5. Native Expo Go / Dev Client packager host auto-detection
- * 6. Safe Default Fallback
+ * 4. Web Browser dynamic origin detection (HTTPS production)
+ * 5. Local development fallback
+ * 6. PRODUCTION_API_URL safe default (Railway public HTTPS)
  */
 export function getApiBaseUrl(): string {
-  // 1. Runtime custom override
+  // 1. Runtime custom override (from POS Settings screen)
   if (customApiBaseUrl && customApiBaseUrl.trim().length > 0) {
     return normalizeApiUrl(customApiBaseUrl);
   }
 
-  // 2. Environment variable override (preferred for modern Expo 51+ builds)
+  // 2. Environment variable (highest priority for production builds)
   const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
   if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
     const envUrl = envApiUrl.trim();
-    if (envUrl !== 'http://' && envUrl !== 'https://') {
+    if (envUrl !== 'http://' && envUrl !== 'https://' && !envUrl.includes('railway.internal')) {
       return normalizeApiUrl(envUrl);
     }
   }
 
-  // 3. Extra configuration in app.json (if explicitly set and non-empty)
+  // 3. Extra configuration in app.json (if set and non-empty, non-internal)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
-  if (extraUrl && typeof extraUrl === 'string' && extraUrl.trim().length > 0) {
+  if (
+    extraUrl &&
+    typeof extraUrl === 'string' &&
+    extraUrl.trim().length > 0 &&
+    !extraUrl.includes('railway.internal')
+  ) {
     return normalizeApiUrl(extraUrl);
   }
 
-  // 4. Web browser environment: dynamically use current browser host
+  // 4. Web browser environment: use current browser host (production HTTPS)
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location) {
       const { protocol, hostname, port } = window.location;
 
-      // In production web served over HTTPS: must use HTTPS to avoid Mixed Content blocks
+      // Production web served over HTTPS
       if (protocol === 'https:') {
         return `https://${hostname}${port && port !== '443' ? `:${port}` : ''}`;
       }
@@ -122,19 +136,19 @@ export function getApiBaseUrl(): string {
         return `http://localhost:${DEFAULT_BACKEND_PORT}`;
       }
 
-      // Accessed over LAN / custom domain via HTTP (e.g. tablet accessing dev server)
+      // LAN / custom domain via HTTP
       if (hostname) {
         return `http://${hostname}:${DEFAULT_BACKEND_PORT}`;
       }
     }
-    return `http://car-wash.railway.internal:${DEFAULT_BACKEND_PORT}`;
+    // Web fallback: production URL
+    return PRODUCTION_API_URL;
   }
 
-  // 5. Native React Native environment (Expo Go / Dev Client on Android/iOS)
-  // Automatically detects the dev machine serving the Metro bundle across ANY Wi-Fi or hotspot
-  const hostUri = 
-    Constants.expoConfig?.hostUri || 
-    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost || 
+  // 5. Native React Native Expo Go / Dev Client: auto-detect dev machine
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
     (Constants as any).manifest?.debuggerHost;
 
   if (hostUri && typeof hostUri === 'string') {
@@ -144,8 +158,9 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 6. Safe default fallback for emulators & Railway private mesh
-  return `http://car-wash.railway.internal:${DEFAULT_BACKEND_PORT}`;
+  // 6. Final safe production fallback — Railway Public HTTPS
+  // This is what Android APK production builds use when env vars are baked in
+  return PRODUCTION_API_URL;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
@@ -161,7 +176,7 @@ export interface BackendHealthResult {
 }
 
 /**
- * Ping backend health endpoint to verify connectivity across any network.
+ * Ping backend health endpoint to verify connectivity.
  */
 export async function checkBackendHealth(targetBaseUrl?: string): Promise<BackendHealthResult> {
   const baseUrl = (targetBaseUrl || getApiBaseUrl()).replace(/\/+$/, '');
@@ -169,7 +184,7 @@ export async function checkBackendHealth(targetBaseUrl?: string): Promise<Backen
   const startTime = Date.now();
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
 
   try {
     const res = await fetch(testUrl, {
@@ -209,20 +224,19 @@ export async function checkBackendHealth(targetBaseUrl?: string): Promise<Backen
       url: baseUrl,
       latencyMs,
       error: isTimeout
-        ? 'Connection timed out after 6 seconds'
+        ? 'Connection timed out after 8 seconds'
         : err?.message || 'Network unreachable',
     };
   }
 }
 
 /**
- * Universal safe fetch with configurable timeout, centralized URL resolution,
- * and clear, actionable network error messages.
+ * Universal safe fetch with configurable timeout, centralized URL resolution.
  */
 export async function apiFetch(
-  endpointOrUrl: string, 
-  options: RequestInit = {}, 
-  timeoutMs: number = 15000
+  endpointOrUrl: string,
+  options: RequestInit = {},
+  timeoutMs: number = 20000
 ): Promise<Response> {
   const baseUrl = getApiBaseUrl();
   const fullUrl = endpointOrUrl.startsWith('http://') || endpointOrUrl.startsWith('https://')
@@ -258,7 +272,7 @@ export async function apiFetch(
 
     if (isTimeout) {
       throw new Error(
-        `Connection timed out (${Math.round(timeoutMs / 1000)}s) connecting to ${baseUrl}. Verify the backend server is running and reachable.`
+        `Connection timed out (${Math.round(timeoutMs / 1000)}s) connecting to backend. Verify the server is running.`
       );
     }
 

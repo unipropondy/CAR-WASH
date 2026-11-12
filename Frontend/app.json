@@ -21,14 +21,14 @@
         "backgroundColor": "#080808"
       },
       "package": "com.redbay.carwash.pos",
-      "usesCleartextTraffic": true,
+      "usesCleartextTraffic": false,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"
       ]
     },
     "extra": {
-      "apiUrl": "http://car-wash.railway.internal:5000",
+      "apiUrl": "https://car-wash.up.railway.app",
       "eas": {
         "projectId": "8794d2c8-89f4-41c6-a6fc-fdfcae04b407"
       }
