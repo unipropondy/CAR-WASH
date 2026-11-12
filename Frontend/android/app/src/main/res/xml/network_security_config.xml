@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RedBay Car Wash - Universal Android Network Security Configuration
+  Allows secure HTTPS to production (car-wash.up.railway.app)
+  Also allows cleartext HTTP for local ESC/POS thermal printers & LAN devices
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="user" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>
+
+

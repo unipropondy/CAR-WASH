@@ -21,7 +21,7 @@
         "backgroundColor": "#080808"
       },
       "package": "com.redbay.carwash.pos",
-      "usesCleartextTraffic": false,
+      "usesCleartextTraffic": true,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"
