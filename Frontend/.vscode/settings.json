@@ -1,0 +1,12 @@
+{
+  "java.import.gradle.enabled": false,
+  "java.import.gradle.offline.enabled": true,
+  "java.autobuild.enabled": false,
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "gradle.autoDetect": "off",
+  "gradle.nestedProjects": false,
+  "files.exclude": {
+    "**/android/.gradle": true,
+    "**/android/app/build": true
+  }
+}
