@@ -1,0 +1,10 @@
+{
+  "name": "redbay-carwash-pos",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node Backend/Server.js",
+    "backend": "cd Backend && node Server.js",
+    "frontend": "cd Frontend && npm run start"
+  }
+}

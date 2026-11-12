@@ -133,6 +133,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle={isDealer ? "DEALER STEP 5: VEHICLE & CONTACT" : "STEP 4 OF 5: CUSTOMER DETAILS"}
+        screenName="Page4DetailsScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Packages"

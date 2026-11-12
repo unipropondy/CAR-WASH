@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { loginUser } from '../../../services/authApi';
 import { useAuthStore } from '../store/authStore';
 import { AuthenticatedUser } from '../../../types/auth.types';
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 
 export interface LoginScreenProps {
   onLoginSuccess?: (user?: AuthenticatedUser) => void;
@@ -219,6 +220,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               ]}
             >
               <View style={styles.card}>
+                <ScreenNameBadge name="LoginScreen.tsx" variant="dark" style={{ alignSelf: 'flex-start', marginBottom: 14 }} />
                 <Text style={styles.title}>Sign In</Text>
                 <Text style={styles.subtitle}>Enter your credentials to continue</Text>
 

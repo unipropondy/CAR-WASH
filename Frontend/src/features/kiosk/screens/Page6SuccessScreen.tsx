@@ -93,6 +93,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle={isDealer ? "DEALER ORDER CONFIRMED" : "ORDER CONFIRMED & QUEUED"}
+        screenName="Page6SuccessScreen.tsx"
         onExitToPos={onExitToPos}
       />
 

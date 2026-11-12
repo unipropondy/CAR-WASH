@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const authRoutes = require('./routes/authRoutes');
@@ -86,9 +87,22 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Root route
+// Serve static frontend web build if present
+const distPath = path.join(__dirname, '..', 'Frontend', 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // Express 5 compatible SPA fallback
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.join(distPath, 'index.html'));
+    }
+    next();
+  });
+}
+
+// Root route (API info if no frontend build present)
 app.get('/', (req, res) => {
-  res.json({ message: 'Car Wash POS Backend API is running' });
+  res.json({ message: 'Car Wash POS Backend API is running', status: 'ONLINE' });
 });
 
 // 404 handler
@@ -105,16 +119,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
+// Start Server - Listen immediately for instant health checks
 async function startServer() {
-  try {
-    // Attempt initial database connection
-    await getPool();
-    console.log('[Database] Initial connection established successfully.');
-  } catch (err) {
-    console.warn('[Database] Initial connection check failed. Will retry on request:', err.message);
-  }
-
   const HOST = process.env.HOST || '0.0.0.0';
 
   app.listen(PORT, HOST, () => {
@@ -133,6 +139,14 @@ async function startServer() {
     });
     console.log(`=========================================`);
   });
+
+  // Connect to database asynchronously in the background
+  try {
+    await getPool();
+    console.log('[Database] Initial connection established successfully.');
+  } catch (err) {
+    console.warn('[Database] Initial connection check failed. Will retry on request:', err.message);
+  }
 }
 
 startServer();

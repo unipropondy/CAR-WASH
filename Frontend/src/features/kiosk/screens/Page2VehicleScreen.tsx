@@ -183,6 +183,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="STEP 1 OF 5: VEHICLE TYPE"
+        screenName="VehicleSelectionScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Back"

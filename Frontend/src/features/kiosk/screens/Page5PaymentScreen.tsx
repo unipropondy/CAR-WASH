@@ -128,6 +128,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="STEP 4 OF 5: PAYMENT"
+        screenName="PaymentScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Details"

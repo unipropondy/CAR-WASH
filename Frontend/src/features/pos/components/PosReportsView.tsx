@@ -15,6 +15,7 @@ import { PosOrder } from '../../../types/pos.types';
 import { BayMasterRecord } from '../../../services/carwashOrderApi';
 import { IconMenu, IconClock } from '../../../components/common/AppIcons';
 import { printOrderReceipt } from '../../../services/printerApi';
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 import { 
   fetchFullSalesDashboard, 
   FullDashboardPayload, 
@@ -489,6 +490,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <View style={styles.titleTextCol}>
             <View style={styles.titleRow}>
               <Text style={styles.salesAnalyticsTitle}>Sales Analytics</Text>
+              <ScreenNameBadge name="PosReportsView.tsx" variant="header" style={{ marginLeft: 8 }} />
               <View style={styles.liveStatusChip}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveStatusText}>Live SQL Server</Text>

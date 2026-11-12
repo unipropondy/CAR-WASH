@@ -183,6 +183,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle={viewStep === 'CATEGORIES' ? "STEP 2 OF 5: CATEGORY" : "STEP 2 OF 5: PACKAGE"}
+        screenName="PackageSelectionScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={handleBackNavigation}
         backLabel={viewStep === 'PACKAGES' ? 'Categories' : 'Vehicles'}

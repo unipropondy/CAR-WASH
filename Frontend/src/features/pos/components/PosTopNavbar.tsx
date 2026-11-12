@@ -3,10 +3,12 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Modal } 
 import { Ionicons } from '@expo/vector-icons';
 import { IconSearch, IconMenu, IconBell } from '../../../components/common/AppIcons';
 import { DayStatusIndicator } from '../../dayManagement/components/DayStatusIndicator';
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 import { makeShadow } from '../../../theme/shadows';
 
 interface PosTopNavbarProps {
   pageTitle?: string;
+  screenName?: string;
   onSearch?: (query: string) => void;
   onToggleSidebar?: () => void;
   cashierName?: string;
@@ -18,6 +20,7 @@ interface PosTopNavbarProps {
 
 export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
   pageTitle = 'Orders',
+  screenName,
   onSearch,
   onToggleSidebar,
   cashierName = 'Cashier',
@@ -45,6 +48,10 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
 
         {/* Title */}
         <Text style={styles.pageTitle}>{pageTitle}</Text>
+
+        {screenName && (
+          <ScreenNameBadge name={screenName} variant="light" style={{ marginLeft: 10 }} />
+        )}
 
         {/* Rounded Search Input matching screenshot */}
         <View style={styles.searchBox}>

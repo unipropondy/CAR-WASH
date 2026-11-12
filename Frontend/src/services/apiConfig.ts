@@ -20,22 +20,18 @@ export const PRODUCTION_API_URL = 'https://car-wash.up.railway.app';
 
 /**
  * Normalizes URL with protocol (http:// or https://)
- * Never appends :5000 to HTTPS Railway public URLs — Railway handles that.
+ * Never appends port to public Railway HTTPS URLs.
  */
 export function normalizeApiUrl(rawUrl: string): string {
   let clean = rawUrl.trim().replace(/\/+$/, '');
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
     clean = `https://${clean}`;
   }
+  // Strip default HTTPS port 443 if present
+  clean = clean.replace(/:443$/, '');
   // NEVER append port to public Railway HTTPS URLs (.up.railway.app)
   if (clean.includes('.up.railway.app')) {
-    // Strip any stray port that may have been appended
     clean = clean.replace(/:\d+$/, '');
-    return clean;
-  }
-  // For railway.internal (private), use port 5000
-  if (clean.includes('.railway.internal') && !clean.match(/:\d+$/)) {
-    clean = `${clean}:${DEFAULT_BACKEND_PORT}`;
   }
   return clean;
 }
@@ -91,9 +87,8 @@ export function setCustomApiBaseUrl(url: string | null): void {
  * 1. Runtime Custom API URL Override (Settings / Diagnostics)
  * 2. Environment Variable `EXPO_PUBLIC_API_URL` (from .env or build pipeline)
  * 3. Expo Constants `Constants.expoConfig?.extra?.apiUrl` (app.json)
- * 4. Web Browser dynamic origin detection (HTTPS production)
- * 5. Local development fallback
- * 6. PRODUCTION_API_URL safe default (Railway public HTTPS)
+ * 4. Local development on localhost (only when NODE_ENV !== 'production')
+ * 5. PRODUCTION_API_URL (Railway Public HTTPS) - default for hosted Web & Android APK
  */
 export function getApiBaseUrl(): string {
   // 1. Runtime custom override (from POS Settings screen)
@@ -101,16 +96,20 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(customApiBaseUrl);
   }
 
-  // 2. Environment variable (highest priority for production builds)
+  // 2. Environment variable (configured for production builds)
   const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
   if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
     const envUrl = envApiUrl.trim();
-    if (envUrl !== 'http://' && envUrl !== 'https://' && !envUrl.includes('railway.internal')) {
+    if (
+      envUrl !== 'http://' &&
+      envUrl !== 'https://' &&
+      !envUrl.includes('railway.internal')
+    ) {
       return normalizeApiUrl(envUrl);
     }
   }
 
-  // 3. Extra configuration in app.json (if set and non-empty, non-internal)
+  // 3. Extra configuration in app.json (production public HTTPS URL)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (
     extraUrl &&
@@ -121,45 +120,18 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(extraUrl);
   }
 
-  // 4. Web browser environment: use current browser host (production HTTPS)
-  if (Platform.OS === 'web') {
+  // 4. In development mode on localhost ONLY: allow local dev server
+  if (process.env.NODE_ENV !== 'production' && Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location) {
-      const { protocol, hostname, port } = window.location;
-
-      // Production web served over HTTPS
-      if (protocol === 'https:') {
-        return `https://${hostname}${port && port !== '443' ? `:${port}` : ''}`;
-      }
-
-      // Local development on PC
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
+      const { hostname } = window.location;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return `http://localhost:${DEFAULT_BACKEND_PORT}`;
       }
-
-      // LAN / custom domain via HTTP
-      if (hostname) {
-        return `http://${hostname}:${DEFAULT_BACKEND_PORT}`;
-      }
-    }
-    // Web fallback: production URL
-    return PRODUCTION_API_URL;
-  }
-
-  // 5. Native React Native Expo Go / Dev Client: auto-detect dev machine
-  const hostUri =
-    Constants.expoConfig?.hostUri ||
-    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
-    (Constants as any).manifest?.debuggerHost;
-
-  if (hostUri && typeof hostUri === 'string') {
-    const devMachineIp = hostUri.split(':')[0];
-    if (devMachineIp && devMachineIp !== 'localhost' && devMachineIp !== '127.0.0.1') {
-      return `http://${devMachineIp}:${DEFAULT_BACKEND_PORT}`;
     }
   }
 
-  // 6. Final safe production fallback — Railway Public HTTPS
-  // This is what Android APK production builds use when env vars are baked in
+  // 5. Final safe production fallback — Railway Public HTTPS
+  // This is what both hosted Web and Android APK production builds use across any network / mobile data
   return PRODUCTION_API_URL;
 }
 

@@ -25,6 +25,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+
 // ── Auth & Store ──
 import { useAuthStore } from '../../auth/store/authStore';
 
@@ -2617,6 +2619,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <Text style={styles.topbarTitle}>RedBay Backoffice</Text>
               <View style={styles.topbarSep} />
               <Text style={styles.topbarPageName}>{activeNav.toUpperCase()}</Text>
+              <ScreenNameBadge name="BackofficeScreen.tsx" variant="dark" style={{ marginLeft: 8 }} />
             </>
           )}
         </View>

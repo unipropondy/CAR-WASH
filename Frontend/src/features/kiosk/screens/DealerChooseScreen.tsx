@@ -72,6 +72,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 1: SELECT DEALER ACCOUNT"
+        screenName="DealerChooseScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Back"

@@ -6,9 +6,11 @@ import { makeShadow } from '../../../theme/shadows';
 import { useKioskLanguageStore } from '../store/kioskLanguageStore';
 import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 
 interface KioskTopHeaderProps {
   subtitle?: string;
+  screenName?: string;
   onExitToPos?: () => void;
   showExitPos?: boolean;
   onBack?: () => void;
@@ -17,6 +19,7 @@ interface KioskTopHeaderProps {
 
 export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
   subtitle,
+  screenName,
   onExitToPos,
   showExitPos = false,
   onBack,
@@ -67,7 +70,7 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
           )}
         </View>
 
-        {/* TOP-CENTER: Official RED BAY CAR WASH Logo */}
+        {/* TOP-CENTER: Official RED BAY CAR WASH Logo & Screen Name Badge */}
         <View style={styles.centerCol}>
           <View style={styles.logoBadgeContainer}>
             <Image
@@ -76,6 +79,9 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
               resizeMode="contain"
             />
           </View>
+          {screenName && (
+            <ScreenNameBadge name={screenName} variant="header" style={styles.screenBadge} />
+          )}
         </View>
 
         {/* TOP-RIGHT: Help Button (Staff POS is only displayed on Page 1) */}
@@ -127,7 +133,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   contentRow: {
-    height: 74,
+    minHeight: 74,
+    paddingVertical: 4,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -135,6 +142,9 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
+  },
+  screenBadge: {
+    marginTop: 4,
   },
   sideColLeft: {
     flex: 1,

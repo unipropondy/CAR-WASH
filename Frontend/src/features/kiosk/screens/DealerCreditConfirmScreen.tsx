@@ -50,6 +50,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 5: AUTOMATIC CREDIT BILLING"
+        screenName="DealerCreditConfirmScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Details"

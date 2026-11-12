@@ -688,6 +688,17 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       {activeTab !== 'REPORTS' && (
         <PosTopNavbar 
           cashierName={cashierName} 
+          screenName={
+            activeTab === 'CUSTOMERS'
+              ? 'PosCustomerHistoryView.tsx'
+              : activeTab === 'BAYS'
+              ? 'BayMasterManagementView.tsx'
+              : activeTab === 'HISTORY'
+              ? 'BusinessDayHistoryView.tsx'
+              : activeTab === 'SETTINGS'
+              ? 'PosSettingsView.tsx'
+              : 'DashboardScreen.tsx (OrdersScreen.tsx)'
+          }
           pageTitle={
             activeTab === 'CUSTOMERS'
               ? 'Customer History'

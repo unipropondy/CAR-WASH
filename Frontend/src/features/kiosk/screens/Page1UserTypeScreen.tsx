@@ -15,6 +15,7 @@ import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
+import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 
 interface Page1UserTypeScreenProps {
   onSelectCustomer: () => void;
@@ -107,6 +108,8 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
             <View style={styles.taglineBadge}>
               <Text style={styles.taglineText}>{t.driveInShineOut}</Text>
             </View>
+
+            <ScreenNameBadge name="Page1UserTypeScreen.tsx" variant="header" style={{ marginTop: 8 }} />
 
             <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact]}>
               {t.selectAccountPrompt}

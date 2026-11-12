@@ -115,6 +115,7 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 2: SECURITY PIN"
+        screenName="DealerPasswordScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
         backLabel="Dealers"

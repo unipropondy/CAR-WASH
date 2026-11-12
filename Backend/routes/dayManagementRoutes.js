@@ -22,8 +22,9 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-// 1. GET /api/day-management/status
+// 1. GET /api/day-management/status and /api/day-management/active
 router.get('/status', optionalAuth, dayManagementController.getStatus);
+router.get('/active', optionalAuth, dayManagementController.getStatus);
 
 // 2. POST /api/day-management/start
 router.post('/start', optionalAuth, dayManagementController.startDay);
