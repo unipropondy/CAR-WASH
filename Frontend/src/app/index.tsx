@@ -17,6 +17,7 @@ import { useAuthStore } from '../features/auth/store/authStore';
 import { PosNavTab } from '../features/pos/components/PosSidebar';
 import { KioskPage, KioskUserType } from '../features/kiosk/types/kiosk.types';
 import { loadKioskSession } from '../features/kiosk/store/kioskSessionStorage';
+import { getRouteForUserGroup, resolveUserRoleCategory } from '../features/auth/utils/userGroupRouting';
 
 export type AppMode = 'LOGIN' | 'POS' | 'KIOSK';
 
@@ -62,7 +63,9 @@ function AppContent() {
     loadStoredSession();
   }, [loadStoredSession]);
 
-  // Handle root "/" or query parameter redirection
+  const userRole = resolveUserRoleCategory(user);
+
+  // Handle root "/" or query parameter redirection based on User Group Code
   useEffect(() => {
     if (location.pathname === '/') {
       if (typeof window !== 'undefined' && window.location?.search?.includes('mode=login')) {
@@ -70,12 +73,24 @@ function AppContent() {
       } else if (typeof window !== 'undefined' && window.location?.search?.includes('mode=pos')) {
         navigate('/dashboard', { replace: true });
       } else if (isAuthenticated) {
-        navigate('/dashboard', { replace: true });
+        const dest = getRouteForUserGroup(user);
+        navigate(dest, { replace: true });
       } else {
         navigate('/customer-login', { replace: true });
       }
     }
-  }, [location.pathname, isAuthenticated, navigate]);
+  }, [location.pathname, isAuthenticated, navigate, user]);
+
+  // KIOSK role guard: strictly restrict to Kiosk UI; do not allow POS or Backoffice
+  useEffect(() => {
+    if (isAuthenticated && userRole === 'KIOSK') {
+      const isPos = POS_ROUTES.includes(location.pathname);
+      const isBackoffice = location.pathname === '/backoffice';
+      if (isPos || isBackoffice) {
+        navigate('/customer-login', { replace: true });
+      }
+    }
+  }, [isAuthenticated, userRole, location.pathname, navigate]);
 
   const handleLogout = () => {
     logout();
@@ -231,8 +246,9 @@ function AppContent() {
 
       {isLoginRoute ? (
         <LoginScreen
-          onLoginSuccess={() => {
-            navigate('/dashboard');
+          onLoginSuccess={(loggedInUser) => {
+            const dest = getRouteForUserGroup(loggedInUser || user);
+            navigate(dest, { replace: true });
           }}
           onQuickSwitchToKiosk={() => navigate('/customer-login')}
           onBackofficeAccess={() => navigate('/backoffice')}
@@ -259,7 +275,11 @@ function AppContent() {
           initialUserType={kioskInitial.userType}
           currentRoute={location.pathname}
           onNavigateScreen={(route) => navigate(route)}
-          onExitToPos={() => navigate('/dashboard')}
+          onExitToPos={() => {
+            const currentUser = useAuthStore.getState().user;
+            const dest = getRouteForUserGroup(currentUser);
+            navigate(dest);
+          }}
         />
       ) : (
         <Routes>
@@ -277,7 +297,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppContent />
     </Router>
   );

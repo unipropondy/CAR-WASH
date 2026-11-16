@@ -5,10 +5,11 @@ import {
   TextInput, 
   TouchableOpacity, 
   StyleSheet, 
-  ScrollView,
-  Platform,
-  Image,
-  useWindowDimensions,
+  ScrollView, 
+  Platform, 
+  Image, 
+  ActivityIndicator,
+  useWindowDimensions, 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
@@ -24,8 +25,8 @@ interface Page4DetailsScreenProps {
   dealer?: DealerOption;
   selectedVehicle?: VehicleOption;
   selectedPackage?: ServicePackage;
-  onContinue: (details: CustomerDetails) => void;
-  onSkip?: () => void;
+  onContinue: (details: CustomerDetails) => Promise<void> | void;
+  onSkip?: () => Promise<void> | void;
   onBack: () => void;
   onExitToPos?: () => void;
 }
@@ -66,7 +67,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
     ? (cleanMobile.length === 0 ? 'Mobile number is required' : 'Please enter a valid 8-digit mobile number')
     : null;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (isSubmitting) return;
 
     if (!isDealer) {
@@ -77,52 +78,64 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
     }
 
     setIsSubmitting(true);
-    if (isDealer) {
-      const finalPlate = vehicleNumber.trim()
-        ? vehicleNumber.trim().toUpperCase()
-        : (dealer ? `${dealer.code} FLEET` : 'DEALER FLEET');
-      const finalName = customerName.trim()
-        ? customerName.trim()
-        : (dealer ? `${dealer.name}` : 'Authorized Dealer Rep');
-      const finalMobile = cleanMobile.length > 0
-        ? cleanMobile
-        : (dealer?.phone ? dealer.phone.replace(/\D/g, '') : '-');
+    try {
+      if (isDealer) {
+        const finalPlate = vehicleNumber.trim()
+          ? vehicleNumber.trim().toUpperCase()
+          : (dealer ? `${dealer.code} FLEET` : 'DEALER FLEET');
+        const finalName = customerName.trim()
+          ? customerName.trim()
+          : (dealer ? `${dealer.name}` : 'Authorized Dealer Rep');
+        const finalMobile = cleanMobile.length > 0
+          ? cleanMobile
+          : (dealer?.phone ? dealer.phone.replace(/\D/g, '') : '-');
 
-      onContinue({
-        vehicleNumber: finalPlate,
-        customerName: finalName,
-        mobileNumber: finalMobile,
-      });
-    } else {
-      const finalPlate = vehicleNumber.trim()
-        ? vehicleNumber.trim().toUpperCase()
-        : 'WALK-IN';
-      const finalName = customerName.trim();
-      const finalMobile = cleanMobile;
+        await onContinue({
+          vehicleNumber: finalPlate,
+          customerName: finalName,
+          mobileNumber: finalMobile,
+        });
+      } else {
+        const finalPlate = vehicleNumber.trim()
+          ? vehicleNumber.trim().toUpperCase()
+          : 'WALK-IN';
+        const finalName = customerName.trim();
+        const finalMobile = cleanMobile;
 
-      onContinue({
-        vehicleNumber: finalPlate,
-        customerName: finalName,
-        mobileNumber: finalMobile,
-      });
+        await onContinue({
+          vehicleNumber: finalPlate,
+          customerName: finalName,
+          mobileNumber: finalMobile,
+        });
+      }
+    } catch (err: any) {
+      console.warn('[Page4DetailsScreen] Continue action failed:', err?.message || err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSkipForDealer = () => {
+  const handleSkipForDealer = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    if (onSkip) {
-      onSkip();
-    } else {
-      const finalPlate = dealer ? `${dealer.code} FLEET` : 'DEALER FLEET';
-      const finalName = dealer ? `${dealer.name}` : 'Authorized Dealer Rep';
-      const finalMobile = dealer?.phone ? dealer.phone.replace(/\D/g, '') : '-';
+    try {
+      if (onSkip) {
+        await onSkip();
+      } else {
+        const finalPlate = dealer ? `${dealer.code} FLEET` : 'DEALER FLEET';
+        const finalName = dealer ? `${dealer.name}` : 'Authorized Dealer Rep';
+        const finalMobile = dealer?.phone ? dealer.phone.replace(/\D/g, '') : '-';
 
-      onContinue({
-        vehicleNumber: finalPlate,
-        customerName: finalName,
-        mobileNumber: finalMobile,
-      });
+        await onContinue({
+          vehicleNumber: finalPlate,
+          customerName: finalName,
+          mobileNumber: finalMobile,
+        });
+      }
+    } catch (err: any) {
+      console.warn('[Page4DetailsScreen] Skip action failed:', err?.message || err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -461,6 +474,36 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
               )}
             </View>
           </View>
+
+          {/* ================= INLINE PROCEED ACTION (GUARANTEED VISIBLE IN SCROLL FLOW) ================= */}
+          <View style={styles.inlineActionWrapper}>
+            <TouchableOpacity
+              style={[
+                styles.inlineProceedBtn,
+                isSubmitting && styles.inlineProceedBtnDisabled,
+              ]}
+              onPress={handleContinue}
+              disabled={isSubmitting}
+              activeOpacity={0.88}
+              accessibilityRole="button"
+              accessibilityLabel="Proceed to Payment"
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={styles.inlineProceedInner}>
+                  <Text style={styles.inlineProceedBtnText}>
+                    {isDealer
+                      ? 'Confirm Dealer Order (Account Credit)'
+                      : selectedPackage
+                        ? `Proceed to Payment (${priceFormatted})`
+                        : 'Proceed to Payment'}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
@@ -486,6 +529,9 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
     backgroundColor: '#F8FAFC',
   },
   promptHeader: {
@@ -536,10 +582,13 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    flexShrink: 1,
+    width: '100%',
   },
   scrollContent: {
     paddingVertical: 14,
     paddingHorizontal: 16,
+    paddingBottom: 24,
     alignItems: 'center',
     flexGrow: 1,
   },
@@ -547,6 +596,36 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 560,
     gap: 14,
+  },
+  inlineActionWrapper: {
+    width: '100%',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  inlineProceedBtn: {
+    backgroundColor: RED_BAY_COLORS.primary,
+    height: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 4 }, 0.35, 10, 4),
+  },
+  inlineProceedBtnDisabled: {
+    backgroundColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? { boxShadow: 'none' as any } : { shadowOpacity: 0, elevation: 0 }),
+  },
+  inlineProceedInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  inlineProceedBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   /* Form Card */
   formCard: {

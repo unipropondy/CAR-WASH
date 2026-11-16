@@ -27,6 +27,9 @@ import {
   loadKioskSession, 
   clearKioskSession 
 } from '../store/kioskSessionStorage';
+import { StaffPosLoginModal } from '../components/StaffPosLoginModal';
+import { AuthenticatedUser } from '../../../types/auth.types';
+import { getRouteForUserGroup } from '../../auth/utils/userGroupRouting';
 
 interface KioskMainScreenProps {
   onExitToPos?: () => void;
@@ -72,6 +75,23 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   // Completed Order State & Bill Number Counter (e.g. RB000001)
   const [billCounter, setBillCounter] = useState<number>(savedSession?.billCounter || 1);
   const [completedOrder, setCompletedOrder] = useState<KioskOrder | null>(savedSession?.completedOrder || null);
+
+  // Staff POS Authentication Modal State
+  const [isStaffLoginModalOpen, setIsStaffLoginModalOpen] = useState<boolean>(false);
+
+  const handleOpenStaffLogin = () => {
+    setIsStaffLoginModalOpen(true);
+  };
+
+  const handleStaffLoginSuccess = (user: AuthenticatedUser) => {
+    setIsStaffLoginModalOpen(false);
+    const targetRoute = getRouteForUserGroup(user);
+    if (onNavigateScreen) {
+      onNavigateScreen(targetRoute);
+    } else if (onExitToPos) {
+      onExitToPos();
+    }
+  };
 
   // Sync state changes with session storage for browser refresh restoration
   useEffect(() => {
@@ -341,10 +361,12 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         navigateToPage('PAGE_5_PAYMENT', '/checkout');
       }
     } catch (err: any) {
+      console.error('[handleContinueDetails Error]', err);
       Alert.alert(
         'Booking Error',
         err?.message || 'Failed to save customer booking into database. Please try again.'
       );
+      throw err;
     }
   };
 
@@ -507,7 +529,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           <Page1UserTypeScreen
             onSelectCustomer={handleSelectCustomer}
             onSelectDealer={handleSelectDealer}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -517,7 +539,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             initialDealer={selectedDealer}
             onContinue={handleDealerChosen}
             onBack={() => navigateToPage('PAGE_1_USER_TYPE', '/customer-login')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -527,7 +549,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             dealer={selectedDealer}
             onSuccess={handleDealerPasswordSuccess}
             onBack={() => navigateToPage('DEALER_CHOOSE', '/dealer-login')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -540,7 +562,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             initialVehicleNumber={customerDetails?.vehicleNumber}
             onContinue={handleContinueVehicle}
             onBack={handleBackFromVehicle}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -555,7 +577,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             vehicle={selectedVehicle}
             onContinue={handleContinueServices}
             onBack={() => navigateToPage('PAGE_2_VEHICLE', '/new-wash')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -569,7 +591,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             selectedPackage={selectedPackage}
             onContinue={handleContinueDetails}
             onBack={() => navigateToPage('PAGE_3_SERVICE_CAT', '/services')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -584,7 +606,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             orderNo={activeOrderNo}
             onConfirmPayment={handleConfirmCustomerPayment}
             onBack={() => navigateToPage('PAGE_4_DETAILS', '/details')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -598,7 +620,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             customerDetails={customerDetails}
             onPlaceOrder={handlePlaceDealerCreditOrder}
             onBack={() => navigateToPage('PAGE_4_DETAILS', '/details')}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
 
@@ -607,10 +629,17 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           <Page6SuccessScreen
             order={completedOrder}
             onNewCustomer={handleResetSession}
-            onExitToPos={onExitToPos}
+            onExitToPos={handleOpenStaffLogin}
           />
         )}
       </View>
+
+      {/* Staff POS Authorization Modal */}
+      <StaffPosLoginModal
+        visible={isStaffLoginModalOpen}
+        onClose={() => setIsStaffLoginModalOpen(false)}
+        onSuccess={handleStaffLoginSuccess}
+      />
     </View>
   );
 };
@@ -628,6 +657,9 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     maxWidth: 720,
+    height: '100%',
+    maxHeight: '100%',
+    overflow: 'hidden',
     backgroundColor: '#F8FAFC',
     alignSelf: 'center',
   },

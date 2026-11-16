@@ -179,10 +179,15 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
     backgroundColor: '#F8FAFC',
   },
   scrollView: {
     flex: 1,
+    flexShrink: 1,
+    width: '100%',
   },
   scrollContent: {
     paddingVertical: 14,

@@ -13,7 +13,7 @@ import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskOrder } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
-import { printOrderReceipt, triggerBrowserReceiptPrint } from '../../../services/printerApi';
+import { printKioskReceipt, triggerBrowserReceiptPrint } from '../../../services/printerApi';
 import { getVehicleImageSource } from './Page2VehicleScreen';
 
 interface Page6SuccessScreenProps {
@@ -34,23 +34,24 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 
   const isDealer = order.userType === 'DEALER';
 
-  // Automatic Receipt Printing upon successful order placement
+  // Automatic Kiosk Receipt Printing upon successful order placement
+  // Uses the Kiosk printer config (kioskPrinterConfigManager) — never the POS printer.
   const executePrint = async (isManual = false) => {
     setPrintStatus('PRINTING');
-    setPrintMessage(isManual ? 'Printing bill ticket...' : 'Auto-printing receipt on configured printer...');
+    setPrintMessage(isManual ? 'Printing bill ticket...' : 'Auto-printing receipt on Kiosk printer...');
     try {
-      const res = await printOrderReceipt(order);
+      const res = await printKioskReceipt(order);
       setPrintStatus('DONE');
       if (res.printer) {
-        setPrintMessage(`✓ Receipt printed via ${res.printer} (${res.ip || 'LAN'}:${res.port || 9100})`);
+        setPrintMessage(`✓ Kiosk receipt printed via ${res.printer} (${res.ip || 'LAN'}:${res.port || 9100})`);
       } else {
-        setPrintMessage('✓ Bill ticket printed successfully!');
+        setPrintMessage('✓ Kiosk bill ticket printed successfully!');
       }
     } catch (err: any) {
-      console.warn('Auto print receipt fallback:', err?.message);
+      console.warn('Kiosk auto print receipt fallback:', err?.message);
       triggerBrowserReceiptPrint(order);
       setPrintStatus('DONE');
-      setPrintMessage('✓ Bill ticket printed via station receipt printer');
+      setPrintMessage('✓ Kiosk bill ticket printed via station receipt printer');
     }
   };
 

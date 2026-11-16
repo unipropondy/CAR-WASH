@@ -19,8 +19,11 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-// 1. GET /api/users/groups - Retrieve all user groups
+// 1. User Groups CRUD
 router.get('/groups', optionalAuth, userController.getUserGroups);
+router.post('/groups', optionalAuth, userController.createUserGroup);
+router.put('/groups/:id', optionalAuth, userController.updateUserGroup);
+router.delete('/groups/:id', optionalAuth, userController.deleteUserGroup);
 
 // 2. GET /api/users - List users with search
 router.get('/', optionalAuth, userController.getUsers);

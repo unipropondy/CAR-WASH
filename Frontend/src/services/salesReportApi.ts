@@ -116,12 +116,14 @@ export interface FullDashboardPayload {
   recentTransactions: RecentTransactionItem[];
 }
 
-export type ReportPeriodTab = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+export type ReportPeriodTab = 'DAILY' | 'YESTERDAY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | 'CUSTOM';
 
 export function mapTabToPeriodParam(tab: ReportPeriodTab): string {
   switch (tab) {
     case 'DAILY':
       return 'today';
+    case 'YESTERDAY':
+      return 'yesterday';
     case 'WEEKLY':
       return 'thisWeek';
     case 'MONTHLY':
@@ -143,8 +145,8 @@ export async function fetchFullSalesDashboard(
 ): Promise<FullDashboardPayload> {
   const periodParam = mapTabToPeriodParam(periodTab);
   let url = `${getApiBaseUrl()}/api/carwash/reports/dashboard?period=${periodParam}`;
-  if (startDate && endDate) {
-    url += `&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+  if (startDate) {
+    url += `&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate || startDate)}`;
   }
   
   const response = await apiFetch(url, {

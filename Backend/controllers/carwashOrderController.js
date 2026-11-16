@@ -198,22 +198,52 @@ async function createOrder(req, res) {
       totalAmount = Number((packagePrice + gstAmount).toFixed(2));
     }
 
-    // 2. Generate Unique OrderNo
+    // 2. Generate Unique OrderNo (guaranteed collision-proof across day resets & multiple orders)
     const dateObj = new Date();
     const yyyy = dateObj.getFullYear();
     const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
     const dd = String(dateObj.getDate()).padStart(2, '0');
     const datePrefix = `${yyyy}${mm}${dd}`;
 
-    const seqReq = new sql.Request(transaction);
-    seqReq.input('activeDayId', sql.Int, activeDayId);
-    const seqResult = await seqReq.query(`
-      SELECT COUNT(*) AS todayOrders 
-      FROM dbo.CarWashOrder 
-      WHERE DayId = @activeDayId OR CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
+    const maxReq = new sql.Request(transaction);
+    maxReq.input('prefix', sql.NVarChar(30), `RB${datePrefix}-%`);
+    const maxResult = await maxReq.query(`
+      SELECT TOP 1 OrderNo 
+      FROM dbo.CarWashOrder WITH (UPDLOCK, HOLDLOCK)
+      WHERE OrderNo LIKE @prefix
+      ORDER BY OrderNo DESC;
     `);
-    const todayOrders = (seqResult.recordset[0]?.todayOrders || 0) + 1;
-    const orderNo = `RB${datePrefix}-${String(todayOrders).padStart(4, '0')}`;
+
+    let nextSeq = 1;
+    if (maxResult.recordset.length && maxResult.recordset[0]?.OrderNo) {
+      const existingNo = String(maxResult.recordset[0].OrderNo);
+      const dashIdx = existingNo.lastIndexOf('-');
+      if (dashIdx !== -1) {
+        const parsedSeq = parseInt(existingNo.substring(dashIdx + 1), 10);
+        if (!isNaN(parsedSeq) && parsedSeq >= 1) {
+          nextSeq = parsedSeq + 1;
+        }
+      }
+    }
+
+    let orderNo = `RB${datePrefix}-${String(nextSeq).padStart(4, '0')}`;
+    // Defensive check: if orderNo already exists in dbo.CarWashOrder, increment until free
+    let isUnique = false;
+    while (!isUnique) {
+      const checkReq = new sql.Request(transaction);
+      checkReq.input('checkNo', sql.NVarChar(30), orderNo);
+      const checkRes = await checkReq.query(`
+        SELECT TOP 1 OrderId 
+        FROM dbo.CarWashOrder WITH (UPDLOCK, HOLDLOCK)
+        WHERE OrderNo = @checkNo;
+      `);
+      if (checkRes.recordset.length > 0) {
+        nextSeq++;
+        orderNo = `RB${datePrefix}-${String(nextSeq).padStart(4, '0')}`;
+      } else {
+        isUnique = true;
+      }
+    }
 
     // Check if this is a Dealer Credit Order
     const isDealerByInfo = Boolean(dealerId) ||

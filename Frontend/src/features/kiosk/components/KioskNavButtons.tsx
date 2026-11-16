@@ -61,6 +61,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
     width: '100%',
+    flexShrink: 0,
+    zIndex: 999,
+    elevation: 8,
     ...makeShadow('#000000', { width: 0, height: -3 }, 0.05, 8, 2),
   },
   container: {

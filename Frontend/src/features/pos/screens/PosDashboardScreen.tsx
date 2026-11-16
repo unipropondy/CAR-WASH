@@ -2307,7 +2307,9 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           boxShadow: '0 14px 34px -4px rgba(220, 38, 38, 0.22), 0 6px 14px -2px rgba(0, 0, 0, 0.08)',
-          animation: 'slideDownCenter 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          animationKeyframes: 'slideDownCenter',
+          animationDuration: '0.3s',
+          animationTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         } as any)
       : {}),
   },
@@ -2405,7 +2407,10 @@ const styles = StyleSheet.create({
     width: '100%',
     ...(Platform.OS === 'web'
       ? ({
-          animation: 'shrinkProgress 5s linear forwards',
+          animationKeyframes: 'shrinkProgress',
+          animationDuration: '5s',
+          animationTimingFunction: 'linear',
+          animationFillMode: 'forwards',
           transformOrigin: 'left',
         } as any)
       : {}),
@@ -2432,7 +2437,9 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           boxShadow: '0 16px 36px -4px rgba(15, 23, 42, 0.22), 0 6px 14px -2px rgba(0, 0, 0, 0.08)',
-          animation: 'slideDownCenter 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          animationKeyframes: 'slideDownCenter',
+          animationDuration: '0.35s',
+          animationTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         } as any)
       : makeShadow('#000000', { width: 0, height: 8 }, 0.18, 18, 5)),
   },
@@ -2558,7 +2565,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
     ...(Platform.OS === 'web'
       ? ({
-          animation: 'shrinkProgress 8s linear forwards',
+          animationKeyframes: 'shrinkProgress',
+          animationDuration: '8s',
+          animationTimingFunction: 'linear',
+          animationFillMode: 'forwards',
           transformOrigin: 'left',
         } as any)
       : {}),

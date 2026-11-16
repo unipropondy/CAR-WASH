@@ -7,7 +7,7 @@
  * forms with validations, duplicate checking, audit logging (CreatedBy/ModifiedBy),
  * search, filters, and CSV export.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -47,6 +47,7 @@ import {
   SalesSummaryData,
   PaymentChannelMixItem,
   WashTrendItem,
+  ReportPeriodTab,
 } from '../../../services/salesReportApi';
 
 import {
@@ -63,6 +64,9 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  createUserGroup,
+  updateUserGroup,
+  deleteUserGroup,
   UserRecord,
   UserGroupRecord,
 } from '../../../services/userApi';
@@ -118,6 +122,57 @@ import {
   HelpRequestItem,
 } from '../../../services/helpNotificationService';
 
+const getTodayISO = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getYesterdayISO = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getWeekStartISO = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getMonthStartISO = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
+};
+
+const getYearStartISO = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-01-01`;
+};
+
+const webDashboardDateInputStyle: any = {
+  border: 'none',
+  outline: 'none',
+  backgroundColor: 'transparent',
+  fontSize: '12.5px',
+  fontWeight: '700',
+  color: '#FFFFFF',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  padding: '0 4px',
+  colorScheme: 'dark',
+};
+
 /* ─────────────────────── Design tokens ─────────────────────── */
 const C = {
   bg:         '#080808',
@@ -143,6 +198,7 @@ type NavId =
   | 'dealer-settlement'
   | 'dealer-history'
   | 'users'
+  | 'user-groups'
   | 'settings'
   | 'audit'
   | 'export'
@@ -165,17 +221,95 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cwTab, setCwTab] = useState<PosNavTab>('ORDERS');
 
-  const showAlert = (title: string, message: string) => {
-    if (Platform.OS === 'web') {
-      window.alert(`${title}: ${message}`);
-    } else {
-      Alert.alert(title, message);
+  /* ─────────────────────── Custom In-App Popup Modal System ─────────────────────── */
+  interface PopupState {
+    visible: boolean;
+    type: 'confirm' | 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    confirmButtonColor?: string;
+    icon?: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }
+
+  const [popup, setPopup] = useState<PopupState>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const closePopup = useCallback(() => {
+    setPopup((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  const showAlert = useCallback((title: string, message: string, customType?: 'success' | 'error' | 'warning' | 'info') => {
+    let resolvedType: 'success' | 'error' | 'warning' | 'info' = customType || 'info';
+    if (!customType) {
+      const lower = (title || '').toLowerCase() + ' ' + (message || '').toLowerCase();
+      if (lower.includes('error') || lower.includes('failed') || lower.includes('required') || lower.includes('invalid')) {
+        resolvedType = 'error';
+      } else if (lower.includes('success') || lower.includes('created') || lower.includes('updated') || lower.includes('saved') || lower.includes('deleted') || lower.includes('removed')) {
+        resolvedType = 'success';
+      } else if (lower.includes('warn') || lower.includes('caution')) {
+        resolvedType = 'warning';
+      }
     }
-  };
+
+    setPopup({
+      visible: true,
+      type: resolvedType,
+      title,
+      message,
+      confirmText: 'OK',
+    });
+  }, []);
+
+  const showConfirm = useCallback(({
+    title,
+    message,
+    confirmText = 'Delete',
+    cancelText = 'Cancel',
+    confirmButtonColor = '#EF4444',
+    icon = 'trash-outline',
+    onConfirm,
+    onCancel,
+  }: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    confirmButtonColor?: string;
+    icon?: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  }) => {
+    setPopup({
+      visible: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText,
+      cancelText,
+      confirmButtonColor,
+      icon,
+      onConfirm,
+      onCancel,
+    });
+  }, []);
 
   /* ═══════════════════════════════════════════════════════════════
-     1. DASHBOARD LIVE DATA
+     1. DASHBOARD LIVE DATA & SALES DATE FILTER
   ═══════════════════════════════════════════════════════════════ */
+  type SalesPeriodMode = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+  const [salesPeriodMode, setSalesPeriodMode] = useState<SalesPeriodMode>('DAILY');
+  const [yearlyTrendView, setYearlyTrendView] = useState<'MONTHS' | 'DAYS'>('MONTHS');
+  const [salesStartDate, setSalesStartDate] = useState<string>(getTodayISO());
+  const [salesEndDate, setSalesEndDate] = useState<string>(getTodayISO());
+
   const [dashLoading, setDashLoading] = useState(false);
   const [summaryData, setSummaryData] = useState<SalesSummaryData | null>(null);
   const [washTrends, setWashTrends] = useState<WashTrendItem[]>([]);
@@ -183,11 +317,98 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [liveBays, setLiveBays] = useState<BayMasterRecord[]>([]);
   const [totalStaffCount, setTotalStaffCount] = useState<number>(0);
 
+  const handleSelectPeriodMode = (mode: SalesPeriodMode) => {
+    setSalesPeriodMode(mode);
+    const today = getTodayISO();
+    if (mode === 'DAILY') {
+      setSalesStartDate(today);
+      setSalesEndDate(today);
+    } else if (mode === 'WEEKLY') {
+      setSalesStartDate(getWeekStartISO());
+      setSalesEndDate(today);
+    } else if (mode === 'MONTHLY') {
+      setSalesStartDate(getMonthStartISO());
+      setSalesEndDate(today);
+    } else if (mode === 'YEARLY') {
+      setSalesStartDate(getYearStartISO());
+      setSalesEndDate(today);
+    }
+  };
+
+  const handleStartDateChange = (val: string) => {
+    if (!val) return;
+    setSalesStartDate(val);
+    if (salesPeriodMode === 'DAILY') {
+      setSalesEndDate(val);
+    } else if (val > salesEndDate) {
+      setSalesEndDate(val);
+    }
+  };
+
+  const handleEndDateChange = (val: string) => {
+    if (!val) return;
+    setSalesEndDate(val);
+    if (val < salesStartDate) {
+      setSalesStartDate(val);
+    }
+  };
+
+  const handleStepPrevDay = () => {
+    const parts = (salesStartDate || getTodayISO()).split('-').map(Number);
+    const prev = new Date(parts[0], parts[1] - 1, parts[2]);
+    prev.setDate(prev.getDate() - 1);
+    const prevISO = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+    setSalesStartDate(prevISO);
+    setSalesEndDate(prevISO);
+  };
+
+  const handleStepNextDay = () => {
+    const today = getTodayISO();
+    if (salesStartDate >= today) return;
+    const parts = (salesStartDate || getTodayISO()).split('-').map(Number);
+    const next = new Date(parts[0], parts[1] - 1, parts[2]);
+    next.setDate(next.getDate() + 1);
+    const nextISO = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+    if (nextISO <= today) {
+      setSalesStartDate(nextISO);
+      setSalesEndDate(nextISO);
+    }
+  };
+
+  const getPeriodDisplayLabel = useCallback(() => {
+    if (salesPeriodMode === 'DAILY') {
+      return salesStartDate === getTodayISO()
+        ? `Daily • Today (${salesStartDate})`
+        : `Daily • ${salesStartDate}`;
+    }
+    const modeName = salesPeriodMode.charAt(0) + salesPeriodMode.slice(1).toLowerCase();
+    return `${modeName} • From ${salesStartDate} to ${salesEndDate}`;
+  }, [salesPeriodMode, salesStartDate, salesEndDate]);
+
+  const getKpiPeriodLabel = useCallback(() => {
+    if (salesPeriodMode === 'DAILY') {
+      return salesStartDate === getTodayISO() ? 'Today' : salesStartDate;
+    }
+    if (salesPeriodMode === 'WEEKLY') return 'Weekly';
+    if (salesPeriodMode === 'MONTHLY') return 'Monthly';
+    if (salesPeriodMode === 'YEARLY') return 'Yearly';
+    return `${salesStartDate} to ${salesEndDate}`;
+  }, [salesPeriodMode, salesStartDate, salesEndDate]);
+
   const loadDashboardData = useCallback(async () => {
     try {
       setDashLoading(true);
+      const dashPromise = fetchFullSalesDashboard(
+        salesPeriodMode,
+        salesStartDate,
+        salesEndDate
+      );
+
       const [dash, bays, userList] = await Promise.all([
-        fetchFullSalesDashboard('DAILY').catch(() => null),
+        dashPromise.catch((err) => {
+          console.warn('[fetchFullSalesDashboard error]', err);
+          return null;
+        }),
         fetchBayMasterList().catch(() => []),
         fetchUsers().catch(() => []),
       ]);
@@ -204,13 +425,130 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     } finally {
       setDashLoading(false);
     }
-  }, []);
+  }, [salesPeriodMode, salesStartDate, salesEndDate]);
 
   useEffect(() => {
     if (activeNav === 'dashboard') {
       loadDashboardData();
     }
   }, [activeNav, loadDashboardData]);
+
+  const washesCompletedCount = useMemo(() => {
+    if (summaryData?.totalWashes && summaryData.totalWashes > 0) {
+      return summaryData.totalWashes;
+    }
+    if (summaryData?.totalCompletedWashes && summaryData.totalCompletedWashes > 0) {
+      return summaryData.totalCompletedWashes;
+    }
+    const trendSum = washTrends.reduce(
+      (acc, curr) => acc + (curr.completedWashes || curr.totalOrders || 0),
+      0
+    );
+    if (trendSum > 0) return trendSum;
+    return summaryData?.totalCompletedWashes ?? summaryData?.totalWashes ?? 0;
+  }, [summaryData, washTrends]);
+
+  const computedWashTrends = useMemo(() => {
+    const normDate = (val: any): string => {
+      if (!val) return '';
+      if (val instanceof Date) {
+        return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(2, '0')}-${String(val.getDate()).padStart(2, '0')}`;
+      }
+      const str = String(val).trim();
+      if (str.includes('T')) return str.split('T')[0];
+      if (str.includes(' ')) return str.split(' ')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      if (/^\d{2}-\d{2}-\d{4}$/.test(str)) {
+        const [dd, mm, yyyy] = str.split('-');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return str;
+    };
+
+    const dayNamesShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const trendMap = new Map<string, { count: number; revenue: number }>();
+    washTrends.forEach((t) => {
+      const nd = normDate(t.orderDate);
+      if (nd) {
+        const prev = trendMap.get(nd) || { count: 0, revenue: 0 };
+        trendMap.set(nd, {
+          count: prev.count + (t.completedWashes || t.totalOrders || 0),
+          revenue: prev.revenue + (t.dailyRevenue || 0),
+        });
+      }
+    });
+
+    // 1. YEARLY MODE - MONTHLY VIEW (DEFAULT)
+    if (salesPeriodMode === 'YEARLY' && yearlyTrendView === 'MONTHS') {
+      const yr = (salesStartDate || getTodayISO()).split('-')[0];
+      return monthNames.map((mName, mIdx) => {
+        const mStr = String(mIdx + 1).padStart(2, '0');
+        let mCount = 0;
+        let mRev = 0;
+        trendMap.forEach((val, dStr) => {
+          const parts = dStr.split('-');
+          if (parts[0] === yr && parts[1] === mStr) {
+            mCount += val.count;
+            mRev += val.revenue;
+          }
+        });
+        return {
+          key: `m-${mIdx}`,
+          label: mName,
+          subLabel: yr,
+          count: mCount,
+          revenue: mRev,
+        };
+      });
+    }
+
+    // 2. DAILY, WEEKLY, MONTHLY OR YEARLY (DAILY VIEW) -> GENERATE EVERY DAY IN RANGE
+    const sStr = salesStartDate || getTodayISO();
+    const eStr = salesEndDate || sStr;
+
+    const [sY, sM, sD] = sStr.split('-').map(Number);
+    const [eY, eM, eD] = eStr.split('-').map(Number);
+
+    const cur = new Date(sY, sM - 1, sD);
+    const end = new Date(eY, eM - 1, eD);
+
+    const days: { key: string; label: string; subLabel: string; count: number; revenue?: number; fullDate?: string }[] = [];
+    let limit = 0;
+    while (cur <= end && limit < 370) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      const d = String(cur.getDate()).padStart(2, '0');
+      const dateKey = `${y}-${m}-${d}`;
+
+      const dayName = dayNamesShort[cur.getDay()];
+      const record = trendMap.get(dateKey);
+
+      days.push({
+        key: dateKey,
+        label: dayName,
+        subLabel: `${d}/${m}`,
+        count: record ? record.count : 0,
+        revenue: record ? record.revenue : 0,
+        fullDate: dateKey,
+      });
+
+      cur.setDate(cur.getDate() + 1);
+      limit++;
+    }
+
+    if (days.length === 0) {
+      return [{
+        key: sStr,
+        label: 'Today',
+        subLabel: sStr.slice(5),
+        count: summaryData?.totalWashes || summaryData?.totalCompletedWashes || 0,
+      }];
+    }
+
+    return days;
+  }, [washTrends, salesPeriodMode, yearlyTrendView, salesStartDate, salesEndDate, summaryData]);
 
   /* ═══════════════════════════════════════════════════════════════
      2. USER MANAGEMENT STATE & CRUD
@@ -230,6 +568,25 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [uGroupId, setUGroupId] = useState('');
   const [uDisabled, setUDisabled] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
+
+  // User Group State & Modal
+  const [groupSearch, setGroupSearch] = useState('');
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<UserGroupRecord | null>(null);
+  const [gCode, setGCode] = useState('');
+  const [gName, setGName] = useState('');
+  const [gActive, setGActive] = useState(true);
+  const [savingGroup, setSavingGroup] = useState(false);
+
+  const filteredUserGroups = useMemo(() => {
+    if (!groupSearch.trim()) return userGroups;
+    const term = groupSearch.trim().toLowerCase();
+    return userGroups.filter(
+      (g) =>
+        (g.userGroupCode && g.userGroupCode.toLowerCase().includes(term)) ||
+        (g.userGroupName && g.userGroupName.toLowerCase().includes(term))
+    );
+  }, [userGroups, groupSearch]);
 
   const loadUsersList = useCallback(async (searchQuery?: string) => {
     try {
@@ -251,7 +608,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   }, [uGroupId]);
 
   useEffect(() => {
-    if (activeNav === 'users') {
+    if (activeNav === 'users' || activeNav === 'user-groups') {
       loadUsersList();
     }
   }, [activeNav, loadUsersList]);
@@ -322,27 +679,101 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   };
 
   const handleDeleteUser = (user: UserRecord) => {
-    const confirmMsg = `Are you sure you want to deactivate user "${user.userName}"?`;
-    if (Platform.OS === 'web') {
-      if (window.confirm(confirmMsg)) {
-        performDeleteUser(user.userId);
-      }
-    } else {
-      Alert.alert('Confirm Deactivation', confirmMsg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Deactivate', style: 'destructive', onPress: () => performDeleteUser(user.userId) },
-      ]);
-    }
+    showConfirm({
+      title: 'Delete User Account',
+      message: `Are you sure you want to permanently delete user "${user.userName}" (${user.fullName || user.userCode}) from UserMaster? This action cannot be undone.`,
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      icon: 'trash-outline',
+      onConfirm: () => performDeleteUser(user.userId),
+    });
   };
 
   const performDeleteUser = async (userId: string) => {
     try {
-      await deleteUser(userId);
-      showAlert('Success', 'User account disabled in database.');
+      await deleteUser(userId, true);
+      showAlert('Success', 'User account permanently deleted from database.');
       loadUsersList(userSearch);
     } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to deactivate user.');
+      showAlert('Error', err.message || 'Failed to delete user.');
     }
+  };
+
+  /* ── User Group Handlers ── */
+  const handleOpenAddGroup = () => {
+    setEditingGroup(null);
+    setGCode(`GRP_${(userGroups.length + 1).toString().padStart(3, '0')}`);
+    setGName('');
+    setGActive(true);
+    setGroupModalOpen(true);
+  };
+
+  const handleOpenEditGroup = (group: UserGroupRecord) => {
+    setEditingGroup(group);
+    setGCode(group.userGroupCode);
+    setGName(group.userGroupName);
+    setGActive(group.isActive !== false);
+    setGroupModalOpen(true);
+  };
+
+  const handleSaveGroup = async () => {
+    if (!gCode.trim()) {
+      showAlert('Validation Error', 'Group Code is required.');
+      return;
+    }
+    if (!gName.trim()) {
+      showAlert('Validation Error', 'Group Name is required.');
+      return;
+    }
+
+    try {
+      setSavingGroup(true);
+      if (editingGroup) {
+        await updateUserGroup(editingGroup.userGroupId, {
+          userGroupCode: gCode.trim(),
+          userGroupName: gName.trim(),
+          isActive: gActive,
+        });
+        showAlert('Success', `User group "${gName}" updated successfully in database.`);
+      } else {
+        await createUserGroup({
+          userGroupCode: gCode.trim(),
+          userGroupName: gName.trim(),
+          isActive: gActive,
+        });
+        showAlert('Success', `User group "${gName}" created successfully in database.`);
+      }
+      setGroupModalOpen(false);
+      loadUsersList();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Operation failed.');
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = (group: UserGroupRecord) => {
+    const assignedUsers = users.filter((u) => u.userGroupId === group.userGroupId);
+    const message = assignedUsers.length > 0
+      ? `"${group.userGroupName}" currently has ${assignedUsers.length} assigned user(s). Deleting will unlink those users and permanently delete this user group from database.`
+      : `Are you sure you want to permanently delete user group "${group.userGroupName}" from database? This action cannot be undone.`;
+
+    showConfirm({
+      title: 'Delete User Group',
+      message,
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      icon: 'trash-outline',
+      onConfirm: async () => {
+        try {
+          await deleteUserGroup(group.userGroupId);
+          showAlert('Success', `User group "${group.userGroupName}" permanently deleted.`);
+          loadUsersList();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete user group.');
+        }
+      },
+    });
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -578,15 +1009,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeleteVehicleType = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete/deactivate this vehicle type?')) return;
-    try {
-      await deleteVehicleType(id);
-      showAlert('Success', 'Vehicle type removed.');
-      loadSettingsData();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete');
-    }
+  const handleDeleteVehicleType = (id: number) => {
+    showConfirm({
+      title: 'Delete Vehicle Type',
+      message: 'Are you sure you want to permanently delete this vehicle type from database?',
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteVehicleType(id);
+          showAlert('Success', 'Vehicle type permanently deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete vehicle type');
+        }
+      },
+    });
   };
 
   // Category Save
@@ -626,15 +1064,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeleteCategory = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete/deactivate this category?')) return;
-    try {
-      await deleteServiceCategory(id);
-      showAlert('Success', 'Category removed.');
-      loadSettingsData();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete');
-    }
+  const handleDeleteCategory = (id: number) => {
+    showConfirm({
+      title: 'Delete Service Category',
+      message: 'Are you sure you want to permanently delete this category from database?',
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteServiceCategory(id);
+          showAlert('Success', 'Category permanently deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete category');
+        }
+      },
+    });
   };
 
   // Package Save
@@ -689,15 +1134,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeletePackage = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete/deactivate this service package?')) return;
-    try {
-      await deletePackage(id);
-      showAlert('Success', 'Package removed.');
-      loadSettingsData();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete');
-    }
+  const handleDeletePackage = (id: number) => {
+    showConfirm({
+      title: 'Delete Service Package',
+      message: 'Are you sure you want to permanently delete this service package from database?',
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deletePackage(id);
+          showAlert('Success', 'Package permanently deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete package');
+        }
+      },
+    });
   };
 
   // Bay Save
@@ -732,15 +1184,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeleteBay = async (bayNum: number) => {
-    if (!window.confirm(`Are you sure you want to deactivate Bay ${bayNum}?`)) return;
-    try {
-      await deleteBayMaster(bayNum);
-      showAlert('Success', `Bay ${bayNum} deactivated in database.`);
-      loadSettingsData();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete bay');
-    }
+  const handleDeleteBay = (bayNum: number) => {
+    showConfirm({
+      title: 'Deactivate Wash Bay',
+      message: `Are you sure you want to deactivate Bay ${bayNum}?`,
+      confirmText: 'Deactivate Bay',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteBayMaster(bayNum);
+          showAlert('Success', `Bay ${bayNum} deactivated in database.`);
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete bay');
+        }
+      },
+    });
   };
 
   // Dealer Save
@@ -794,34 +1253,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeleteDealer = async (id: number | string) => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (!window.confirm('Are you sure you want to delete this dealer account?')) return;
-      try {
-        await deleteDealer(id);
-        showAlert('Success', 'Dealer account deleted.');
-        loadSettingsData();
-      } catch (err: any) {
-        showAlert('Error', err.message || 'Failed to delete dealer');
-      }
-    } else {
-      Alert.alert('Confirm Delete', 'Are you sure you want to delete this dealer account?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteDealer(id);
-              showAlert('Success', 'Dealer account deleted.');
-              loadSettingsData();
-            } catch (err: any) {
-              showAlert('Error', err.message || 'Failed to delete dealer');
-            }
-          },
-        },
-      ]);
-    }
+  const handleDeleteDealer = (id: number | string) => {
+    showConfirm({
+      title: 'Delete Dealer Account',
+      message: 'Are you sure you want to permanently delete this commercial dealer account?',
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteDealer(id);
+          showAlert('Success', 'Dealer account deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete dealer');
+        }
+      },
+    });
   };
 
   // Company Settings Save
@@ -892,15 +1339,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   };
 
-  const handleDeletePrinter = async (id: string) => {
-    if (!window.confirm('Delete this printer configuration?')) return;
-    try {
-      await deletePrinter(id);
-      showAlert('Success', 'Printer deleted.');
-      loadSettingsData();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete');
-    }
+  const handleDeletePrinter = (id: string) => {
+    showConfirm({
+      title: 'Delete Printer Configuration',
+      message: 'Are you sure you want to permanently delete this printer configuration?',
+      confirmText: 'Delete Printer',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deletePrinter(id);
+          showAlert('Success', 'Printer deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete printer');
+        }
+      },
+    });
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -992,10 +1446,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <Text style={styles.heroSub}>
               Real-time synchronization with CarWashOrder, BayMaster, and SQL Server tables.
             </Text>
-            <Pressable style={styles.btnPrimary} onPress={() => navigateTo('carwash')}>
-              <Ionicons name="car-sport-outline" size={16} color={C.white} />
-              <Text style={styles.btnPrimaryText}>Open POS Queue</Text>
-            </Pressable>
           </View>
           <View style={styles.heroRightIcon}>
             <Ionicons name="shield-checkmark" size={36} color={C.white} />
@@ -1003,27 +1453,200 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         </View>
       </View>
 
+      {/* Sales Period & Date Filter Card */}
+      <View style={styles.dateFilterCard}>
+        {/* Top Header Row */}
+        <View style={styles.dateFilterTopRow}>
+          <View style={styles.dateFilterMeta}>
+            <View style={styles.dateFilterIconBox}>
+              <Ionicons name="calendar-outline" size={17} color={C.accent} />
+            </View>
+            <View>
+              <Text style={styles.dateFilterTitle}>SALES DATE FILTER</Text>
+              <Text style={styles.dateFilterSub}>
+                Viewing sales for:{' '}
+                <Text style={{ color: C.accent, fontWeight: '800' }}>{getPeriodDisplayLabel()}</Text>
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={styles.dateFilterRefreshBtn}
+            onPress={() => loadDashboardData()}
+          >
+            {dashLoading ? (
+              <ActivityIndicator size="small" color={C.white} />
+            ) : (
+              <>
+                <Ionicons name="refresh" size={14} color={C.white} />
+                <Text style={styles.dateFilterRefreshText}>Refresh Data</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Divider Line */}
+        <View style={styles.dateFilterDivider} />
+
+        {/* Toolbar Row: Presets on Left, Date Controls on Right */}
+        <View style={styles.dateFilterToolbarRow}>
+          {/* Quick Preset Pills: Daily, Weekly, Monthly, Yearly */}
+          <View style={styles.datePresetRow}>
+            {[
+              { id: 'DAILY', label: 'Daily' },
+              { id: 'WEEKLY', label: 'Weekly' },
+              { id: 'MONTHLY', label: 'Monthly' },
+              { id: 'YEARLY', label: 'Yearly' },
+            ].map((p) => {
+              const active = salesPeriodMode === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  style={[styles.datePresetPill, active && styles.datePresetPillActive]}
+                  onPress={() => handleSelectPeriodMode(p.id as SalesPeriodMode)}
+                >
+                  <Text style={[styles.datePresetPillText, active && styles.datePresetPillTextActive]}>
+                    {p.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Date Controls: Daily shows Prev/Next/Date picker; Weekly, Monthly, Yearly shows FROM & TO */}
+          {salesPeriodMode === 'DAILY' ? (
+            <View style={styles.dateControlRow}>
+              <Pressable
+                style={styles.dateStepBtn}
+                onPress={handleStepPrevDay}
+              >
+                <Ionicons name="chevron-back" size={15} color={C.white} />
+                <Text style={styles.dateStepBtnText}>Prev Day</Text>
+              </Pressable>
+
+              <View style={styles.dateInputWrapper}>
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    max={getTodayISO()}
+                    value={salesStartDate}
+                    onChange={(e) => {
+                      if (e.target.value) handleStartDateChange(e.target.value);
+                    }}
+                    style={webDashboardDateInputStyle}
+                  />
+                ) : (
+                  <TextInput
+                    style={styles.dateNativeInput}
+                    value={salesStartDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={C.textMuted}
+                    onChangeText={handleStartDateChange}
+                  />
+                )}
+              </View>
+
+              <Pressable
+                style={[styles.dateStepBtn, salesStartDate >= getTodayISO() && styles.dateStepBtnDisabled]}
+                onPress={handleStepNextDay}
+                disabled={salesStartDate >= getTodayISO()}
+              >
+                <Text style={[styles.dateStepBtnText, salesStartDate >= getTodayISO() && { color: C.textMuted }]}>
+                  Next Day
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={15}
+                  color={salesStartDate >= getTodayISO() ? C.textMuted : C.white}
+                />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.dateRangeControlRow}>
+              {/* FROM DATE */}
+              <View style={styles.rangeInputGroup}>
+                <Text style={styles.rangeLabel}>FROM</Text>
+                <View style={styles.dateInputWrapper}>
+                  {Platform.OS === 'web' ? (
+                    <input
+                      type="date"
+                      value={salesStartDate}
+                      onChange={(e) => {
+                        if (e.target.value) handleStartDateChange(e.target.value);
+                      }}
+                      style={webDashboardDateInputStyle}
+                    />
+                  ) : (
+                    <TextInput
+                      style={styles.dateNativeInput}
+                      value={salesStartDate}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={C.textMuted}
+                      onChangeText={handleStartDateChange}
+                    />
+                  )}
+                </View>
+              </View>
+
+              {/* ARROW */}
+              <View style={styles.rangeArrow}>
+                <Ionicons name="arrow-forward" size={14} color={C.accent} />
+              </View>
+
+              {/* TO DATE */}
+              <View style={styles.rangeInputGroup}>
+                <Text style={styles.rangeLabel}>TO</Text>
+                <View style={styles.dateInputWrapper}>
+                  {Platform.OS === 'web' ? (
+                    <input
+                      type="date"
+                      value={salesEndDate}
+                      onChange={(e) => {
+                        if (e.target.value) handleEndDateChange(e.target.value);
+                      }}
+                      style={webDashboardDateInputStyle}
+                    />
+                  ) : (
+                    <TextInput
+                      style={styles.dateNativeInput}
+                      value={salesEndDate}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={C.textMuted}
+                      onChangeText={handleEndDateChange}
+                    />
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
+      </View>
+
       {/* KPI Cards */}
       <View style={styles.sectionHead}>
-        <Text style={styles.sectionTitle}>LIVE PERFORMANCE METRICS</Text>
-        <Pressable onPress={loadDashboardData} style={styles.refreshChip}>
-          <Ionicons name="refresh" size={12} color={C.accent} />
-          <Text style={styles.refreshChipText}>Refresh</Text>
-        </Pressable>
+        <Text style={styles.sectionTitle}>
+          PERFORMANCE METRICS ({getKpiPeriodLabel().toUpperCase()})
+        </Text>
+        {dashLoading && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <ActivityIndicator size="small" color={C.accent} />
+            <Text style={{ color: C.textSec, fontSize: 11 }}>Loading sales data...</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.kpiRow}>
         <View style={styles.kpiCard}>
           <Ionicons name="water-outline" size={20} color={C.accent} />
-          <Text style={styles.kpiVal}>{summaryData?.totalCompletedWashes ?? '0'}</Text>
+          <Text style={styles.kpiVal}>{washesCompletedCount}</Text>
           <Text style={styles.kpiLabel}>Washes Completed</Text>
-          <Text style={styles.kpiSub}>Today's completed cars</Text>
+          <Text style={styles.kpiSub}>{getKpiPeriodLabel()} completed cars</Text>
         </View>
 
         <View style={styles.kpiCard}>
           <Ionicons name="cash-outline" size={20} color="#22C55E" />
           <Text style={styles.kpiVal}>${(summaryData?.totalRevenue ?? 0).toFixed(2)}</Text>
-          <Text style={styles.kpiLabel}>Revenue Today</Text>
+          <Text style={styles.kpiLabel}>Revenue ({getKpiPeriodLabel()})</Text>
           <Text style={styles.kpiSub}>Total Gross Sales</Text>
         </View>
 
@@ -1064,35 +1687,49 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       <View style={styles.chartAndPaymentRow}>
         <View style={[styles.glassCard, { flex: 2 }]}>
           <View style={styles.glassCardHeader}>
-            <Text style={styles.cardHeading}>Wash Volume Trend</Text>
-            <Text style={styles.cardSubhead}>Real SQL orders recorded</Text>
+            <View>
+              <Text style={styles.cardHeading}>Wash Volume Trend</Text>
+              <Text style={styles.cardSubhead}>{getPeriodDisplayLabel()}</Text>
+            </View>
           </View>
-          <View style={styles.barsContainer}>
-            {(washTrends.length > 0 ? washTrends : [
-              { dayName: 'Mon', completedWashes: 12 },
-              { dayName: 'Tue', completedWashes: 18 },
-              { dayName: 'Wed', completedWashes: 15 },
-              { dayName: 'Thu', completedWashes: 22 },
-              { dayName: 'Fri', completedWashes: 30 },
-              { dayName: 'Sat', completedWashes: 45 },
-              { dayName: 'Sun', completedWashes: 38 },
-            ]).map((t, idx) => {
-              const count = t.completedWashes || 1;
-              const barHeight = Math.min(100, Math.max(12, count * 2.2));
-              return (
-                <View key={idx} style={styles.barItem}>
-                  <Text style={styles.barTopVal}>{count}</Text>
-                  <View style={[styles.barVisual, { height: barHeight }]} />
-                  <Text style={styles.barBottomLabel}>{t.dayName?.slice(0, 3) || `D${idx}`}</Text>
-                </View>
-              );
-            })}
-          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.barsScrollContent,
+              computedWashTrends.length <= 12 && { flex: 1, justifyContent: 'space-around' },
+            ]}
+          >
+            {(() => {
+              const maxCount = Math.max(...computedWashTrends.map((i) => i.count), 1);
+              return computedWashTrends.map((t) => {
+                const isZero = t.count === 0;
+                const barHeight = isZero ? 4 : Math.max(14, Math.round((t.count / maxCount) * 85));
+                return (
+                  <View key={t.key} style={[styles.barItem, computedWashTrends.length > 12 && styles.barItemCompact]}>
+                    <Text style={[styles.barTopVal, !isZero && styles.barTopValActive]}>
+                      {t.count}
+                    </Text>
+                    <View
+                      style={[
+                        styles.barVisual,
+                        isZero ? styles.barVisualZero : { height: barHeight },
+                      ]}
+                    />
+                    <Text style={[styles.barBottomLabel, !isZero && { color: C.white }]}>
+                      {t.label}
+                    </Text>
+                    <Text style={styles.barSubDateLabel}>{t.subLabel}</Text>
+                  </View>
+                );
+              });
+            })()}
+          </ScrollView>
         </View>
 
         <View style={[styles.glassCard, { flex: 1 }]}>
           <Text style={styles.cardHeading}>Payment Channels</Text>
-          <Text style={styles.cardSubhead}>Live transaction mix</Text>
+          <Text style={styles.cardSubhead}>{getPeriodDisplayLabel()}</Text>
           <View style={{ marginTop: 14, gap: 10 }}>
             {(paymentChannels.length > 0 ? paymentChannels : [
               { paymentChannelName: 'Cash', revenuePercentage: 45, totalAmount: 450 },
@@ -1126,6 +1763,28 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         <Pressable style={styles.btnPrimary} onPress={handleOpenAddUser}>
           <Ionicons name="person-add-outline" size={16} color={C.white} />
           <Text style={styles.btnPrimaryText}>Add New User</Text>
+        </Pressable>
+      </View>
+
+      {/* Sub Tabs: User Management vs User Group Master */}
+      <View style={styles.subTabsRow}>
+        <Pressable
+          style={[styles.subTabPill, activeNav === 'users' && styles.subTabPillActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+          onPress={() => navigateTo('users')}
+        >
+          <Ionicons name="people-outline" size={15} color={activeNav === 'users' ? C.white : C.textSec} />
+          <Text style={[styles.subTabPillText, activeNav === 'users' && styles.subTabPillTextActive]}>
+            User Management ({users.length})
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.subTabPill, activeNav === 'user-groups' && styles.subTabPillActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+          onPress={() => navigateTo('user-groups')}
+        >
+          <Ionicons name="shield-checkmark-outline" size={15} color={activeNav === 'user-groups' ? C.white : C.textSec} />
+          <Text style={[styles.subTabPillText, activeNav === 'user-groups' && styles.subTabPillTextActive]}>
+            User Group Master ({userGroups.length})
+          </Text>
         </Pressable>
       </View>
 
@@ -1299,6 +1958,183 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   <ActivityIndicator color={C.white} />
                 ) : (
                   <Text style={styles.btnPrimaryText}>{editingUser ? 'Save Changes' : 'Create User'}</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+
+  /* ── 2b. User Group Master View ── */
+  const renderUserGroups = () => (
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+      <View style={styles.screenHeader}>
+        <View>
+          <Text style={styles.screenTitle}>User Group Master</Text>
+          <Text style={styles.screenSub}>Manage access roles, security profiles and permissions in UserGroupMaster</Text>
+        </View>
+        <Pressable style={styles.btnPrimary} onPress={handleOpenAddGroup}>
+          <Ionicons name="add-circle-outline" size={16} color={C.white} />
+          <Text style={styles.btnPrimaryText}>Add New User Group</Text>
+        </Pressable>
+      </View>
+
+      {/* Sub Tabs: User Management vs User Group Master */}
+      <View style={styles.subTabsRow}>
+        <Pressable
+          style={[styles.subTabPill, activeNav === 'users' && styles.subTabPillActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+          onPress={() => navigateTo('users')}
+        >
+          <Ionicons name="people-outline" size={15} color={activeNav === 'users' ? C.white : C.textSec} />
+          <Text style={[styles.subTabPillText, activeNav === 'users' && styles.subTabPillTextActive]}>
+            User Management ({users.length})
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.subTabPill, activeNav === 'user-groups' && styles.subTabPillActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+          onPress={() => navigateTo('user-groups')}
+        >
+          <Ionicons name="shield-checkmark-outline" size={15} color={activeNav === 'user-groups' ? C.white : C.textSec} />
+          <Text style={[styles.subTabPillText, activeNav === 'user-groups' && styles.subTabPillTextActive]}>
+            User Group Master ({userGroups.length})
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search-outline" size={18} color={C.textSec} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by Group Code or Group Name..."
+          placeholderTextColor={C.textMuted}
+          value={groupSearch}
+          onChangeText={setGroupSearch}
+        />
+        {groupSearch.length > 0 && (
+          <Pressable onPress={() => setGroupSearch('')}>
+            <Ionicons name="close-circle" size={16} color={C.textSec} />
+          </Pressable>
+        )}
+      </View>
+
+      {/* Table */}
+      <View style={styles.glassCard}>
+        {usersLoading ? (
+          <ActivityIndicator size="large" color={C.accent} style={{ padding: 40 }} />
+        ) : (
+          <View>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { flex: 1.2 }]}>GROUP CODE</Text>
+              <Text style={[styles.th, { flex: 1.8 }]}>GROUP NAME</Text>
+              <Text style={[styles.th, { flex: 1.2 }]}>ASSIGNED USERS</Text>
+              <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
+              <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
+            </View>
+
+            {filteredUserGroups.length === 0 ? (
+              <Text style={styles.emptyText}>No user groups found in UserGroupMaster.</Text>
+            ) : (
+              filteredUserGroups.map((g: UserGroupRecord) => {
+                const assignedCount = g.userCount !== undefined
+                  ? g.userCount
+                  : users.filter((u) => u.userGroupId === g.userGroupId).length;
+                return (
+                  <View key={g.userGroupId} style={styles.tableRow}>
+                    <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '700' }]}>
+                      {g.userGroupCode || '-'}
+                    </Text>
+                    <Text style={[styles.td, styles.textWhite, { flex: 1.8, fontWeight: '700' }]}>
+                      {g.userGroupName}
+                    </Text>
+                    <View style={{ flex: 1.2 }}>
+                      <View style={[styles.roleChip, assignedCount > 0 && { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)' }]}>
+                        <Ionicons name="people" size={11} color={assignedCount > 0 ? C.accent : C.textSec} style={{ marginRight: 4 }} />
+                        <Text style={[styles.roleChipText, assignedCount > 0 && { color: C.accent, fontWeight: '800' }]}>
+                          {assignedCount} {assignedCount === 1 ? 'User' : 'Users'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={[styles.statusBadge, g.isActive === false ? styles.statusBadgeOff : styles.statusBadgeOn]}>
+                        <Text style={[styles.statusBadgeText, g.isActive === false ? { color: '#EF4444' } : { color: '#22C55E' }]}>
+                          {g.isActive === false ? 'Disabled' : 'Active'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.actionRow, { flex: 1 }]}>
+                      <Pressable style={styles.btnAction} onPress={() => handleOpenEditGroup(g)}>
+                        <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                      </Pressable>
+                      <Pressable style={styles.btnAction} onPress={() => handleDeleteGroup(g)}>
+                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Add / Edit Group Modal */}
+      <Modal visible={groupModalOpen} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editingGroup ? 'Edit User Group' : 'Create New User Group'}</Text>
+              <Pressable onPress={() => setGroupModalOpen(false)}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>GROUP CODE *</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={gCode}
+                onChangeText={setGCode}
+                placeholder="e.g. GRP_ADMIN, GRP_CASHIER"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="characters"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>GROUP NAME *</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={gName}
+                onChangeText={setGName}
+                placeholder="e.g. Administrator, Cashier, Supervisor"
+                placeholderTextColor={C.textMuted}
+              />
+            </View>
+
+            <View style={[styles.flexRowBetween, { marginTop: 10 }]}>
+              <Text style={styles.fieldLabel}>GROUP STATUS</Text>
+              <Pressable
+                style={[styles.statusBadge, !gActive ? styles.statusBadgeOff : styles.statusBadgeOn]}
+                onPress={() => setGActive(!gActive)}
+              >
+                <Text style={[styles.statusBadgeText, !gActive ? { color: '#EF4444' } : { color: '#22C55E' }]}>
+                  {gActive ? 'Active' : 'Disabled'} (Click to toggle)
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <Pressable style={styles.btnSecondary} onPress={() => setGroupModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} onPress={handleSaveGroup} disabled={savingGroup}>
+                {savingGroup ? (
+                  <ActivityIndicator color={C.white} />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>{editingGroup ? 'Save Changes' : 'Create Group'}</Text>
                 )}
               </Pressable>
             </View>
@@ -2578,6 +3414,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         return <DealerVehicleHistoryView />;
       case 'users':
         return renderUsers();
+      case 'user-groups':
+        return renderUserGroups();
       case 'settings':
         return renderSettings();
       case 'audit':
@@ -2619,23 +3457,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           <Text style={[styles.navLabel, activeNav === 'dashboard' && styles.navLabelActive]}>Dashboard</Text>
         </Pressable>
 
-        {/* Navigation Group: CAR WASH */}
-        <Text style={styles.navGroupLabel}>CAR WASH</Text>
-        <Pressable
-          style={[styles.navItem, activeNav === 'carwash' ? styles.navItemActive : styles.navItemCarWash]}
-          onPress={() => navigateTo('carwash')}
-        >
-          {activeNav === 'carwash' && <View style={styles.navActiveLine} />}
-          <View style={[styles.navIconBox, activeNav === 'carwash' && styles.navIconBoxActive]}>
-            <Ionicons name="car-sport-outline" size={17} color={activeNav === 'carwash' ? C.white : C.accent} />
-          </View>
-          <Text style={[styles.navLabel, activeNav === 'carwash' ? styles.navLabelActive : { color: C.accent }]}>
-            Car Wash POS
-          </Text>
-          <View style={styles.navBadgeLive}>
-            <Text style={styles.navBadgeText}>Live</Text>
-          </View>
-        </Pressable>
 
         {/* Navigation Group: DEALER CREDIT */}
         <Text style={styles.navGroupLabel}>DEALER CREDIT</Text>
@@ -2763,6 +3584,98 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         )}
         <View style={styles.contentArea}>{renderActiveScreen()}</View>
       </View>
+
+      {/* Universal In-App Popup Modal (Replaces browser window.alert & window.confirm) */}
+      <Modal visible={popup.visible} transparent animationType="fade" onRequestClose={closePopup}>
+        <View style={styles.popupBackdrop}>
+          <View style={styles.popupCard}>
+            {/* Icon Header */}
+            <View
+              style={[
+                styles.popupIconBox,
+                popup.type === 'confirm' || popup.type === 'error'
+                  ? styles.popupIconBoxError
+                  : popup.type === 'success'
+                  ? styles.popupIconBoxSuccess
+                  : styles.popupIconBoxWarning,
+              ]}
+            >
+              <Ionicons
+                name={
+                  popup.icon
+                    ? (popup.icon as any)
+                    : popup.type === 'confirm'
+                    ? 'trash-outline'
+                    : popup.type === 'error'
+                    ? 'alert-circle-outline'
+                    : popup.type === 'success'
+                    ? 'checkmark-circle-outline'
+                    : 'warning-outline'
+                }
+                size={30}
+                color={
+                  popup.type === 'confirm' || popup.type === 'error'
+                    ? '#EF4444'
+                    : popup.type === 'success'
+                    ? '#22C55E'
+                    : '#F59E0B'
+                }
+              />
+            </View>
+
+            {/* Title & Message */}
+            <Text style={styles.popupTitle}>{popup.title}</Text>
+            <Text style={styles.popupMessage}>{popup.message}</Text>
+
+            {/* Action Buttons */}
+            {popup.type === 'confirm' ? (
+              <View style={styles.popupActionsRow}>
+                <Pressable
+                  style={styles.popupBtnCancel}
+                  onPress={() => {
+                    closePopup();
+                    if (popup.onCancel) popup.onCancel();
+                  }}
+                >
+                  <Text style={styles.popupBtnCancelText}>{popup.cancelText || 'Cancel'}</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.popupBtnConfirm,
+                    popup.confirmButtonColor ? { backgroundColor: popup.confirmButtonColor } : {},
+                  ]}
+                  onPress={() => {
+                    const fn = popup.onConfirm;
+                    closePopup();
+                    if (fn) fn();
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={16} color={C.white} style={{ marginRight: 6 }} />
+                  <Text style={styles.popupBtnConfirmText}>{popup.confirmText || 'Delete'}</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                style={[
+                  styles.popupBtnSingle,
+                  popup.type === 'error'
+                    ? { backgroundColor: '#EF4444' }
+                    : popup.type === 'success'
+                    ? { backgroundColor: '#10B981' }
+                    : { backgroundColor: C.accent },
+                ]}
+                onPress={() => {
+                  const fn = popup.onConfirm;
+                  closePopup();
+                  if (fn) fn();
+                }}
+              >
+                <Text style={styles.popupBtnSingleText}>{popup.confirmText || 'OK'}</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -3005,7 +3918,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.cardBorder,
     borderRadius: 14, padding: 18, marginBottom: 20,
   },
-  glassCardHeader: { marginBottom: 16 },
+  glassCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 16,
+  },
   cardHeading: { color: C.white, fontSize: 15, fontWeight: '800', marginBottom: 2 },
   cardSubhead: { color: C.textMuted, fontSize: 11 },
   cardHeaderAction: {
@@ -3019,13 +3935,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
     height: 120, paddingHorizontal: 10,
   },
-  barItem: { alignItems: 'center', gap: 4, flex: 1 },
+  barsScrollContent: {
+    flexDirection: 'row', alignItems: 'flex-end',
+    minHeight: 130, paddingHorizontal: 6, paddingBottom: 6,
+  },
+  barItem: { alignItems: 'center', gap: 3, flex: 1, minWidth: 26 },
+  barItemCompact: { flex: 0, minWidth: 32, paddingHorizontal: 3 },
   barTopVal: { color: C.textMuted, fontSize: 9 },
+  barTopValActive: { color: C.white, fontWeight: '700' },
   barVisual: {
-    width: 24, borderRadius: 4,
+    width: 20, borderRadius: 4,
     backgroundColor: C.accent,
   },
+  barVisualZero: {
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
   barBottomLabel: { color: C.textSec, fontSize: 9, fontWeight: '600' },
+  barSubDateLabel: { color: C.textMuted, fontSize: 8.5, marginTop: 1 },
+  trendToggleContainer: {
+    flexDirection: 'row', backgroundColor: '#1A1A1A', borderRadius: 8, padding: 2,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  trendToggleBtn: {
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+  },
+  trendToggleBtnActive: {
+    backgroundColor: C.accent,
+  },
+  trendToggleBtnText: {
+    color: C.textSec, fontSize: 10, fontWeight: '600',
+  },
+  trendToggleBtnTextActive: {
+    color: C.white, fontWeight: '700',
+  },
   progressTrack: {
     height: 6, borderRadius: 3,
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -3242,4 +4185,273 @@ const styles = StyleSheet.create({
   textSec: { color: C.textSec, fontSize: 12 },
   textMuted: { color: C.textMuted, fontSize: 11 },
   flexRowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+
+  /* Universal Popup Modal Styles */
+  popupBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 9999,
+  },
+  popupCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#121214',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 24px 60px rgba(0, 0, 0, 0.7)' } as any)
+      : { elevation: 12 }),
+  },
+  popupIconBox: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1.5,
+  },
+  popupIconBoxError: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  popupIconBoxSuccess: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+  },
+  popupIconBoxWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+  },
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  popupMessage: {
+    fontSize: 13.5,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  popupActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  popupBtnCancel: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupBtnCancelText: {
+    color: '#CBD5E1',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  popupBtnConfirm: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupBtnConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  popupBtnSingle: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupBtnSingleText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  /* Sales Date Filter Card Styles */
+  dateFilterCard: {
+    backgroundColor: 'rgba(21, 21, 21, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 26, 26, 0.22)',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+  },
+  dateFilterTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  dateFilterMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dateFilterIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 26, 26, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 26, 26, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateFilterTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  dateFilterSub: {
+    color: C.textSec,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  dateFilterRefreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: C.accent,
+    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  dateFilterRefreshText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dateFilterDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    marginVertical: 14,
+  },
+  dateFilterToolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  datePresetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  datePresetPill: {
+    paddingHorizontal: 14,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.09)',
+  },
+  datePresetPillActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  datePresetPillText: {
+    color: C.textSec,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  datePresetPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  dateControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateStepBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+  },
+  dateStepBtnDisabled: {
+    opacity: 0.35,
+  },
+  dateStepBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dateInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 34,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 26, 26, 0.3)',
+    justifyContent: 'center',
+  },
+  dateNativeInput: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 100,
+  },
+  dateRangeControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  rangeInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rangeLabel: {
+    color: C.textSec,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  rangeArrow: {
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });

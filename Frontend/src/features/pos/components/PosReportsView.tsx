@@ -12,7 +12,19 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, {
+  Path,
+  Defs,
+  LinearGradient,
+  Stop,
+  G,
+  Text as SvgText,
+  Circle,
+  Polygon,
+  Line,
+  Rect,
+  Ellipse,
+} from 'react-native-svg';
 import { PosOrder } from '../../../types/pos.types';
 import { BayMasterRecord } from '../../../services/carwashOrderApi';
 import { IconMenu, IconClock } from '../../../components/common/AppIcons';
@@ -165,12 +177,9 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
   }
 
   if (tab === 'WEEKLY') {
-    const dayOfWeek = anchor.getDay(); // 0 = Sun, 1 = Mon...
-    const diffToMonday = anchor.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-    const start = new Date(anchor.getFullYear(), anchor.getMonth(), diffToMonday);
-    const rawEnd = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-    // Never exceed today/present date
+    const rawEnd = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
     const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 7);
     return {
       startISO: toISO(start),
       endISO: toISO(end),
@@ -237,9 +246,7 @@ export const getDownloadPeriodRange = (
   }
 
   if (period === 'WEEKLY') {
-    const dayOfWeek = today.getDay();
-    const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-    const start = new Date(today.getFullYear(), today.getMonth(), diffToMonday);
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7);
     const s = toISO(start);
     return {
       startISO: s,
@@ -293,6 +300,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   onCloseDownloadModal,
 }) => {
   const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('YEARLY');
+  const [yearlyTrendView, setYearlyTrendView] = useState<'MONTHS' | 'DAYS'>('MONTHS');
   const [anchorDate, setAnchorDate] = useState<Date>(new Date());
   const [customStartDate, setCustomStartDate] = useState<string | null>(null);
   const [customEndDate, setCustomEndDate] = useState<string | null>(null);
@@ -359,10 +367,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       return anchorMidnight >= todayMidnight;
     }
     if (selectedPeriodTab === 'WEEKLY') {
-      const dayOfWeek = anchorDate.getDay();
-      const diffToMonday = anchorDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      const start = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), diffToMonday);
-      return start >= todayMidnight || anchorDate >= todayMidnight;
+      const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
+      return anchorMidnight >= todayMidnight;
     }
     if (selectedPeriodTab === 'MONTHLY') {
       return (
@@ -487,17 +493,29 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     avgWashDurationMinutes: 0,
   };
 
-  const totalWashesCount = summary.totalWashes ?? (summary.totalCompletedWashes + (summary.totalClosedWashes || 0));
-  const completedWashesCount = summary.totalCompletedWashes || 0;
+  const trendTotalWashes = useMemo(() => {
+    return (dashboardData?.washTrend || []).reduce(
+      (sum, item) => sum + (item.completedWashes || item.totalOrders || 0),
+      0
+    );
+  }, [dashboardData?.washTrend]);
+
+  const totalWashesCount = (summary.totalWashes && summary.totalWashes > 0)
+    ? summary.totalWashes
+    : ((summary.totalCompletedWashes + (summary.totalClosedWashes || 0)) > 0)
+    ? (summary.totalCompletedWashes + (summary.totalClosedWashes || 0))
+    : trendTotalWashes > 0
+    ? trendTotalWashes
+    : 0;
+
+  const completedWashesCount = (summary.totalCompletedWashes && summary.totalCompletedWashes > 0)
+    ? summary.totalCompletedWashes
+    : (totalWashesCount > 0 ? totalWashesCount : 0);
   const closedWashesCount = summary.totalClosedWashes || 0;
 
   let washesBadgeText = '✓ Fulfilled';
-  if (completedWashesCount > 0 && closedWashesCount > 0) {
-    washesBadgeText = `✓ ${completedWashesCount} Completed • ${closedWashesCount} Closed`;
-  } else if (closedWashesCount > 0) {
-    washesBadgeText = `✓ ${closedWashesCount} Closed`;
-  } else if (completedWashesCount > 0) {
-    washesBadgeText = `✓ ${completedWashesCount} Completed`;
+  if (totalWashesCount > 0) {
+    washesBadgeText = `✓ ${totalWashesCount} Fulfilled`;
   } else {
     washesBadgeText = '0 Washes';
   }
@@ -514,17 +532,197 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     ? dashboardData.paymentChannelMix
     : [];
 
-  const washTrendList = dashboardData?.washTrend && dashboardData.washTrend.length > 0
+  const rawWashTrendList = dashboardData?.washTrend && dashboardData.washTrend.length > 0
     ? dashboardData.washTrend
     : [];
+
+  const displayTrendList = useMemo(() => {
+    const normDate = (val: any): string => {
+      if (!val) return '';
+      if (val instanceof Date) {
+        return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(2, '0')}-${String(val.getDate()).padStart(2, '0')}`;
+      }
+      const str = String(val).trim();
+      if (str.includes('T')) return str.split('T')[0];
+      if (str.includes(' ')) return str.split(' ')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      if (/^\d{2}-\d{2}-\d{4}$/.test(str)) {
+        const [dd, mm, yyyy] = str.split('-');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return str;
+    };
+
+    const dayNamesShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayNamesFull = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNamesFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    const trendMap = new Map<string, { washes: number; revenue: number; rawDayName?: string }>();
+    rawWashTrendList.forEach((t) => {
+      const nd = normDate(t.orderDate);
+      if (nd) {
+        const prev = trendMap.get(nd) || { washes: 0, revenue: 0, rawDayName: t.dayName };
+        trendMap.set(nd, {
+          washes: prev.washes + (t.completedWashes || t.totalOrders || 0),
+          revenue: prev.revenue + (t.dailyRevenue || 0),
+          rawDayName: t.dayName || prev.rawDayName,
+        });
+      }
+    });
+
+    // 1. YEARLY MODE - MONTHLY VIEW (DEFAULT)
+    if (selectedPeriodTab === 'YEARLY' && yearlyTrendView === 'MONTHS') {
+      const yr = (effectiveStartISO || todayISO).split('-')[0];
+      return monthNames.map((mName, mIdx) => {
+        const mStr = String(mIdx + 1).padStart(2, '0');
+        let mCount = 0;
+        let mRev = 0;
+        trendMap.forEach((val, dStr) => {
+          const parts = dStr.split('-');
+          if (parts[0] === yr && parts[1] === mStr) {
+            mCount += val.washes;
+            mRev += val.revenue;
+          }
+        });
+        return {
+          key: `m-${mIdx}`,
+          dayName: monthNamesFull[mIdx],
+          label: mName,
+          subLabel: yr,
+          completedWashes: mCount,
+          dailyRevenue: mRev,
+          orderDate: `${yr}-${mStr}-01`,
+          isZero: mCount === 0 && mRev === 0,
+        };
+      });
+    }
+
+    // 2. DAILY, WEEKLY, MONTHLY OR YEARLY (ALL DAYS VIEW) -> GENERATE EVERY DAY IN RANGE
+    const sStr = effectiveStartISO || todayISO;
+    const eStr = effectiveEndISO || sStr;
+
+    const [sY, sM, sD] = sStr.split('-').map(Number);
+    const [eY, eM, eD] = eStr.split('-').map(Number);
+
+    const cur = new Date(sY, sM - 1, sD);
+    const end = new Date(eY, eM - 1, eD);
+
+    const days: {
+      key: string;
+      orderDate: string;
+      dayName: string;
+      label: string;
+      subLabel: string;
+      completedWashes: number;
+      dailyRevenue: number;
+      isZero: boolean;
+    }[] = [];
+    let limit = 0;
+    while (cur <= end && limit < 370) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      const d = String(cur.getDate()).padStart(2, '0');
+      const dateKey = `${y}-${m}-${d}`;
+
+      const dayIdx = cur.getDay();
+      const dayShort = dayNamesShort[dayIdx];
+      const dayFull = dayNamesFull[dayIdx];
+      const record = trendMap.get(dateKey);
+
+      days.push({
+        key: dateKey,
+        orderDate: dateKey,
+        dayName: dayFull,
+        label: dayShort,
+        subLabel: `${d}/${m}`,
+        completedWashes: record ? record.washes : 0,
+        dailyRevenue: record ? record.revenue : 0,
+        isZero: !record || (record.washes === 0 && record.revenue === 0),
+      });
+
+      cur.setDate(cur.getDate() + 1);
+      limit++;
+    }
+
+    if (days.length === 0) {
+      if (rawWashTrendList.length > 0) {
+        return rawWashTrendList.map((r, i) => ({
+          key: r.orderDate || `d-${i}`,
+          orderDate: r.orderDate,
+          dayName: r.dayName || 'Day',
+          label: r.dayName ? r.dayName.slice(0, 3) : (r.orderDate ? r.orderDate.slice(5) : `D${i + 1}`),
+          subLabel: r.orderDate ? r.orderDate.slice(5) : '',
+          completedWashes: r.completedWashes || 0,
+          dailyRevenue: r.dailyRevenue || 0,
+          isZero: (r.completedWashes || 0) === 0 && (r.dailyRevenue || 0) === 0,
+        }));
+      }
+      return [{
+        key: sStr,
+        orderDate: sStr,
+        dayName: 'Today',
+        label: 'Today',
+        subLabel: sStr.slice(5),
+        completedWashes: summary.totalWashes || summary.totalCompletedWashes || 0,
+        dailyRevenue: summary.totalRevenue || 0,
+        isZero: false,
+      }];
+    }
+
+    return days;
+  }, [rawWashTrendList, selectedPeriodTab, yearlyTrendView, effectiveStartISO, effectiveEndISO, todayISO, summary]);
+
+  const washTrendList = displayTrendList;
 
   const recentWashesList = dashboardData?.recentWashes && dashboardData.recentWashes.length > 0
     ? dashboardData.recentWashes
     : [];
 
-  const recentTransactionsList = dashboardData?.recentTransactions && dashboardData.recentTransactions.length > 0
-    ? dashboardData.recentTransactions
-    : [];
+  const recentTransactionsList = useMemo<RecentTransactionItem[]>(() => {
+    const rawTxList = dashboardData?.recentTransactions || [];
+    const washes = dashboardData?.recentWashes || [];
+
+    const existingMap = new Map<number | string, RecentTransactionItem>();
+    rawTxList.forEach((t) => {
+      if (t.orderId) existingMap.set(t.orderId, t);
+      if (t.orderNo) existingMap.set(t.orderNo, t);
+    });
+
+    const merged: RecentTransactionItem[] = [...rawTxList];
+    washes.forEach((w) => {
+      if (!existingMap.has(w.orderId) && !existingMap.has(w.orderNo) && (w.totalAmount || 0) > 0) {
+        const item: RecentTransactionItem = {
+          orderId: w.orderId,
+          orderNo: w.orderNo,
+          customerName: w.customerName,
+          vehicleNumber: w.vehicleNumber,
+          packageName: w.packageName,
+          payMode: 'CARD',
+          payModeDescription: 'Card / Electronic',
+          netAmount: w.totalAmount,
+          gstAmount: 0,
+          totalAmount: w.totalAmount,
+          paymentStatus: 'PAID',
+          paymentReference: null,
+          orderSource: 'KIOSK',
+          paidDate: w.completedDate || w.startedDate || w.createdDate,
+          createdDate: w.createdDate,
+        };
+        merged.push(item);
+        existingMap.set(w.orderId, item);
+        if (w.orderNo) existingMap.set(w.orderNo, item);
+      }
+    });
+
+    merged.sort((a, b) => {
+      const timeA = new Date(a.paidDate || a.createdDate || 0).getTime();
+      const timeB = new Date(b.paidDate || b.createdDate || 0).getTime();
+      return timeB - timeA || (b.orderId || 0) - (a.orderId || 0);
+    });
+
+    return merged;
+  }, [dashboardData?.recentTransactions, dashboardData?.recentWashes]);
 
   // Filtered & Sorted Lists based on Easy Filter modal selections
   const filteredRecentWashes = useMemo(() => {
@@ -617,7 +815,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           serviceDistribution: serviceDistributionList,
           bayUtilization: bayUtilList,
           paymentChannelMix: payMixList,
-          washTrend: washTrendList,
+          washTrend: rawWashTrendList,
           recentWashes: recentWashesList,
           recentTransactions: recentTransactionsList,
         }
@@ -1066,7 +1264,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     : (summary.avgWashDurationMinutes || 18);
 
   // Active trend item for tooltip
-  const activeTrendItem = washTrendList[activeTrendIdx] || washTrendList[0] || null;
+  const activeTrendItem = washTrendList[activeTrendIdx] || washTrendList[washTrendList.length - 1] || null;
 
   // Service Distribution State
   const [activeServiceIdx, setActiveServiceIdx] = useState<number | null>(null);
@@ -1093,9 +1291,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
   const maxTrendWashes = Math.max(10, ...washTrendList.map(w => w.completedWashes || 0));
   const maxTrendRevenue = Math.max(100, ...washTrendList.map(w => w.dailyRevenue || 0));
-  const peakTrendItem = washTrendList.length > 0 
-    ? [...washTrendList].sort((a, b) => (b.completedWashes || 0) - (a.completedWashes || 0))[0]
-    : null;
+  const nonZeroTrendItems = washTrendList.filter(w => (w.completedWashes || 0) > 0);
+  const peakTrendItem = nonZeroTrendItems.length > 0 
+    ? [...nonZeroTrendItems].sort((a, b) => (b.completedWashes || 0) - (a.completedWashes || 0))[0]
+    : (washTrendList.length > 0 ? washTrendList[0] : null);
   const totalTrendWashes = washTrendList.reduce((acc, w) => acc + (w.completedWashes || 0), 0);
   const totalTrendRevenue = washTrendList.reduce((acc, w) => acc + (w.dailyRevenue || 0), 0);
   const avgDailyWashes = washTrendList.length > 0 ? (totalTrendWashes / washTrendList.length).toFixed(1) : '0';
@@ -1136,7 +1335,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         gstAmount: order.totalAmount * 0.09 / 1.09,
         paymentMode: 'CASH',
         paymentStatus: order.statusName || 'PAID',
-      });
+      }, { isReprint: true });
       if (Platform.OS === 'web') {
         alert(`Receipt ticket sent to printer for Order ${order.orderNo}`);
       }
@@ -1150,14 +1349,22 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   const formatRelativeTime = (dateStr?: string | null): string => {
     if (!dateStr) return 'Recently';
     try {
-      const diffMs = Date.now() - new Date(dateStr).getTime();
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'Recently';
+
+      const diffMs = Date.now() - d.getTime();
       const diffMins = Math.floor(diffMs / (1000 * 60));
       if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins} mins ago`;
+      if (diffMins < 60) return `${diffMins}m ago`;
       const diffHours = Math.floor(diffMins / 60);
       if (diffHours < 24) return `${diffHours}h ago`;
-      const diffDays = Math.floor(diffHours / 24);
-      return `${diffDays}d ago`;
+
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const day = d.getDate();
+      const month = months[d.getMonth()];
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${day} ${month}, ${hh}:${mm}`;
     } catch {
       return 'Recently';
     }
@@ -1266,6 +1473,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               style={[styles.periodTabItem, isActive && styles.periodTabItemActive]}
               onPress={() => {
                 setSelectedPeriodTab(tab);
+                setAnchorDate(new Date());
                 setCustomStartDate(null);
                 setCustomEndDate(null);
               }}
@@ -1602,7 +1810,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <View style={styles.activeDayPill}>
                 <View style={styles.activeDayDot} />
                 <Text style={styles.activeDayText}>
-                  {activeTrendItem.dayName ? activeTrendItem.dayName.slice(0, 3) : 'Day'}: {(activeTrendItem.completedWashes || 0)}w · ${(activeTrendItem.dailyRevenue || 0).toFixed(0)}
+                  {activeTrendItem.label || (activeTrendItem.dayName ? activeTrendItem.dayName.slice(0, 3) : 'Day')}{activeTrendItem.subLabel ? ` (${activeTrendItem.subLabel})` : ''}: {(activeTrendItem.completedWashes || 0)}w · ${(activeTrendItem.dailyRevenue || 0).toFixed(0)}
                 </Text>
               </View>
             )}
@@ -1647,7 +1855,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     ]}
                   >
                     <Text style={styles.tooltipTitle} numberOfLines={1}>
-                      {activeTrendItem.dayName || 'Selected Day'}
+                      {activeTrendItem.dayName || 'Selected'} {activeTrendItem.subLabel ? `(${activeTrendItem.subLabel})` : ''}
                     </Text>
                     <View style={styles.tooltipRow}>
                       <View style={[styles.tooltipDot, { backgroundColor: '#ED0712' }]} />
@@ -1672,34 +1880,78 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               })()}
 
               {/* Bars Row */}
-              <View style={styles.barsContainer}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.barsContainer}
+                contentContainerStyle={[
+                  styles.barsScrollContent,
+                  washTrendList.length <= 12 && { flex: 1, justifyContent: 'space-around' },
+                ]}
+              >
                 {washTrendList.length > 0 ? (
                   washTrendList.map((item, idx) => {
                     const isActive = activeTrendIdx === idx;
-                    const washesHeightPct = Math.min(100, Math.max(8, ((item.completedWashes || 0) / maxTrendWashes) * 100));
-                    const revHeightPct = Math.min(100, Math.max(6, ((item.dailyRevenue || 0) / maxTrendRevenue) * 100));
-                    const dayLabel = item.dayName ? item.dayName.slice(0, 3) : (item.orderDate ? item.orderDate.slice(5) : `D${idx+1}`);
-                    const barWidth = washTrendList.length > 6 ? 8 : 11;
+                    const washesHeightPct = item.completedWashes > 0
+                      ? Math.min(100, Math.max(8, ((item.completedWashes || 0) / maxTrendWashes) * 100))
+                      : 4;
+                    const revHeightPct = item.dailyRevenue > 0
+                      ? Math.min(100, Math.max(6, ((item.dailyRevenue || 0) / maxTrendRevenue) * 100))
+                      : 4;
+                    const dayLabel = item.label || (item.dayName ? item.dayName.slice(0, 3) : `D${idx + 1}`);
+                    const subLabel = item.subLabel;
+                    const barWidth = washTrendList.length > 12 ? 6 : (washTrendList.length > 6 ? 8 : 11);
 
                     return (
                       <TouchableOpacity
-                        key={item.orderDate || idx}
-                        style={[styles.monthColGroup, isActive && styles.monthColGroupActive]}
+                        key={item.key || item.orderDate || idx}
+                        style={[
+                          styles.monthColGroup,
+                          isActive && styles.monthColGroupActive,
+                          washTrendList.length > 12 && { minWidth: 34, paddingHorizontal: 2 },
+                        ]}
                         onPress={() => setActiveTrendIdx(idx)}
                         activeOpacity={0.8}
                       >
                         <View style={[styles.slotTrack, isActive && styles.slotTrackActive]}>
                           <View style={styles.pairedBarsRow}>
-                            <View style={[styles.barRedPrimary, { height: `${washesHeightPct}%`, width: barWidth }]} />
-                            <View style={[styles.barPinkSecondary, { height: `${revHeightPct}%`, width: barWidth }]} />
+                            <View
+                              style={[
+                                styles.barRedPrimary,
+                                {
+                                  height: `${washesHeightPct}%`,
+                                  width: barWidth,
+                                  backgroundColor: item.completedWashes > 0 ? '#ED0712' : '#FEE2E2',
+                                  opacity: item.completedWashes > 0 ? 1 : 0.6,
+                                },
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.barPinkSecondary,
+                                {
+                                  height: `${revHeightPct}%`,
+                                  width: barWidth,
+                                  backgroundColor: item.dailyRevenue > 0 ? '#FDA4AF' : '#FEE2E2',
+                                  opacity: item.dailyRevenue > 0 ? 1 : 0.6,
+                                },
+                              ]}
+                            />
                           </View>
                         </View>
 
                         <View style={styles.dayLabelWrap}>
-                          {isActive && <View style={styles.activeDayIndicatorDot} />}
-                          <Text style={[styles.monthLabelText, isActive && styles.monthLabelTextActive]} numberOfLines={1}>
-                            {dayLabel}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                            {isActive && <View style={styles.activeDayIndicatorDot} />}
+                            <Text style={[styles.monthLabelText, isActive && styles.monthLabelTextActive]} numberOfLines={1}>
+                              {dayLabel}
+                            </Text>
+                          </View>
+                          {subLabel ? (
+                            <Text style={[styles.daySubLabelText, isActive && { color: '#0F172A', fontWeight: '700' }]} numberOfLines={1}>
+                              {subLabel}
+                            </Text>
+                          ) : null}
                         </View>
                       </TouchableOpacity>
                     );
@@ -1709,21 +1961,25 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     <Text style={{ color: '#94A3B8', fontSize: 12 }}>No trend data for this period</Text>
                   </View>
                 )}
-              </View>
+              </ScrollView>
             </View>
           </View>
 
           {/* Bottom KPI Summary Footer */}
           <View style={styles.trendSummaryFooter}>
             <View style={styles.trendFooterStat}>
-              <Text style={styles.trendFooterLabel}>Peak Day</Text>
+              <Text style={styles.trendFooterLabel}>
+                {selectedPeriodTab === 'YEARLY' && yearlyTrendView === 'MONTHS' ? 'Peak Month' : 'Peak Day'}
+              </Text>
               <Text style={styles.trendFooterValBold}>
-                {peakTrendItem ? `${peakTrendItem.dayName || 'Peak'} (${peakTrendItem.completedWashes}w)` : '-'}
+                {peakTrendItem ? `${peakTrendItem.label || peakTrendItem.dayName || 'Peak'} (${peakTrendItem.completedWashes}w)` : '-'}
               </Text>
             </View>
             <View style={styles.trendFooterDivider} />
             <View style={styles.trendFooterStat}>
-              <Text style={styles.trendFooterLabel}>Daily Average</Text>
+              <Text style={styles.trendFooterLabel}>
+                {selectedPeriodTab === 'YEARLY' && yearlyTrendView === 'MONTHS' ? 'Monthly Average' : 'Daily Average'}
+              </Text>
               <Text style={styles.trendFooterVal}>{avgDailyWashes} washes</Text>
             </View>
             <View style={styles.trendFooterDivider} />
@@ -1945,7 +2201,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       <View style={styles.rowThreeContainer}>
         {/* Card 1: Payment Channel Mix (Infographic Circular Chart) */}
-        <View style={[styles.rowThreeCard, { flex: 1.35, minWidth: 440 }]}>
+        <View style={[styles.rowThreeCard, { flex: 1.35, minWidth: isMobile ? '100%' : 440 }]}>
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardTitle}>Payment Channel Mix</Text>
@@ -1954,8 +2210,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
 
           <View style={styles.channelMixBody}>
-            {/* Infographic Stepped Circular Chart (Reduced & Moved to Top Side) */}
-            {Platform.OS === 'web' && payMixList.length > 0 ? (
+            {/* Infographic Stepped Circular Chart (Active on Web and Android APK / Native) */}
+            {payMixList.length > 0 ? (
               <View style={styles.infographicSvgContainer}>
                 {(() => {
                   const cx = 280;
@@ -2152,120 +2408,418 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   relaxSide(rightSlices);
                   relaxSide(leftSlices);
 
+                  if (Platform.OS === 'web') {
+                    return (
+                      <svg
+                        width="100%"
+                        height="270"
+                        viewBox="0 0 560 270"
+                        style={{
+                          display: 'block',
+                          margin: '0 auto',
+                          overflow: 'visible',
+                          animationKeyframes: 'infographicEntrance',
+                          animationDuration: '0.7s',
+                          animationTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+                          animationFillMode: 'forwards',
+                        } as any}
+                      >
+                        <defs>
+                          <style>
+                            {`
+                              @keyframes infographicEntrance {
+                                0% { opacity: 0; transform: scale(0.95); }
+                                100% { opacity: 1; transform: scale(1); }
+                              }
+                            `}
+                          </style>
+
+                          {/* Drop shadow for center white ring */}
+                          <filter id="centerRingShadow" x="-30%" y="-30%" width="160%" height="160%">
+                            <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(0, 0, 0, 0.14)" />
+                          </filter>
+                          {/* Drop shadow for center pink button */}
+                          <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
+                            <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(230, 0, 103, 0.45)" />
+                          </filter>
+                          {/* Soft drop shadow for outer 3D slices */}
+                          <filter id="segmentShadow" x="-15%" y="-15%" width="130%" height="130%">
+                            <feDropShadow dx="0" dy="2.5" stdDeviation="4" floodColor="rgba(0, 0, 0, 0.10)" />
+                          </filter>
+
+                          {/* Center Pink Button Gradient */}
+                          <linearGradient id="pinkCenterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#FF1E8A" />
+                            <stop offset="55%" stopColor="#E60067" />
+                            <stop offset="100%" stopColor="#A21CAF" />
+                          </linearGradient>
+
+                          {/* Glossy specular reflection for center button */}
+                          <linearGradient id="glossHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.45" />
+                            <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.0" />
+                          </linearGradient>
+
+                          {/* Radial gradients for each segment matching reference */}
+                          <linearGradient id="grad_paynow" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#FF337A" />
+                            <stop offset="100%" stopColor="#E11D48" />
+                          </linearGradient>
+                          <linearGradient id="grad_member" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#FFB300" />
+                            <stop offset="100%" stopColor="#F59E0B" />
+                          </linearGradient>
+                          <linearGradient id="grad_cash" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6" />
+                            <stop offset="100%" stopColor="#5B21B6" />
+                          </linearGradient>
+                          <linearGradient id="grad_credit" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#E879F9" />
+                            <stop offset="100%" stopColor="#A21CAF" />
+                          </linearGradient>
+                          <linearGradient id="grad_card" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#60A5FA" />
+                            <stop offset="100%" stopColor="#1D4ED8" />
+                          </linearGradient>
+                          <linearGradient id="grad_online" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#6366F1" />
+                            <stop offset="100%" stopColor="#3730A3" />
+                          </linearGradient>
+                        </defs>
+
+                        {/* 1. SEAMLESS SOLID SECTORS WITH STEPPED RADII (From rInner to rOut) */}
+                        {computedSlices.map((s) => {
+                          const dMain = describeArc(rInner, s.rOut, s.startA, s.endA);
+                          const dInnerGlow = describeArc(rInner, rMid, s.startA, s.endA);
+                          const dArcLine = describeArcLine(rMid, s.startA, s.endA);
+
+                          return (
+                            <g key={`slice-${s.idx}`}>
+                              {/* Solid Continuous Wedge */}
+                              <path
+                                d={dMain}
+                                fill={`url(#${s.style.gradId})`}
+                                stroke="#FFFFFF"
+                                strokeWidth="2.8"
+                                strokeLinejoin="round"
+                                filter="url(#segmentShadow)"
+                              />
+
+                              {/* Inner Band Translucent White Sheen */}
+                              <path
+                                d={dInnerGlow}
+                                fill="rgba(255, 255, 255, 0.16)"
+                                stroke="none"
+                              />
+
+                              {/* Concentric Step Dividing Line */}
+                              <path
+                                d={dArcLine}
+                                fill="none"
+                                stroke="rgba(255, 255, 255, 0.42)"
+                                strokeWidth="1.2"
+                              />
+                            </g>
+                          );
+                        })}
+
+                        {/* 2. WHITE INWARD CHEVRONS & HIGH-DEFINITION VECTOR ICONS */}
+                        {computedSlices.map((s) => {
+                          const rIcon = (rInner + rMid) / 2; // 56px
+                          const iconPos = polarToXY(rIcon, s.midA);
+                          const tipPt = polarToXY(rInner, s.midA);
+                          const lPt = polarToXY(rInner + 4, s.midA - 2.8);
+                          const rPt = polarToXY(rInner + 4, s.midA + 2.8);
+                          const ch = s.item.paymentChannel.toUpperCase();
+
+                          return (
+                            <g key={`icon-group-${s.idx}`}>
+                              {/* Inward-pointing triangular notch */}
+                              <polygon
+                                points={`${tipPt.x},${tipPt.y} ${lPt.x},${lPt.y} ${rPt.x},${rPt.y}`}
+                                fill="#FFFFFF"
+                              />
+
+                              {/* Vector Icons Matching Reference Template */}
+                              <g transform={`translate(${iconPos.x}, ${iconPos.y})`}>
+                                {/* 1. Target with Dart (MEMBER or fallback idx 0) */}
+                                {(ch.includes('MEMBER') || s.idx === 0) && (
+                                  <g transform="scale(0.8)">
+                                    <circle cx="0" cy="0" r="8" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+                                    <circle cx="0" cy="0" r="4.2" fill="none" stroke="#FFFFFF" strokeWidth="1.7" />
+                                    <circle cx="0" cy="0" r="1.6" fill="#FFFFFF" />
+                                    <path d="M 3.5 -3.5 L 9 -9 M 6 -3.5 L 9.5 -7 M 3.5 -6 L 7 -9.5" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" />
+                                  </g>
+                                )}
+
+                                {/* 2. Magnifying Glass with Dollar Sign (PAYNOW or fallback idx 1) */}
+                                {(ch.includes('PAYNOW') || s.idx === 1) && !ch.includes('MEMBER') && (
+                                  <g transform="scale(0.8)">
+                                    <circle cx="-1.5" cy="-1.5" r="6.2" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+                                    <line x1="3.5" y1="3.5" x2="8" y2="8" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
+                                    <text x="-1.5" y="1.2" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="900" fontFamily="sans-serif">$</text>
+                                  </g>
+                                )}
+
+                                {/* 3. Ascending 3-Column Bar Chart (CASH or fallback idx 2) */}
+                                {(ch.includes('CASH') || s.idx === 2) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && (
+                                  <g transform="scale(0.8)">
+                                    <line x1="-7" y1="6.5" x2="7" y2="6.5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
+                                    <rect x="-6" y="1.5" width="3" height="5" fill="#FFFFFF" rx="0.5" />
+                                    <rect x="-1" y="-2" width="3" height="8.5" fill="#FFFFFF" rx="0.5" />
+                                    <rect x="4" y="-6" width="3" height="12.5" fill="#FFFFFF" rx="0.5" />
+                                  </g>
+                                )}
+
+                                {/* 4. Interlocking Gears (CREDIT or fallback idx 3) */}
+                                {(ch.includes('CARD') || ch.includes('CREDIT') || s.idx === 3) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && (
+                                  <g transform="scale(0.8)">
+                                    <circle cx="-2.5" cy="2.5" r="4.5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" strokeDasharray="2.5 1.8" />
+                                    <circle cx="-2.5" cy="2.5" r="1.5" fill="#FFFFFF" />
+                                    <circle cx="3.8" cy="-3" r="3.4" fill="none" stroke="#FFFFFF" strokeWidth="1.4" strokeDasharray="2.2 1.5" />
+                                    <circle cx="3.8" cy="-3" r="1.1" fill="#FFFFFF" />
+                                  </g>
+                                )}
+
+                                {/* 5. Globe Grid (ONLINE or other) */}
+                                {!ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && !ch.includes('CARD') && !ch.includes('CREDIT') && (
+                                  <g transform="scale(0.8)">
+                                    <circle cx="0" cy="0" r="7" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
+                                    <ellipse cx="0" cy="0" rx="3.2" ry="7" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
+                                    <line x1="-7" y1="0" x2="7" y2="0" stroke="#FFFFFF" strokeWidth="1.4" />
+                                  </g>
+                                )}
+                              </g>
+                            </g>
+                          );
+                        })}
+
+                        {/* 3. THICK WHITE CIRCULAR RING (Elevated 3D Depth) */}
+                        <circle cx={cx} cy={cy} r="44" fill="#FFFFFF" filter="url(#centerRingShadow)" />
+                        <circle cx={cx} cy={cy} r="44" fill="none" stroke="#F1F5F9" strokeWidth="1.5" />
+
+                        {/* 4. ATTRACTIVE PINK GRADIENT CENTER CIRCLE WITH 3D SHINE */}
+                        <circle cx={cx} cy={cy} r="33" fill="url(#pinkCenterGrad)" stroke="#FFFFFF" strokeWidth="2.2" filter="url(#buttonShadow)" />
+                        {/* Glossy top-dome reflection overlay */}
+                        <path
+                          d={`M ${cx - 25} ${cy - 6} A 26 26 0 0 1 ${cx + 25} ${cy - 6} A 25 12 0 0 0 ${cx - 25} ${cy - 6} Z`}
+                          fill="url(#glossHighlight)"
+                        />
+
+                        {/* Center Disc Typography */}
+                        <text
+                          x={cx}
+                          y={cy - 8}
+                          textAnchor="middle"
+                          fill="rgba(255, 255, 255, 0.92)"
+                          fontSize="7.5"
+                          fontWeight="800"
+                          letterSpacing="1.4"
+                          fontFamily="system-ui, -apple-system, sans-serif"
+                        >
+                          TOTAL
+                        </text>
+                        <text
+                          x={cx}
+                          y={cy + 6}
+                          textAnchor="middle"
+                          fill="#FFFFFF"
+                          fontSize="15"
+                          fontWeight="900"
+                          fontFamily="system-ui, -apple-system, sans-serif"
+                        >
+                          ${summary.totalRevenue.toFixed(0)}
+                        </text>
+                        <text
+                          x={cx}
+                          y={cy + 16}
+                          textAnchor="middle"
+                          fill="rgba(255, 255, 255, 0.88)"
+                          fontSize="6.5"
+                          fontWeight="700"
+                          letterSpacing="1.1"
+                          fontFamily="system-ui, -apple-system, sans-serif"
+                        >
+                          REVENUE
+                        </text>
+
+                        {/* 5. EXTERNAL CONNECTING LINES WITH CIRCULAR NODES & DETAILS */}
+                        {computedSlices.map((s) => {
+                          const kneeX = s.rawKneeX;
+                          const kneeY = s.rawKneeY;
+                          const horizLen = 26;
+                          const endX = kneeX + (s.isRight ? horizLen : -horizLen);
+                          const endY = kneeY;
+
+                          const textX = endX + (s.isRight ? 8 : -8);
+                          const textAnchor = s.isRight ? 'start' : 'end';
+
+                          return (
+                            <g key={`leader-${s.idx}`}>
+                              {/* Connecting Line (Diagonal/Vertical + Horizontal) */}
+                              <path
+                                d={`M ${s.startPt.x} ${s.startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
+                                fill="none"
+                                stroke={s.style.primary}
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+
+                              {/* Small Circular Endpoint (Hollow node matching reference) */}
+                              <circle
+                                cx={endX}
+                                cy={endY}
+                                r="3.5"
+                                fill="#FFFFFF"
+                                stroke={s.style.primary}
+                                strokeWidth="2"
+                              />
+
+                              {/* High-Contrast Frosted Badge Behind Text for 100% Guaranteed Legibility */}
+                              <rect
+                                x={s.isRight ? textX - 4 : textX - 86}
+                                y={endY - 14}
+                                width="90"
+                                height="40"
+                                fill="rgba(255, 255, 255, 0.94)"
+                                rx="6"
+                              />
+
+                              {/* Dynamic Percentage */}
+                              <text
+                                x={textX}
+                                y={endY - 3}
+                                textAnchor={textAnchor}
+                                fill={s.style.primary}
+                                fontSize="17"
+                                fontWeight="900"
+                                fontFamily="system-ui, -apple-system, sans-serif"
+                              >
+                                {s.pct}%
+                              </text>
+
+                              {/* Payment Mode Title */}
+                              <text
+                                x={textX}
+                                y={endY + 10}
+                                textAnchor={textAnchor}
+                                fill="#0F172A"
+                                fontSize="11.5"
+                                fontWeight="800"
+                                letterSpacing="0.4"
+                                fontFamily="system-ui, -apple-system, sans-serif"
+                              >
+                                {s.item.paymentChannelName || s.item.paymentChannel}
+                              </text>
+
+                              {/* Revenue Amount & Transaction Count */}
+                              <text
+                                x={textX}
+                                y={endY + 22}
+                                textAnchor={textAnchor}
+                                fill="#64748B"
+                                fontSize="9.5"
+                                fontWeight="600"
+                                fontFamily="system-ui, -apple-system, sans-serif"
+                              >
+                                ${s.item.totalAmount.toFixed(0)} · {s.item.transactionCount || 0} orders
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    );
+                  }
+
+                  // Native Android (APK) & iOS implementation using react-native-svg
                   return (
-                    <svg
+                    <Svg
                       width="100%"
-                      height="270"
+                      height={isMobile ? 240 : 270}
                       viewBox="0 0 560 270"
-                      style={{
-                        display: 'block',
-                        margin: '0 auto',
-                        overflow: 'visible',
-                        animation: 'infographicEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                      }}
+                      style={{ alignSelf: 'center' }}
                     >
-                      <defs>
-                        <style>
-                          {`
-                            @keyframes infographicEntrance {
-                              0% { opacity: 0; transform: scale(0.95); }
-                              100% { opacity: 1; transform: scale(1); }
-                            }
-                          `}
-                        </style>
-
-                        {/* Drop shadow for center white ring */}
-                        <filter id="centerRingShadow" x="-30%" y="-30%" width="160%" height="160%">
-                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(0, 0, 0, 0.14)" />
-                        </filter>
-                        {/* Drop shadow for center pink button */}
-                        <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
-                          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="rgba(230, 0, 103, 0.45)" />
-                        </filter>
-                        {/* Soft drop shadow for outer 3D slices */}
-                        <filter id="segmentShadow" x="-15%" y="-15%" width="130%" height="130%">
-                          <feDropShadow dx="0" dy="2.5" stdDeviation="4" floodColor="rgba(0, 0, 0, 0.10)" />
-                        </filter>
-
+                      <Defs>
                         {/* Center Pink Button Gradient */}
-                        <linearGradient id="pinkCenterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#FF1E8A" />
-                          <stop offset="55%" stopColor="#E60067" />
-                          <stop offset="100%" stopColor="#A21CAF" />
-                        </linearGradient>
+                        <LinearGradient id="pinkCenterGradNative" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#FF1E8A" />
+                          <Stop offset="55%" stopColor="#E60067" />
+                          <Stop offset="100%" stopColor="#A21CAF" />
+                        </LinearGradient>
 
                         {/* Glossy specular reflection for center button */}
-                        <linearGradient id="glossHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.45" />
-                          <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.0" />
-                        </linearGradient>
+                        <LinearGradient id="glossHighlightNative" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.45} />
+                          <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.0} />
+                        </LinearGradient>
 
-                        {/* Radial gradients for each segment matching reference */}
-                        <linearGradient id="grad_paynow" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#FF337A" />
-                          <stop offset="100%" stopColor="#E11D48" />
-                        </linearGradient>
-                        <linearGradient id="grad_member" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#FFB300" />
-                          <stop offset="100%" stopColor="#F59E0B" />
-                        </linearGradient>
-                        <linearGradient id="grad_cash" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#8B5CF6" />
-                          <stop offset="100%" stopColor="#5B21B6" />
-                        </linearGradient>
-                        <linearGradient id="grad_credit" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#E879F9" />
-                          <stop offset="100%" stopColor="#A21CAF" />
-                        </linearGradient>
-                        <linearGradient id="grad_card" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#60A5FA" />
-                          <stop offset="100%" stopColor="#1D4ED8" />
-                        </linearGradient>
-                        <linearGradient id="grad_online" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#6366F1" />
-                          <stop offset="100%" stopColor="#3730A3" />
-                        </linearGradient>
-                      </defs>
+                        {/* Segment Gradients */}
+                        <LinearGradient id="grad_paynow_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#FF337A" />
+                          <Stop offset="100%" stopColor="#E11D48" />
+                        </LinearGradient>
+                        <LinearGradient id="grad_member_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#FFB300" />
+                          <Stop offset="100%" stopColor="#F59E0B" />
+                        </LinearGradient>
+                        <LinearGradient id="grad_cash_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#8B5CF6" />
+                          <Stop offset="100%" stopColor="#5B21B6" />
+                        </LinearGradient>
+                        <LinearGradient id="grad_credit_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#E879F9" />
+                          <Stop offset="100%" stopColor="#A21CAF" />
+                        </LinearGradient>
+                        <LinearGradient id="grad_card_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#60A5FA" />
+                          <Stop offset="100%" stopColor="#1D4ED8" />
+                        </LinearGradient>
+                        <LinearGradient id="grad_online_native" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <Stop offset="0%" stopColor="#6366F1" />
+                          <Stop offset="100%" stopColor="#3730A3" />
+                        </LinearGradient>
+                      </Defs>
 
-                      {/* 1. SEAMLESS SOLID SECTORS WITH STEPPED RADII (From rInner to rOut) */}
+                      {/* 1. SEAMLESS SOLID SECTORS WITH STEPPED RADII */}
                       {computedSlices.map((s) => {
                         const dMain = describeArc(rInner, s.rOut, s.startA, s.endA);
                         const dInnerGlow = describeArc(rInner, rMid, s.startA, s.endA);
                         const dArcLine = describeArcLine(rMid, s.startA, s.endA);
+                        const gradNativeId = `${s.style.gradId}_native`;
 
                         return (
-                          <g key={`slice-${s.idx}`}>
+                          <G key={`native-slice-${s.idx}`}>
                             {/* Solid Continuous Wedge */}
-                            <path
+                            <Path
                               d={dMain}
-                              fill={`url(#${s.style.gradId})`}
+                              fill={`url(#${gradNativeId})`}
                               stroke="#FFFFFF"
-                              strokeWidth="2.8"
+                              strokeWidth={2.8}
                               strokeLinejoin="round"
-                              filter="url(#segmentShadow)"
                             />
 
                             {/* Inner Band Translucent White Sheen */}
-                            <path
+                            <Path
                               d={dInnerGlow}
                               fill="rgba(255, 255, 255, 0.16)"
                               stroke="none"
                             />
 
                             {/* Concentric Step Dividing Line */}
-                            <path
+                            <Path
                               d={dArcLine}
                               fill="none"
                               stroke="rgba(255, 255, 255, 0.42)"
-                              strokeWidth="1.2"
+                              strokeWidth={1.2}
                             />
-                          </g>
+                          </G>
                         );
                       })}
 
                       {/* 2. WHITE INWARD CHEVRONS & HIGH-DEFINITION VECTOR ICONS */}
                       {computedSlices.map((s) => {
-                        const rIcon = (rInner + rMid) / 2; // 56px
+                        const rIcon = (rInner + rMid) / 2;
                         const iconPos = polarToXY(rIcon, s.midA);
                         const tipPt = polarToXY(rInner, s.midA);
                         const lPt = polarToXY(rInner + 4, s.midA - 2.8);
@@ -2273,115 +2827,110 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         const ch = s.item.paymentChannel.toUpperCase();
 
                         return (
-                          <g key={`icon-group-${s.idx}`}>
+                          <G key={`native-icon-group-${s.idx}`}>
                             {/* Inward-pointing triangular notch */}
-                            <polygon
+                            <Polygon
                               points={`${tipPt.x},${tipPt.y} ${lPt.x},${lPt.y} ${rPt.x},${rPt.y}`}
                               fill="#FFFFFF"
                             />
 
                             {/* Vector Icons Matching Reference Template */}
-                            <g transform={`translate(${iconPos.x}, ${iconPos.y})`}>
+                            <G x={iconPos.x} y={iconPos.y}>
                               {/* 1. Target with Dart (MEMBER or fallback idx 0) */}
                               {(ch.includes('MEMBER') || s.idx === 0) && (
-                                <g transform="scale(0.8)">
-                                  <circle cx="0" cy="0" r="8" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-                                  <circle cx="0" cy="0" r="4.2" fill="none" stroke="#FFFFFF" strokeWidth="1.7" />
-                                  <circle cx="0" cy="0" r="1.6" fill="#FFFFFF" />
-                                  <path d="M 3.5 -3.5 L 9 -9 M 6 -3.5 L 9.5 -7 M 3.5 -6 L 7 -9.5" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" />
-                                </g>
+                                <G transform="scale(0.8)">
+                                  <Circle cx={0} cy={0} r={8} fill="none" stroke="#FFFFFF" strokeWidth={2} />
+                                  <Circle cx={0} cy={0} r={4.2} fill="none" stroke="#FFFFFF" strokeWidth={1.7} />
+                                  <Circle cx={0} cy={0} r={1.6} fill="#FFFFFF" />
+                                  <Path d="M 3.5 -3.5 L 9 -9 M 6 -3.5 L 9.5 -7 M 3.5 -6 L 7 -9.5" stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+                                </G>
                               )}
 
                               {/* 2. Magnifying Glass with Dollar Sign (PAYNOW or fallback idx 1) */}
                               {(ch.includes('PAYNOW') || s.idx === 1) && !ch.includes('MEMBER') && (
-                                <g transform="scale(0.8)">
-                                  <circle cx="-1.5" cy="-1.5" r="6.2" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-                                  <line x1="3.5" y1="3.5" x2="8" y2="8" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
-                                  <text x="-1.5" y="1.2" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="900" fontFamily="sans-serif">$</text>
-                                </g>
+                                <G transform="scale(0.8)">
+                                  <Circle cx={-1.5} cy={-1.5} r={6.2} fill="none" stroke="#FFFFFF" strokeWidth={2} />
+                                  <Line x1={3.5} y1={3.5} x2={8} y2={8} stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" />
+                                  <SvgText x={-1.5} y={1.2} textAnchor="middle" fill="#FFFFFF" fontSize={8} fontWeight="900">$</SvgText>
+                                </G>
                               )}
 
                               {/* 3. Ascending 3-Column Bar Chart (CASH or fallback idx 2) */}
                               {(ch.includes('CASH') || s.idx === 2) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && (
-                                <g transform="scale(0.8)">
-                                  <line x1="-7" y1="6.5" x2="7" y2="6.5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
-                                  <rect x="-6" y="1.5" width="3" height="5" fill="#FFFFFF" rx="0.5" />
-                                  <rect x="-1" y="-2" width="3" height="8.5" fill="#FFFFFF" rx="0.5" />
-                                  <rect x="4" y="-6" width="3" height="12.5" fill="#FFFFFF" rx="0.5" />
-                                </g>
+                                <G transform="scale(0.8)">
+                                  <Line x1={-7} y1={6.5} x2={7} y2={6.5} stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+                                  <Rect x={-6} y={1.5} width={3} height={5} fill="#FFFFFF" rx={0.5} />
+                                  <Rect x={-1} y={-2} width={3} height={8.5} fill="#FFFFFF" rx={0.5} />
+                                  <Rect x={4} y={-6} width={3} height={12.5} fill="#FFFFFF" rx={0.5} />
+                                </G>
                               )}
 
                               {/* 4. Interlocking Gears (CREDIT or fallback idx 3) */}
                               {(ch.includes('CARD') || ch.includes('CREDIT') || s.idx === 3) && !ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && (
-                                <g transform="scale(0.8)">
-                                  <circle cx="-2.5" cy="2.5" r="4.5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" strokeDasharray="2.5 1.8" />
-                                  <circle cx="-2.5" cy="2.5" r="1.5" fill="#FFFFFF" />
-                                  <circle cx="3.8" cy="-3" r="3.4" fill="none" stroke="#FFFFFF" strokeWidth="1.4" strokeDasharray="2.2 1.5" />
-                                  <circle cx="3.8" cy="-3" r="1.1" fill="#FFFFFF" />
-                                </g>
+                                <G transform="scale(0.8)">
+                                  <Circle cx={-2.5} cy={2.5} r={4.5} fill="none" stroke="#FFFFFF" strokeWidth={1.6} strokeDasharray={[2.5, 1.8]} />
+                                  <Circle cx={-2.5} cy={2.5} r={1.5} fill="#FFFFFF" />
+                                  <Circle cx={3.8} cy={-3} r={3.4} fill="none" stroke="#FFFFFF" strokeWidth={1.4} strokeDasharray={[2.2, 1.5]} />
+                                  <Circle cx={3.8} cy={-3} r={1.1} fill="#FFFFFF" />
+                                </G>
                               )}
 
                               {/* 5. Globe Grid (ONLINE or other) */}
                               {!ch.includes('MEMBER') && !ch.includes('PAYNOW') && !ch.includes('CASH') && !ch.includes('CARD') && !ch.includes('CREDIT') && (
-                                <g transform="scale(0.8)">
-                                  <circle cx="0" cy="0" r="7" fill="none" stroke="#FFFFFF" strokeWidth="1.8" />
-                                  <ellipse cx="0" cy="0" rx="3.2" ry="7" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
-                                  <line x1="-7" y1="0" x2="7" y2="0" stroke="#FFFFFF" strokeWidth="1.4" />
-                                </g>
+                                <G transform="scale(0.8)">
+                                  <Circle cx={0} cy={0} r={7} fill="none" stroke="#FFFFFF" strokeWidth={1.8} />
+                                  <Ellipse cx={0} cy={0} rx={3.2} ry={7} fill="none" stroke="#FFFFFF" strokeWidth={1.4} />
+                                  <Line x1={-7} y1={0} x2={7} y2={0} stroke="#FFFFFF" strokeWidth={1.4} />
+                                </G>
                               )}
-                            </g>
-                          </g>
+                            </G>
+                          </G>
                         );
                       })}
 
-                      {/* 3. THICK WHITE CIRCULAR RING (Elevated 3D Depth) */}
-                      <circle cx={cx} cy={cy} r="44" fill="#FFFFFF" filter="url(#centerRingShadow)" />
-                      <circle cx={cx} cy={cy} r="44" fill="none" stroke="#F1F5F9" strokeWidth="1.5" />
+                      {/* 3. THICK WHITE CIRCULAR RING */}
+                      <Circle cx={cx} cy={cy} r={44} fill="#FFFFFF" stroke="#F1F5F9" strokeWidth={1.5} />
 
                       {/* 4. ATTRACTIVE PINK GRADIENT CENTER CIRCLE WITH 3D SHINE */}
-                      <circle cx={cx} cy={cy} r="33" fill="url(#pinkCenterGrad)" stroke="#FFFFFF" strokeWidth="2.2" filter="url(#buttonShadow)" />
-                      {/* Glossy top-dome reflection overlay */}
-                      <path
+                      <Circle cx={cx} cy={cy} r={33} fill="url(#pinkCenterGradNative)" stroke="#FFFFFF" strokeWidth={2.2} />
+                      <Path
                         d={`M ${cx - 25} ${cy - 6} A 26 26 0 0 1 ${cx + 25} ${cy - 6} A 25 12 0 0 0 ${cx - 25} ${cy - 6} Z`}
-                        fill="url(#glossHighlight)"
+                        fill="url(#glossHighlightNative)"
                       />
 
                       {/* Center Disc Typography */}
-                      <text
+                      <SvgText
                         x={cx}
                         y={cy - 8}
                         textAnchor="middle"
                         fill="rgba(255, 255, 255, 0.92)"
-                        fontSize="7.5"
+                        fontSize={7.5}
                         fontWeight="800"
-                        letterSpacing="1.4"
-                        fontFamily="system-ui, -apple-system, sans-serif"
+                        letterSpacing={1.4}
                       >
                         TOTAL
-                      </text>
-                      <text
+                      </SvgText>
+                      <SvgText
                         x={cx}
                         y={cy + 6}
                         textAnchor="middle"
                         fill="#FFFFFF"
-                        fontSize="15"
+                        fontSize={15}
                         fontWeight="900"
-                        fontFamily="system-ui, -apple-system, sans-serif"
                       >
-                        ${summary.totalRevenue.toFixed(0)}
-                      </text>
-                      <text
+                        {`$${(summary.totalRevenue || 0).toFixed(0)}`}
+                      </SvgText>
+                      <SvgText
                         x={cx}
                         y={cy + 16}
                         textAnchor="middle"
                         fill="rgba(255, 255, 255, 0.88)"
-                        fontSize="6.5"
+                        fontSize={6.5}
                         fontWeight="700"
-                        letterSpacing="1.1"
-                        fontFamily="system-ui, -apple-system, sans-serif"
+                        letterSpacing={1.1}
                       >
                         REVENUE
-                      </text>
+                      </SvgText>
 
                       {/* 5. EXTERNAL CONNECTING LINES WITH CIRCULAR NODES & DETAILS */}
                       {computedSlices.map((s) => {
@@ -2395,80 +2944,77 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         const textAnchor = s.isRight ? 'start' : 'end';
 
                         return (
-                          <g key={`leader-${s.idx}`}>
+                          <G key={`native-leader-${s.idx}`}>
                             {/* Connecting Line (Diagonal/Vertical + Horizontal) */}
-                            <path
+                            <Path
                               d={`M ${s.startPt.x} ${s.startPt.y} L ${kneeX} ${kneeY} L ${endX} ${endY}`}
                               fill="none"
                               stroke={s.style.primary}
-                              strokeWidth="1.6"
+                              strokeWidth={1.6}
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
 
                             {/* Small Circular Endpoint (Hollow node matching reference) */}
-                            <circle
+                            <Circle
                               cx={endX}
                               cy={endY}
-                              r="3.5"
+                              r={3.5}
                               fill="#FFFFFF"
                               stroke={s.style.primary}
-                              strokeWidth="2"
+                              strokeWidth={2}
                             />
 
-                            {/* High-Contrast Frosted Badge Behind Text for 100% Guaranteed Legibility */}
-                            <rect
+                            {/* High-Contrast Frosted Badge Behind Text */}
+                            <Rect
                               x={s.isRight ? textX - 4 : textX - 86}
                               y={endY - 14}
-                              width="90"
-                              height="40"
+                              width={90}
+                              height={40}
                               fill="rgba(255, 255, 255, 0.94)"
-                              rx="6"
+                              rx={6}
                             />
 
                             {/* Dynamic Percentage */}
-                            <text
+                            <SvgText
                               x={textX}
                               y={endY - 3}
                               textAnchor={textAnchor}
                               fill={s.style.primary}
-                              fontSize="17"
+                              fontSize={17}
                               fontWeight="900"
-                              fontFamily="system-ui, -apple-system, sans-serif"
                             >
-                              {s.pct}%
-                            </text>
+                              {`${s.pct}%`}
+                            </SvgText>
 
                             {/* Payment Mode Title */}
-                            <text
+                            <SvgText
                               x={textX}
                               y={endY + 10}
                               textAnchor={textAnchor}
                               fill="#0F172A"
-                              fontSize="11.5"
+                              fontSize={11.5}
                               fontWeight="800"
-                              letterSpacing="0.4"
-                              fontFamily="system-ui, -apple-system, sans-serif"
+                              letterSpacing={0.4}
                             >
                               {s.item.paymentChannelName || s.item.paymentChannel}
-                            </text>
+                            </SvgText>
 
                             {/* Revenue Amount & Transaction Count */}
-                            <text
+                            <SvgText
                               x={textX}
                               y={endY + 22}
                               textAnchor={textAnchor}
                               fill="#64748B"
-                              fontSize="9.5"
+                              fontSize={9.5}
                               fontWeight="600"
-                              fontFamily="system-ui, -apple-system, sans-serif"
                             >
-                              ${s.item.totalAmount.toFixed(0)} · {s.item.transactionCount || 0} orders
-                            </text>
-                          </g>
+                              {`$${s.item.totalAmount.toFixed(0)} · ${s.item.transactionCount || 0} orders`}
+                            </SvgText>
+                          </G>
                         );
                       })}
-                    </svg>
+                    </Svg>
                   );
                 })()}
               </View>
@@ -2936,20 +3482,28 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </Text>
               </View>
             </View>
-            <TouchableOpacity 
-              style={styles.modernRefreshBtn} 
-              onPress={() => loadDashboard(selectedPeriodTab, true)}
-              activeOpacity={0.8}
-            >
-              {isRefreshing ? (
-                <ActivityIndicator size="small" color="#ED0712" />
-              ) : (
-                <>
-                  <Ionicons name="sync-outline" size={13} color="#ED0712" />
-                  <Text style={styles.modernRefreshBtnText}>REFRESH</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={styles.countBadgePill}>
+                <View style={[styles.countBadgeDot, { backgroundColor: '#16A34A' }]} />
+                <Text style={styles.countBadgeText}>
+                  {filteredRecentTransactions.length} Settled
+                </Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.modernRefreshBtn} 
+                onPress={() => loadDashboard(selectedPeriodTab, true)}
+                activeOpacity={0.8}
+              >
+                {isRefreshing ? (
+                  <ActivityIndicator size="small" color="#ED0712" />
+                ) : (
+                  <>
+                    <Ionicons name="sync-outline" size={13} color="#ED0712" />
+                    <Text style={styles.modernRefreshBtnText}>REFRESH</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView 
@@ -2991,6 +3545,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     color: '#7C3AED',
                     icon: 'cash-outline',
                     label: 'CASH',
+                  };
+                } else if (modeUpper.includes('CREDIT')) {
+                  badge = {
+                    bg: '#EFF6FF',
+                    border: '#BFDBFE',
+                    color: '#2563EB',
+                    icon: 'card-outline',
+                    label: 'CREDIT',
                   };
                 }
 
@@ -3097,7 +3659,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
 
               {/* 3. VEHICLE */}
-              <View style={[styles.modalKeyCard, { borderColor: '#0F172A', backgroundColor: '#F8FAFC' }]}>
+              <View style={[styles.modalKeyCard, { borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }]}>
                 <Text style={styles.modalKeyLabel}>VEHICLE</Text>
                 <View style={styles.platePillModal}>
                   <Text style={styles.plateTextModal}>
@@ -3188,6 +3750,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             {/* Modal Actions */}
             <View style={styles.modalFooterActions}>
               <TouchableOpacity
+                style={styles.modalCloseFooterBtn}
+                onPress={() => setIsDetailsModalOpen(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalCloseFooterBtnText}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.modalPrintBtn}
                 onPress={() => handleReprintOrder(selectedWashOrder)}
                 disabled={isReprinting}
@@ -3201,14 +3771,6 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 <Text style={styles.modalPrintBtnText}>
                   {isReprinting ? 'Printing...' : 'Print Ticket'}
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalCloseFooterBtn}
-                onPress={() => setIsDetailsModalOpen(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.modalCloseFooterBtnText}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -4547,9 +5109,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 195,
+  },
+  barsScrollContent: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'flex-end',
+    minHeight: '100%',
     paddingBottom: 22,
     paddingHorizontal: 8,
   },
@@ -4599,11 +5163,9 @@ const styles = StyleSheet.create({
     minHeight: 8,
   },
   dayLabelWrap: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    marginTop: 6,
+    marginTop: 4,
     width: '100%',
   },
   activeDayIndicatorDot: {
@@ -4621,6 +5183,39 @@ const styles = StyleSheet.create({
   monthLabelTextActive: {
     color: '#0F172A',
     fontWeight: '900',
+  },
+  daySubLabelText: {
+    fontSize: 8.5,
+    color: '#94A3B8',
+    marginTop: 1,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  trendToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  trendToggleBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  trendToggleBtnActive: {
+    backgroundColor: '#FFFFFF',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 1px 3px rgba(0,0,0,0.1)' } as any) : { elevation: 1 }),
+  },
+  trendToggleBtnText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  trendToggleBtnTextActive: {
+    color: '#ED0712',
+    fontWeight: '800',
   },
   activeMarkerDotRed: {
     width: 6,
@@ -5780,10 +6375,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#ECFDF5',
-    paddingVertical: 4,
+    paddingVertical: 3,
     paddingHorizontal: 9,
     borderRadius: 14,
-    alignSelf: 'flex-start',
   },
   paidCheckmark: {
     fontSize: 12,
@@ -5802,10 +6396,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#EFF6FF',
-    paddingVertical: 4,
+    paddingVertical: 3,
     paddingHorizontal: 9,
     borderRadius: 14,
-    alignSelf: 'flex-start',
   },
   bayWaterDrop: {
     fontSize: 11,
@@ -5868,7 +6461,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   txFeedScrollView: {
-    maxHeight: 520,
+    maxHeight: 620,
     marginTop: 14,
   },
   txFeedContent: {
@@ -5990,17 +6583,23 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 620,
+    maxHeight: '92%',
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    padding: 24,
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 20px 40px rgba(0,0,0,0.2)' } as any) : { elevation: 10 }),
+    padding: 22,
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+          overflowY: 'auto',
+        } as any)
+      : { elevation: 10 }),
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingBottom: 14,
+    marginBottom: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
@@ -6035,7 +6634,7 @@ const styles = StyleSheet.create({
   modalKeyCardsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 18,
+    marginBottom: 16,
     flexWrap: 'wrap',
   },
   modalKeyCard: {
@@ -6044,6 +6643,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     padding: 12,
+    justifyContent: 'space-between',
+    minHeight: 82,
   },
   modalKeyLabel: {
     fontSize: 10,
@@ -6066,10 +6667,10 @@ const styles = StyleSheet.create({
   platePillModal: {
     backgroundColor: '#0F172A',
     borderRadius: 6,
-    paddingVertical: 3,
+    paddingVertical: 2,
     paddingHorizontal: 8,
     alignSelf: 'flex-start',
-    marginTop: 2,
+    marginTop: 1,
   },
   plateTextModal: {
     color: '#FFFFFF',
@@ -6080,8 +6681,8 @@ const styles = StyleSheet.create({
   modalDetailsCard: {
     backgroundColor: '#F8FAFC',
     borderRadius: 14,
-    padding: 16,
-    marginBottom: 20,
+    padding: 14,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -6089,7 +6690,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: '#EDF2F7',
   },
@@ -6110,8 +6711,10 @@ const styles = StyleSheet.create({
   },
   modalFooterActions: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 12,
+    marginTop: 2,
   },
   modalPrintBtn: {
     flexDirection: 'row',
@@ -6119,7 +6722,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#ED0712',
     paddingVertical: 10,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     borderRadius: 12,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
@@ -6132,7 +6735,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),

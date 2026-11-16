@@ -1,5 +1,8 @@
 import { apiFetch, getApiBaseUrl } from './apiConfig';
 import { Platform } from 'react-native';
+import { posPrinter, kioskPrinter, universalPrinter } from './printer/UniversalPrinter';
+import { fetchCompanySettings, CompanySettings } from './companySettingsApi';
+import { PrintOptions } from './printer/PrinterTypes';
 
 export interface PrinterConfig {
   printerId: string;
@@ -7,7 +10,13 @@ export interface PrinterConfig {
   printerPath: string;
   printerIP: string;
   printerPort: number;
-  printerType: number; // 1: Receipt / Thermal, 2: Detailing Bay / Service, 3: Kiosk / Billing
+  /**
+   * PrinterType mapping from SQL PrintMaster:
+   *   1 — POS Receipt / Thermal
+   *   2 — Detailing Bay / Service
+   *   3 — Kiosk / Billing
+   */
+  printerType: number;
   kitchenTypeName?: string;
   kitchenTypeValue?: number;
   isActive: boolean;
@@ -106,11 +115,27 @@ export async function deletePrinter(id: string): Promise<boolean> {
 }
 
 /**
- * Test print a ticket to a printer
+ * Test print a ticket to a printer.
+ * On Android, delegates to the POS printer (native universal printer).
  */
-export async function testPrinter(id?: string, ip?: string, port = 9100, printerName = 'Printer'): Promise<{ success: boolean; message: string }> {
-  const url = id 
-    ? `${getApiBaseUrl()}/api/printers/${id}/test` 
+export async function testPrinter(
+  id?: string,
+  ip?: string,
+  port = 9100,
+  printerName = 'Printer'
+): Promise<{ success: boolean; message: string }> {
+  // First attempt native POS printer test on Android devices
+  if (Platform.OS === 'android') {
+    try {
+      const nativeRes = await posPrinter.testPrint();
+      if (nativeRes.success) {
+        return { success: true, message: nativeRes.message };
+      }
+    } catch (ignored) {}
+  }
+
+  const url = id
+    ? `${getApiBaseUrl()}/api/printers/${id}/test`
     : `${getApiBaseUrl()}/api/printers/test`;
 
   const res = await apiFetch(url, {
@@ -125,49 +150,187 @@ export async function testPrinter(id?: string, ip?: string, port = 9100, printer
   return await res.json();
 }
 
+// ─── POS Print Functions ──────────────────────────────────────────────────────
+
 /**
- * Automatically select the active receipt printer in PrintMaster and print receipt
+ * Print a POS order receipt / KOT / reprint.
+ *
+ * Always uses the POS printer config (posPrinterConfigManager).
+ * Never touches the Kiosk printer config.
+ *
+ * Routing priority:
+ *  1. Native Android POS printer (SUNMI / LAN / USB via posPrinter)
+ *  2. Backend API fallback (PrintMaster PrinterType=1 — POS receipt)
+ *  3. Web browser print dialog
  */
-export async function printOrderReceipt(order: any): Promise<PrintReceiptResponse> {
-  const url = `${getApiBaseUrl()}/api/printers/print-receipt`;
-  const res = await apiFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ order }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Failed to print receipt (HTTP ${res.status})`);
+export async function printOrderReceipt(
+  order: any,
+  options?: PrintOptions
+): Promise<PrintReceiptResponse> {
+  // 1. Primary: Use Native POS Universal Printer on Android devices
+  if (Platform.OS === 'android') {
+    try {
+      const nativeResult = await posPrinter.printReceipt(order, options);
+      if (nativeResult.success) {
+        return {
+          success: true,
+          printedVia: nativeResult.printerType,
+          printer: nativeResult.printerName,
+          orderNo: nativeResult.orderNo,
+          message: nativeResult.message,
+        };
+      } else {
+        console.warn('[printOrderReceipt:POS] POS printer direct print failed:', nativeResult.message);
+      }
+    } catch (nativeErr: any) {
+      console.warn('[printOrderReceipt:POS] POS printer direct exception:', nativeErr);
+    }
   }
 
-  const json: PrintReceiptResponse = await res.json();
+  // 2. Secondary: Fallback to backend API (uses PrinterType=1 — POS receipt printer)
+  try {
+    const url = `${getApiBaseUrl()}/api/printers/print-receipt`;
+    const res = await apiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    });
 
-  // If in web environment and user wants browser print fallback when no physical printer responded
-  if (Platform.OS === 'web' && json.printedVia === 'NO_PRINTER_CONFIGURED') {
-    triggerBrowserReceiptPrint(order);
+    if (res.ok) {
+      const json: PrintReceiptResponse = await res.json();
+      if (Platform.OS === 'web' && json.printedVia === 'NO_PRINTER_CONFIGURED') {
+        const company = await fetchCompanySettings().catch(() => ({} as CompanySettings));
+        triggerBrowserReceiptPrint(order, company);
+      }
+      return json;
+    }
+  } catch (backendErr) {
+    console.warn('[printOrderReceipt:POS] Backend print failed:', backendErr);
   }
 
-  return json;
+  // 3. Web fallback: browser print
+  if (Platform.OS === 'web') {
+    const company = await fetchCompanySettings().catch(() => ({} as CompanySettings));
+    triggerBrowserReceiptPrint(order, company);
+    return {
+      success: true,
+      printedVia: 'BROWSER_DIALOG',
+      message: 'Printed via browser print dialog',
+      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.id || ''),
+    };
+  }
+
+  return {
+    success: false,
+    printedVia: 'NONE',
+    message: 'Could not connect to POS thermal printer. Check POS printer settings.',
+  };
 }
 
+// ─── Kiosk Print Functions ────────────────────────────────────────────────────
+
 /**
- * Clean browser thermal receipt print fallback
+ * Print a Kiosk order receipt (Kiosk Receipt or Kiosk Order Success).
+ *
+ * Always uses the Kiosk printer config (kioskPrinterConfigManager).
+ * Never touches the POS printer config.
+ *
+ * Routing priority:
+ *  1. Native Android Kiosk printer (SUNMI / LAN / USB via kioskPrinter)
+ *  2. Backend API fallback (PrintMaster PrinterType=3 — Kiosk billing printer)
+ *  3. Web browser print dialog
  */
-export function triggerBrowserReceiptPrint(order: any): void {
+export async function printKioskReceipt(
+  order: any,
+  options?: PrintOptions
+): Promise<PrintReceiptResponse> {
+  // 1. Primary: Use Native Kiosk Universal Printer on Android devices
+  if (Platform.OS === 'android') {
+    try {
+      const nativeResult = await kioskPrinter.printReceipt(order, options);
+      if (nativeResult.success) {
+        return {
+          success: true,
+          printedVia: nativeResult.printerType,
+          printer: nativeResult.printerName,
+          orderNo: nativeResult.orderNo,
+          message: nativeResult.message,
+        };
+      } else {
+        console.warn('[printKioskReceipt] Kiosk printer direct print failed:', nativeResult.message);
+      }
+    } catch (nativeErr: any) {
+      console.warn('[printKioskReceipt] Kiosk printer direct exception:', nativeErr);
+    }
+  }
+
+  // 2. Secondary: Fallback to backend API (uses PrinterType=3 — Kiosk billing printer)
+  try {
+    const url = `${getApiBaseUrl()}/api/printers/print-kiosk-receipt`;
+    const res = await apiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    });
+
+    if (res.ok) {
+      const json: PrintReceiptResponse = await res.json();
+      if (Platform.OS === 'web' && json.printedVia === 'NO_PRINTER_CONFIGURED') {
+        const company = await fetchCompanySettings().catch(() => ({} as CompanySettings));
+        triggerBrowserReceiptPrint(order, company);
+      }
+      return json;
+    }
+  } catch (backendErr) {
+    console.warn('[printKioskReceipt] Backend kiosk print failed:', backendErr);
+  }
+
+  // 3. Web fallback: browser print
+  if (Platform.OS === 'web') {
+    const company = await fetchCompanySettings().catch(() => ({} as CompanySettings));
+    triggerBrowserReceiptPrint(order, company);
+    return {
+      success: true,
+      printedVia: 'BROWSER_DIALOG',
+      message: 'Kiosk receipt printed via browser print dialog',
+      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.id || ''),
+    };
+  }
+
+  return {
+    success: false,
+    printedVia: 'NONE',
+    message: 'Could not connect to Kiosk thermal printer. Check Kiosk printer settings.',
+  };
+}
+
+// ─── Browser Fallback ─────────────────────────────────────────────────────────
+
+/**
+ * Clean browser thermal receipt print fallback using dynamic CompanySettings.
+ */
+export function triggerBrowserReceiptPrint(order: any, company?: Partial<CompanySettings>): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
-  const billNo = order.billNumber || order.orderNo || 'RB-0001';
-  const custName = order.customerDetails?.customerName || order.customerName || 'Walk-in Customer';
-  const plate = order.customerDetails?.vehicleNumber || order.vehicleNumber || 'WALK-IN';
-  const mobile = order.customerDetails?.mobileNumber || order.mobileNumber || '-';
-  const pkgName = order.selectedPackage?.name || order.packageName || 'Express Foam Wash';
-  const total = Number(order.totalAmount || 0).toFixed(2);
-  const gst = Number(order.gstAmount || 0).toFixed(2);
+  const billNo = order.billNumber || order.orderNo || order.OrderNo || 'RB-0001';
+  const custName = order.customerDetails?.customerName || order.customerName || order.CustomerName || 'Walk-in Customer';
+  const plate = order.customerDetails?.vehicleNumber || order.vehicleNumber || order.VehicleNo || order.VehicleNumber || 'WALK-IN';
+  const mobile = order.customerDetails?.mobileNumber || order.mobileNumber || order.Phone || order.ContactNo || '-';
+  const pkgName = order.selectedPackage?.name || order.packageName || order.PackageName || 'Express Foam Wash';
+  const total = Number(order.totalAmount || order.TotalAmount || 0).toFixed(2);
+  const gst = Number(order.gstAmount || order.TaxAmount || 0).toFixed(2);
   const net = (Number(total) - Number(gst)).toFixed(2);
-  const payMode = (order.paymentMode || order.payMode || 'CASH').toUpperCase();
+  const payMode = (order.paymentMode || order.payMode || order.PaymentMode || 'CASH').toUpperCase();
   const payStatus = (order.paymentStatus || (payMode === 'CASH' ? 'PENDING' : 'PAID')).toUpperCase();
   const timeStr = order.createdAt || new Date().toLocaleTimeString('en-SG');
+
+  // Dynamic Company Details from dbo.CompanySettings
+  const companyName = company?.CompanyName || 'CAR WASH';
+  const address = company?.Address || '';
+  const phone = company?.Phone ? `Tel: ${company.Phone}` : '';
+  const gstNo = company?.GSTNo ? `GST Reg: ${company.GSTNo}` : '';
+  const email = company?.Email ? `Email: ${company.Email}` : '';
+  const currencySymbol = company?.CurrencySymbol || '$';
 
   const html = `
     <!DOCTYPE html>
@@ -202,13 +365,13 @@ export function triggerBrowserReceiptPrint(order: any): void {
         </style>
       </head>
       <body>
-        <div class="center bold title">RED BAY CAR WASH</div>
-        <div class="center" style="font-size: 11px; margin-top: 2px;">EXPRESS VEHICLE CARE & DETAILING</div>
-        <div class="center" style="font-size: 11px;">48 Toh Guan Rd East, Singapore 608586</div>
-        <div class="center" style="font-size: 11px;">Tel: +65 6789 0123  |  GST: M90382711</div>
+        <div class="center bold title">${companyName}</div>
+        ${address ? `<div class="center" style="font-size: 11px; margin-top: 2px;">${address.replace(/\n/g, '<br/>')}</div>` : ''}
+        ${phone || gstNo ? `<div class="center" style="font-size: 11px;">${phone} ${phone && gstNo ? '|' : ''} ${gstNo}</div>` : ''}
+        ${email ? `<div class="center" style="font-size: 10px;">${email}</div>` : ''}
         <div class="double-divider"></div>
         <div class="bill-box">
-          <div style="font-size: 11px; font-weight: bold; letter-spacing: 1px;">OFFICIAL QUEUE TICKET</div>
+          <div style="font-size: 11px; font-weight: bold; letter-spacing: 1px;">OFFICIAL RECEIPT</div>
           <div class="bill-num">${billNo}</div>
         </div>
         <div class="double-divider"></div>
@@ -228,24 +391,24 @@ export function triggerBrowserReceiptPrint(order: any): void {
           <div class="bold">${pkgName}</div>
           <div class="row">
             <span style="color: #444; font-size: 11px;">  Vehicle Care Service</span>
-            <span class="bold">$${total}</span>
+            <span class="bold">${currencySymbol}${total}</span>
           </div>
         </div>
         <div class="divider"></div>
         <div class="section">
           <div class="row">
             <span>Subtotal (Net):</span>
-            <span>$${net}</span>
+            <span>${currencySymbol}${net}</span>
           </div>
           <div class="row">
-            <span>GST (9% Included):</span>
-            <span>$${gst}</span>
+            <span>GST (${company?.GSTPercentage ?? 9}% Included):</span>
+            <span>${currencySymbol}${gst}</span>
           </div>
         </div>
         <div class="divider"></div>
         <div class="row bold" style="font-size: 14px; margin: 6px 0;">
           <span>TOTAL PAID:</span>
-          <span>$${total}</span>
+          <span>${currencySymbol}${total}</span>
         </div>
         <div class="divider"></div>
         <div class="row">
@@ -253,7 +416,7 @@ export function triggerBrowserReceiptPrint(order: any): void {
           <span>${payMode} [${payStatus}]</span>
         </div>
         <div class="double-divider"></div>
-        <div class="center" style="margin-top: 8px;">Watch bay monitors for your queue</div>
+        <div class="center" style="margin-top: 8px;">Please watch bay monitors for your queue</div>
         <div class="center bold" style="margin-top: 4px; font-size: 13px;">DRIVE IN. SHINE OUT.</div>
         <div class="center" style="font-size: 11px; margin-top: 2px;">Thank you for your visit!</div>
         <div style="height: 30px;"></div>
@@ -285,3 +448,5 @@ export function triggerBrowserReceiptPrint(order: any): void {
   }
 }
 
+// Re-export for callers that import universalPrinter directly from printerApi
+export { universalPrinter, posPrinter, kioskPrinter };

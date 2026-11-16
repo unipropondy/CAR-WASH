@@ -22,6 +22,19 @@ export interface UserGroupRecord {
   userGroupCode: string;
   userGroupName: string;
   isActive: boolean;
+  userCount?: number;
+}
+
+export interface CreateUserGroupPayload {
+  userGroupCode: string;
+  userGroupName: string;
+  isActive?: boolean;
+}
+
+export interface UpdateUserGroupPayload {
+  userGroupCode?: string;
+  userGroupName?: string;
+  isActive?: boolean;
 }
 
 export interface CreateUserPayload {
@@ -103,16 +116,62 @@ export async function updateUser(userId: string, payload: UpdateUserPayload): Pr
 }
 
 /**
- * Delete or deactivate user in MSSQL dbo.UserMaster
+ * Create a new user group in MSSQL dbo.UserGroupMaster
  */
-export async function deleteUser(userId: string, permanent: boolean = false): Promise<any> {
+export async function createUserGroup(payload: CreateUserGroupPayload): Promise<any> {
+  const res = await apiFetch('/api/users/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to create user group');
+  }
+  return data.data;
+}
+
+/**
+ * Update an existing user group in MSSQL dbo.UserGroupMaster
+ */
+export async function updateUserGroup(id: string, payload: UpdateUserGroupPayload): Promise<any> {
+  const res = await apiFetch(`/api/users/groups/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to update user group');
+  }
+  return data;
+}
+
+/**
+ * Delete or disable user group in MSSQL dbo.UserGroupMaster
+ */
+export async function deleteUserGroup(id: string): Promise<any> {
+  const res = await apiFetch(`/api/users/groups/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to delete user group');
+  }
+  return data;
+}
+
+/**
+ * Permanently delete user in MSSQL dbo.UserMaster
+ */
+export async function deleteUser(userId: string, permanent: boolean = true): Promise<any> {
   const url = `/api/users/${encodeURIComponent(userId)}${permanent ? '?permanent=true' : ''}`;
   const res = await apiFetch(url, {
     method: 'DELETE',
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.message || 'Failed to delete/deactivate user');
+    throw new Error(data.message || 'Failed to delete user');
   }
   return data;
 }

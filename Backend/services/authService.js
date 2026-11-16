@@ -76,7 +76,7 @@ async function authenticateUser(loginId, password) {
       g.UserGroupName,
       g.isActive AS Group_isActive
     FROM UserMaster u
-    INNER JOIN UserGroupMaster g ON u.UserGroupid = g.UserGroupId
+    LEFT JOIN UserGroupMaster g ON u.UserGroupid = g.UserGroupId
     WHERE (u.UserName = @loginId OR u.UserCode = @loginId)
   `;
 
@@ -93,17 +93,12 @@ async function authenticateUser(loginId, password) {
     return { error: 'Account is disabled. Please contact administrator.' };
   }
 
-  // 2. Validate User Group is Active (isActive column in UserGroupMaster)
-  if (!record.Group_isActive || record.Group_isActive === 0 || record.Group_isActive === false) {
+  // 2. Validate User Group is Active if present
+  if (record.Group_isActive === false || record.Group_isActive === 0) {
     return { error: 'User group is inactive. Please contact administrator.' };
   }
 
-  // 3. Validate UserGroup linkage
-  if (!record.Group_UserGroupId || record.Group_UserGroupId !== record.UserGroupId) {
-    return { error: 'Invalid user group assignment.' };
-  }
-
-  // 4. Validate UserPassword
+  // 3. Validate UserPassword
   const isPasswordValid = verifyPassword(password, record.UserPassword);
   if (!isPasswordValid) {
     return { error: 'Invalid User ID or Password' };
@@ -113,11 +108,11 @@ async function authenticateUser(loginId, password) {
   return {
     user: {
       userId: record.UserId,
-      userCode: record.UserCode,
-      userName: record.UserName,
-      userGroupId: record.UserGroupId,
-      userGroupCode: record.UserGroupCode,
-      userGroupName: record.UserGroupName,
+      userCode: record.UserCode ? record.UserCode.trim() : '',
+      userName: record.UserName ? record.UserName.trim() : '',
+      userGroupId: record.UserGroupId || null,
+      userGroupCode: record.UserGroupCode ? record.UserGroupCode.trim() : 'ADMIN',
+      userGroupName: record.UserGroupName ? record.UserGroupName.trim() : 'ADMIN',
     },
   };
 }

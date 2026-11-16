@@ -35,6 +35,7 @@ import {
   checkBackendHealth,
   BackendHealthResult,
 } from '../../../services/apiConfig';
+import { PrinterSettingsScreen } from './PrinterSettingsScreen';
 
 interface PosSettingsViewProps {
   cashierName?: string;
@@ -46,7 +47,8 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
   onBackToOrders,
 }) => {
   // Settings Sections
-  const [activeSection, setActiveSection] = useState<'GENERAL' | 'PRINTERS' | 'BAYS' | 'HARDWARE' | 'PRICING'>('GENERAL');
+  const [activeSection, setActiveSection] = useState<'GENERAL' | 'PRINTERS' | 'BAYS' | 'HARDWARE'>('GENERAL');
+  const [printerTab, setPrinterTab] = useState<'POS' | 'KIOSK' | 'BOTH'>('POS');
 
   // General / Company Settings State (from dbo.CompanySettings)
   const [stationName, setStationName] = useState('Station #01 - Toh Guan Main');
@@ -123,15 +125,6 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
     if (Platform.OS === 'web') alert(msg);
     else Alert.alert('Server URL Reset', msg);
   };
-
-  // Pricing State
-  const [prices, setPrices] = useState({
-    basic: '15.00',
-    deluxe: '25.00',
-    premium: '40.00',
-    waxAddon: '12.00',
-    interiorDetail: '18.00',
-  });
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -424,14 +417,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
           </View>
         </View>
 
-        <View style={[styles.headerActions, isMobile && { width: '100%', justifyContent: 'space-between' }]}>
-          {onBackToOrders && (
-            <TouchableOpacity style={styles.backBtn} onPress={onBackToOrders} activeOpacity={0.8}>
-              <Ionicons name="arrow-back" size={18} color="#475569" />
-              <Text style={styles.backBtnText}>Back to Orders</Text>
-            </TouchableOpacity>
-          )}
-
+        <View style={[styles.headerActions, isMobile && { width: '100%', justifyContent: 'flex-end' }]}>
           <TouchableOpacity
             style={[styles.saveBtn, savedSuccess && styles.saveBtnSuccess]}
             onPress={handleSave}
@@ -515,22 +501,6 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
             style={[styles.subTabText, activeSection === 'HARDWARE' && styles.subTabTextActive]}
           >
             Peripherals & Hardware
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.subTabBtn, activeSection === 'PRICING' && styles.subTabBtnActive]}
-          onPress={() => setActiveSection('PRICING')}
-        >
-          <Ionicons
-            name="pricetags-outline"
-            size={18}
-            color={activeSection === 'PRICING' ? '#ED0712' : '#64748B'}
-          />
-          <Text
-            style={[styles.subTabText, activeSection === 'PRICING' && styles.subTabTextActive]}
-          >
-            Services & Pricing
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -703,9 +673,106 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
         </View>
       )}
 
-      {/* Tab: Network Printers (PrintMaster) */}
+      {/* Tab: Network Printers (PrintMaster & Universal Printer) */}
       {activeSection === 'PRINTERS' && (
         <View style={styles.gridSection}>
+          {/* Printer Context Segment Switcher for APK & Web */}
+          <View style={styles.printerSegmentBar}>
+            <TouchableOpacity
+              style={[
+                styles.printerSegmentBtn,
+                printerTab === 'POS' && styles.printerSegmentBtnActivePos,
+              ]}
+              onPress={() => setPrinterTab('POS')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="desktop-outline"
+                size={16}
+                color={printerTab === 'POS' ? '#FFFFFF' : '#64748B'}
+              />
+              <Text
+                style={[
+                  styles.printerSegmentBtnText,
+                  printerTab === 'POS' && styles.printerSegmentBtnTextActive,
+                ]}
+              >
+                POS Receipt Printer
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.printerSegmentBtn,
+                printerTab === 'KIOSK' && styles.printerSegmentBtnActiveKiosk,
+              ]}
+              onPress={() => setPrinterTab('KIOSK')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="tablet-portrait-outline"
+                size={16}
+                color={printerTab === 'KIOSK' ? '#FFFFFF' : '#64748B'}
+              />
+              <Text
+                style={[
+                  styles.printerSegmentBtnText,
+                  printerTab === 'KIOSK' && styles.printerSegmentBtnTextActive,
+                ]}
+              >
+                Kiosk Ticket Printer
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.printerSegmentBtn,
+                printerTab === 'BOTH' && styles.printerSegmentBtnActiveBoth,
+              ]}
+              onPress={() => setPrinterTab('BOTH')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="grid-outline"
+                size={16}
+                color={printerTab === 'BOTH' ? '#FFFFFF' : '#64748B'}
+              />
+              <Text
+                style={[
+                  styles.printerSegmentBtnText,
+                  printerTab === 'BOTH' && styles.printerSegmentBtnTextActive,
+                ]}
+              >
+                Side-by-Side (Both)
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* POS & Kiosk Universal Thermal Printer Configuration */}
+          <View style={styles.dualPrinterRow}>
+            {/* POS Printer (independent config: redbay_printer_config_pos_v1) */}
+            {(printerTab === 'POS' || printerTab === 'BOTH') && (
+              <View style={styles.dualPrinterCol}>
+                <PrinterSettingsScreen
+                  showHeader={true}
+                  printerContext="POS"
+                  onConfigSaved={loadPrintersList}
+                />
+              </View>
+            )}
+
+            {/* Kiosk Printer (independent config: redbay_printer_config_kiosk_v1) */}
+            {(printerTab === 'KIOSK' || printerTab === 'BOTH') && (
+              <View style={styles.dualPrinterCol}>
+                <PrinterSettingsScreen
+                  showHeader={true}
+                  printerContext="KIOSK"
+                  onConfigSaved={loadPrintersList}
+                />
+              </View>
+            )}
+          </View>
+
           {/* Active Receipt Printer Destination Banner */}
           <View style={styles.activePrinterBanner}>
             <View style={styles.activePrinterBannerLeft}>
@@ -1091,83 +1158,6 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
         </View>
       )}
 
-      {/* Tab 4: Pricing */}
-      {activeSection === 'PRICING' && (
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="cash-outline" size={20} color="#ED0712" />
-            <Text style={styles.cardTitle}>Service Packages & Add-on Prices ($)</Text>
-          </View>
-
-          <View style={styles.pricingGrid}>
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Basic Wash</Text>
-              <View style={styles.priceInputWrapper}>
-                <Text style={styles.pricePrefix}>$</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  value={prices.basic}
-                  onChangeText={(val) => setPrices((p) => ({ ...p, basic: val }))}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Deluxe Wash</Text>
-              <View style={styles.priceInputWrapper}>
-                <Text style={styles.pricePrefix}>$</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  value={prices.deluxe}
-                  onChangeText={(val) => setPrices((p) => ({ ...p, deluxe: val }))}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Premium Wash</Text>
-              <View style={styles.priceInputWrapper}>
-                <Text style={styles.pricePrefix}>$</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  value={prices.premium}
-                  onChangeText={(val) => setPrices((p) => ({ ...p, premium: val }))}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Ceramic Wax Add-on</Text>
-              <View style={styles.priceInputWrapper}>
-                <Text style={styles.pricePrefix}>$</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  value={prices.waxAddon}
-                  onChangeText={(val) => setPrices((p) => ({ ...p, waxAddon: val }))}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Interior Detailing</Text>
-              <View style={styles.priceInputWrapper}>
-                <Text style={styles.pricePrefix}>$</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  value={prices.interiorDetail}
-                  onChangeText={(val) => setPrices((p) => ({ ...p, interiorDetail: val }))}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-          </View>
-        </View>
-      )}
-
       {/* ================= MODAL: ADD / EDIT PRINTER ================= */}
       <Modal
         visible={isModalOpen}
@@ -1495,6 +1485,53 @@ const styles = StyleSheet.create({
   gridSection: {
     gap: 16,
   },
+  printerSegmentBar: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    padding: 4,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexWrap: 'wrap',
+  },
+  printerSegmentBtn: {
+    flex: 1,
+    minWidth: 120,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+  },
+  printerSegmentBtnActivePos: {
+    backgroundColor: '#ED0712',
+  },
+  printerSegmentBtnActiveKiosk: {
+    backgroundColor: '#7C3AED',
+  },
+  printerSegmentBtnActiveBoth: {
+    backgroundColor: '#0F172A',
+  },
+  printerSegmentBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  printerSegmentBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  dualPrinterRow: {
+    flexDirection: 'row',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  dualPrinterCol: {
+    flex: 1,
+    minWidth: 280,
+  },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1648,46 +1685,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#0F172A',
-  },
-  pricingGrid: {
-    gap: 14,
-  },
-  priceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  priceLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  priceInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 10,
-  },
-  pricePrefix: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748B',
-    marginRight: 6,
-  },
-  priceInput: {
-    height: 38,
-    width: 80,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
-    textAlign: 'right',
-    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
   },
 
   /* PRINTER MANAGEMENT STYLES */

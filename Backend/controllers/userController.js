@@ -87,22 +87,39 @@ async function getUsers(req, res) {
 async function getUserGroups(req, res) {
   try {
     const pool = await getPool();
-    const result = await pool.request().query(`
-      SELECT 
-        UserGroupId,
-        UserGroupCode,
-        UserGroupName,
-        isActive
-      FROM dbo.UserGroupMaster
-      WHERE isActive = 1
-      ORDER BY UserGroupName ASC;
-    `);
+    let result;
+    try {
+      result = await pool.request().query(`
+        SELECT 
+          g.UserGroupId,
+          g.UserGroupCode,
+          g.UserGroupName,
+          g.isActive,
+          COUNT(u.UserId) AS UserCount
+        FROM dbo.UserGroupMaster g
+        LEFT JOIN dbo.UserMaster u ON g.UserGroupId = u.UserGroupid
+        GROUP BY g.UserGroupId, g.UserGroupCode, g.UserGroupName, g.isActive
+        ORDER BY g.UserGroupName ASC;
+      `);
+    } catch (_groupJoinErr) {
+      // Fallback query if UserMaster join has different column naming
+      result = await pool.request().query(`
+        SELECT 
+          UserGroupId,
+          UserGroupCode,
+          UserGroupName,
+          isActive
+        FROM dbo.UserGroupMaster
+        ORDER BY UserGroupName ASC;
+      `);
+    }
 
     const groups = result.recordset.map((row) => ({
       userGroupId: row.UserGroupId,
       userGroupCode: (row.UserGroupCode || '').trim(),
       userGroupName: (row.UserGroupName || '').trim(),
       isActive: Boolean(row.isActive),
+      userCount: row.UserCount != null ? Number(row.UserCount) : undefined,
     }));
 
     return res.status(200).json({
@@ -115,6 +132,158 @@ async function getUserGroups(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to retrieve user groups.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 2b. POST /api/users/groups
+ * Create new user group in UserGroupMaster
+ */
+async function createUserGroup(req, res) {
+  try {
+    const { userGroupCode, userGroupName, isActive = true } = req.body;
+    if (!userGroupCode || !userGroupName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Group Code and Group Name are required.',
+      });
+    }
+
+    const pool = await getPool();
+
+    // Check duplicate code or name
+    const checkDup = await pool.request()
+      .input('code', sql.NVarChar(50), userGroupCode.trim())
+      .input('name', sql.NVarChar(100), userGroupName.trim())
+      .query(`
+        SELECT UserGroupId FROM dbo.UserGroupMaster 
+        WHERE UserGroupCode = @code OR UserGroupName = @name
+      `);
+
+    if (checkDup.recordset.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'User group with this code or name already exists.',
+      });
+    }
+
+    const insertRes = await pool.request()
+      .input('code', sql.NVarChar(50), userGroupCode.trim())
+      .input('name', sql.NVarChar(100), userGroupName.trim())
+      .input('active', sql.Bit, isActive ? 1 : 0)
+      .query(`
+        INSERT INTO dbo.UserGroupMaster (UserGroupId, UserGroupCode, UserGroupName, isActive)
+        OUTPUT INSERTED.UserGroupId, INSERTED.UserGroupCode, INSERTED.UserGroupName, INSERTED.isActive
+        VALUES (NEWID(), @code, @name, @active);
+      `);
+
+    const created = insertRes.recordset[0];
+    return res.status(201).json({
+      success: true,
+      message: 'User group created successfully.',
+      data: {
+        userGroupId: created.UserGroupId,
+        userGroupCode: (created.UserGroupCode || '').trim(),
+        userGroupName: (created.UserGroupName || '').trim(),
+        isActive: Boolean(created.isActive),
+        userCount: 0,
+      },
+    });
+  } catch (err) {
+    console.error('[userController.createUserGroup Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create user group in database.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 2c. PUT /api/users/groups/:id
+ * Update user group in UserGroupMaster
+ */
+async function updateUserGroup(req, res) {
+  try {
+    const { id } = req.params;
+    const { userGroupCode, userGroupName, isActive } = req.body;
+
+    const pool = await getPool();
+    const updateReq = pool.request()
+      .input('id', sql.UniqueIdentifier, id);
+
+    let sets = [];
+    if (userGroupCode !== undefined) {
+      updateReq.input('code', sql.NVarChar(50), userGroupCode.trim());
+      sets.push('UserGroupCode = @code');
+    }
+    if (userGroupName !== undefined) {
+      updateReq.input('name', sql.NVarChar(100), userGroupName.trim());
+      sets.push('UserGroupName = @name');
+    }
+    if (isActive !== undefined) {
+      updateReq.input('active', sql.Bit, isActive ? 1 : 0);
+      sets.push('isActive = @active');
+    }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields to update.' });
+    }
+
+    await updateReq.query(`
+      UPDATE dbo.UserGroupMaster
+      SET ${sets.join(', ')}
+      WHERE UserGroupId = @id;
+    `);
+
+    return res.status(200).json({
+      success: true,
+      message: 'User group updated successfully.',
+    });
+  } catch (err) {
+    console.error('[userController.updateUserGroup Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update user group in database.',
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * 2d. DELETE /api/users/groups/:id
+ * Delete or disable user group in UserGroupMaster
+ */
+async function deleteUserGroup(req, res) {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+
+    // 1. Unlink any users assigned to this group so foreign key doesn't block deletion
+    try {
+      await pool.request()
+        .input('id', sql.UniqueIdentifier, id)
+        .query(`UPDATE dbo.UserMaster SET UserGroupid = NULL WHERE UserGroupid = @id`);
+    } catch (_unlinkErr) {
+      // Proceed even if UserMaster update fails
+    }
+
+    // 2. Permanently delete the user group from UserGroupMaster
+    const delRes = await pool.request()
+      .input('id', sql.UniqueIdentifier, id)
+      .query(`DELETE FROM dbo.UserGroupMaster WHERE UserGroupId = @id`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'User group permanently deleted successfully.',
+    });
+  } catch (err) {
+    console.error('[userController.deleteUserGroup Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete user group from database.',
       error: err.message,
     });
   }
@@ -326,14 +495,13 @@ async function updateUser(req, res) {
 async function deleteUser(req, res) {
   try {
     const { id } = req.params;
-    const { permanent } = req.query || {};
-
     const pool = await getPool();
     const reqDb = pool.request();
     reqDb.input('userId', sql.UniqueIdentifier, id);
 
-    if (permanent === 'true') {
-      const result = await reqDb.query(`
+    // Hard delete user from UserMaster
+    try {
+      await reqDb.query(`
         DELETE FROM dbo.UserMaster
         WHERE UserId = @userId;
       `);
@@ -341,29 +509,24 @@ async function deleteUser(req, res) {
         success: true,
         message: 'User permanently deleted from database.',
       });
-    } else {
-      const result = await reqDb.query(`
+    } catch (fkErr) {
+      console.warn('[userController.deleteUser FK Warning]', fkErr.message);
+      // Fallback only if database foreign key constraint prevents hard delete
+      await reqDb.query(`
         UPDATE dbo.UserMaster
         SET IsDisabled = 1, ModifiedOn = GETDATE()
-        OUTPUT INSERTED.UserId, INSERTED.UserName, INSERTED.IsDisabled
         WHERE UserId = @userId;
       `);
-
-      if (!result.recordset.length) {
-        return res.status(404).json({ success: false, message: `User not found: ${id}` });
-      }
-
       return res.status(200).json({
         success: true,
-        message: 'User account disabled successfully in database.',
-        data: result.recordset[0],
+        message: 'User has historical linked transactions, so account was deactivated instead.',
       });
     }
   } catch (err) {
     console.error('[userController.deleteUser Error]', err);
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete/disable user in database.',
+      message: 'Failed to delete user in database.',
       error: err.message,
     });
   }
@@ -372,6 +535,9 @@ async function deleteUser(req, res) {
 module.exports = {
   getUsers,
   getUserGroups,
+  createUserGroup,
+  updateUserGroup,
+  deleteUserGroup,
   createUser,
   updateUser,
   deleteUser,

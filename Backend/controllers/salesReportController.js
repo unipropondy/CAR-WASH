@@ -20,6 +20,13 @@ function resolveDateRange(query) {
     };
   }
 
+  if (startDate && !endDate) {
+    return {
+      start: startDate,
+      end: startDate,
+    };
+  }
+
   const formatDate = (d) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -40,11 +47,9 @@ function resolveDateRange(query) {
   }
 
   if (period === 'thisWeek') {
-    const firstDay = new Date(today);
-    const dayOfWeek = today.getDay(); // 0 is Sunday
-    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Monday start
-    firstDay.setDate(diff);
-    return { start: formatDate(firstDay), end: formatDate(today) };
+    const past7 = new Date(today);
+    past7.setDate(past7.getDate() - 7);
+    return { start: formatDate(past7), end: formatDate(today) };
   }
 
   if (period === 'thisMonth') {
@@ -82,13 +87,14 @@ async function getSalesSummary(req, res) {
 
     const result = await request.execute('dbo.sp_CarWash_SalesSummary');
     const row = result.recordset[0] || {};
+    const totalWashesVal = Number(row.TotalWashes || (Number(row.TotalCompletedWashes || 0) + Number(row.TotalClosedWashes || 0)) || 0);
 
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
       data: {
-        totalWashes: Number(row.TotalWashes || row.TotalCompletedWashes || 0),
-        totalCompletedWashes: Number(row.TotalCompletedWashes || 0),
+        totalWashes: totalWashesVal,
+        totalCompletedWashes: totalWashesVal,
         totalClosedWashes: Number(row.TotalClosedWashes || 0),
         totalActiveWashes: Number(row.TotalActiveWashes || 0),
         totalCancelledWashes: Number(row.TotalCancelledWashes || 0),
@@ -371,12 +377,87 @@ async function getFullDashboard(req, res) {
 
     const sRow = summaryRes.recordset[0] || {};
 
+    const trendCompletedSum = (trendRes.recordset || []).reduce(
+      (sum, r) => sum + Number(r.CompletedWashes || r.TotalOrders || 0), 0
+    );
+    const calculatedTotalWashes = Number(
+      sRow.TotalWashes || 
+      (Number(sRow.TotalCompletedWashes || 0) + Number(sRow.TotalClosedWashes || 0)) || 
+      trendCompletedSum || 
+      0
+    );
+
+    let rawTransactions = txRes.recordset || [];
+    try {
+      const fullTxRes = await pool.request()
+        .input('StartDate', sql.Date, start)
+        .input('EndDate', sql.Date, end)
+        .input('TopCount', sql.Int, 100)
+        .query(`
+          SELECT TOP (@TopCount)
+              o.OrderId,
+              o.OrderNo,
+              o.CustomerName,
+              o.VehicleNumber,
+              p.PackageName,
+              ISNULL(RTRIM(o.PayMode), 'CARD') AS PayMode,
+              ISNULL(pm.Description, RTRIM(o.PayMode)) AS PayModeDescription,
+              ISNULL(o.PackagePrice, o.TotalAmount) AS NetAmount,
+              ISNULL(o.GSTAmount, 0) AS GSTAmount,
+              ISNULL(o.TotalAmount, 0) AS TotalAmount,
+              ISNULL(o.PaymentStatus, 'PAID') AS PaymentStatus,
+              o.PaymentReference,
+              ISNULL(o.OrderSource, 'KIOSK') AS OrderSource,
+              ISNULL(o.PaidDate, o.CreatedDate) AS PaidDate,
+              o.CreatedDate
+          FROM dbo.CarWashOrder o
+          LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+          LEFT JOIN dbo.Paymode pm ON RTRIM(o.PayMode) = RTRIM(pm.PayMode)
+          WHERE (o.PaymentStatus = 'PAID' OR o.StatusCode IN (30, 40, 50, 60, 70) OR o.TotalAmount > 0)
+            AND o.StatusCode != 80
+            AND (@StartDate IS NULL OR CAST(ISNULL(o.PaidDate, o.CreatedDate) AS DATE) >= @StartDate)
+            AND (@EndDate IS NULL OR CAST(ISNULL(o.PaidDate, o.CreatedDate) AS DATE) <= @EndDate)
+          ORDER BY o.OrderId DESC;
+        `);
+      if (fullTxRes.recordset && fullTxRes.recordset.length > 0) {
+        rawTransactions = fullTxRes.recordset;
+      }
+    } catch (txErr) {
+      console.warn('[Full Transactions Query Fallback Warning]', txErr.message);
+    }
+
+    // Merge any washes from washesRes that have TotalAmount > 0 if not already present
+    const existingTxIds = new Set(rawTransactions.map(r => r.OrderId));
+    (washesRes.recordset || []).forEach(w => {
+      if (!existingTxIds.has(w.OrderId) && Number(w.TotalAmount || 0) > 0) {
+        rawTransactions.push({
+          OrderId: w.OrderId,
+          OrderNo: w.OrderNo,
+          CustomerName: w.CustomerName,
+          VehicleNumber: w.VehicleNumber,
+          PackageName: w.PackageName,
+          PayMode: 'CARD',
+          PayModeDescription: 'Card / Electronic',
+          NetAmount: Number(w.TotalAmount || 0),
+          GSTAmount: 0,
+          TotalAmount: Number(w.TotalAmount || 0),
+          PaymentStatus: 'PAID',
+          OrderSource: 'KIOSK',
+          PaidDate: w.CompletedDate || w.StartedDate || w.CreatedDate,
+          CreatedDate: w.CreatedDate,
+        });
+        existingTxIds.add(w.OrderId);
+      }
+    });
+
+    rawTransactions.sort((a, b) => (b.OrderId || 0) - (a.OrderId || 0));
+
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
       summary: {
-        totalWashes: Number(sRow.TotalWashes || sRow.TotalCompletedWashes || 0),
-        totalCompletedWashes: Number(sRow.TotalCompletedWashes || 0),
+        totalWashes: calculatedTotalWashes,
+        totalCompletedWashes: calculatedTotalWashes,
         totalClosedWashes: Number(sRow.TotalClosedWashes || 0),
         totalActiveWashes: Number(sRow.TotalActiveWashes || 0),
         totalCancelledWashes: Number(sRow.TotalCancelledWashes || 0),
@@ -449,18 +530,18 @@ async function getFullDashboard(req, res) {
         durationMinutes: r.DurationMinutes,
         createdDate: r.CreatedDate,
       })),
-      recentTransactions: txRes.recordset.map((r) => ({
+      recentTransactions: rawTransactions.map((r) => ({
         orderId: r.OrderId,
         orderNo: r.OrderNo,
         customerName: r.CustomerName,
         vehicleNumber: r.VehicleNumber,
         packageName: r.PackageName,
-        payMode: (r.PayMode || '').trim(),
-        payModeDescription: (r.PayModeDescription || r.PayMode || '').trim(),
+        payMode: (r.PayMode || '').trim() || 'CARD',
+        payModeDescription: (r.PayModeDescription || r.PayMode || '').trim() || 'Card Payment',
         netAmount: Number(r.NetAmount || 0),
         gstAmount: Number(r.GSTAmount || 0),
         totalAmount: Number(r.TotalAmount || 0),
-        paymentStatus: r.PaymentStatus,
+        paymentStatus: r.PaymentStatus || 'PAID',
         paymentReference: r.PaymentReference,
         orderSource: r.OrderSource || 'KIOSK',
         paidDate: r.PaidDate,

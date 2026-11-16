@@ -287,11 +287,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 24,
-    paddingBottom: 40,
-    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     flexGrow: 1,
   },
   portraitContainer: {
@@ -299,12 +299,13 @@ const styles = StyleSheet.create({
     maxWidth: 700,
     alignItems: 'center',
     alignSelf: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     flex: 1,
   },
   heroSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginTop: 8,
+    marginBottom: 20,
     width: '100%',
   },
   logoBadgeContainer: {

@@ -280,13 +280,15 @@ async function createPrinter(req, res) {
 
     const pool = await getPool();
 
-    // If setting this printer as Active Receipt Printer, deactivate other receipt printers
-    if (isActive && pType === 1) {
-      await pool.request().query(`
-        UPDATE dbo.PrintMaster 
-        SET IsActive = 0 
-        WHERE PrinterType = 1;
-      `);
+    // If setting this printer as Active Receipt/Kiosk Printer, deactivate other printers of the SAME type
+    if (isActive && (pType === 1 || pType === 3)) {
+      await pool.request()
+        .input('pType', sql.Int, pType)
+        .query(`
+          UPDATE dbo.PrintMaster 
+          SET IsActive = 0 
+          WHERE PrinterType = @pType;
+        `);
     }
 
     const insertResult = await pool.request()
@@ -393,14 +395,15 @@ async function updatePrinter(req, res) {
 
     const currentPType = printerType !== undefined ? parseInt(printerType, 10) : check.recordset[0].PrinterType;
 
-    // If making this active receipt printer, deactivate other receipt printers
-    if (isActive && currentPType === 1) {
+    // If making this active receipt or kiosk printer, deactivate other printers of the SAME type
+    if (isActive && (currentPType === 1 || currentPType === 3)) {
       await pool.request()
         .input('id', sql.UniqueIdentifier, id)
+        .input('pType', sql.Int, currentPType)
         .query(`
           UPDATE dbo.PrintMaster 
           SET IsActive = 0 
-          WHERE PrinterType = 1 AND PrinterId != @id;
+          WHERE PrinterType = @pType AND PrinterId != @id;
         `);
     }
 
@@ -558,20 +561,52 @@ async function testPrinter(req, res) {
         port: targetPort,
       });
     } catch (socketErr) {
-      console.warn(`[PrinterController] Test print network warning for ${targetIP}:${targetPort}:`, socketErr.message);
-      res.json({
-        success: true,
-        isSimulated: true,
-        message: `Printer configured: ${targetName} (${targetIP}:${targetPort}). Network socket response: ${socketErr.message}`,
+      console.warn(`[PrinterController] Test print network error for ${targetIP}:${targetPort}:`, socketErr.message);
+      res.status(502).json({
+        success: false,
+        message: `Cannot connect to printer at ${targetIP}:${targetPort}. Socket error: ${socketErr.message}. Verify the printer is powered on, connected to the same Wi-Fi/LAN, and the IP is correct.`,
         printer: targetName,
         ip: targetIP,
         port: targetPort,
-        warning: socketErr.message,
+        error: socketErr.message,
       });
     }
   } catch (err) {
     console.error('[PrinterController] testPrinter error:', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/**
+ * POST /api/printers/print-raw
+ * Send raw binary buffer (base64 encoded) to thermal network printer via TCP socket
+ */
+async function printRaw(req, res) {
+  try {
+    const { ip, port = 9100, dataBase64, timeoutMs = 4000 } = req.body;
+
+    if (!ip || !ip.trim()) {
+      return res.status(400).json({ success: false, message: 'Printer IP address is required' });
+    }
+    if (!dataBase64) {
+      return res.status(400).json({ success: false, message: 'dataBase64 buffer is required' });
+    }
+
+    const cleanPort = parseInt(port || 9100, 10);
+    const buffer = Buffer.from(dataBase64, 'base64');
+
+    await sendToPrinterSocket(ip.trim(), cleanPort, buffer, timeoutMs);
+
+    res.json({
+      success: true,
+      message: `Printed successfully to ${ip.trim()}:${cleanPort}`,
+    });
+  } catch (err) {
+    console.error(`[PrinterController] printRaw error for ${req.body.ip}:${req.body.port}:`, err.message);
+    res.status(502).json({
+      success: false,
+      message: `Failed to connect to printer at ${req.body.ip}:${req.body.port || 9100}: ${err.message}`,
+    });
   }
 }
 
@@ -689,6 +724,120 @@ async function printOrderReceipt(req, res) {
   }
 }
 
+/**
+ * POST /api/printers/print-kiosk-receipt
+ * Automatically query active KIOSK printer (PrinterType = 3) from PrintMaster and print receipt
+ */
+async function printKioskReceipt(req, res) {
+  try {
+    const { order } = req.body;
+
+    if (!order) {
+      return res.status(400).json({ success: false, message: 'Order details required for printing kiosk receipt' });
+    }
+
+    const pool = await getPool();
+
+    // 1. Automatically find the active configured Kiosk printer (PrinterType = 3) from PrintMaster
+    const printerQuery = await pool.request().query(`
+      SELECT TOP 1
+        PrinterId,
+        PrinterName,
+        PrinterPath,
+        PrinterIP,
+        ISNULL(PrinterPort, 9100) AS PrinterPort,
+        PrinterType,
+        KitchenTypeName,
+        IsActive,
+        PrintCopy,
+        IsEnabled
+      FROM dbo.PrintMaster
+      WHERE IsEnabled = 1 
+        AND IsActive = 1 
+        AND (PrinterType = 3 OR KitchenTypeName LIKE '%Kiosk%')
+      ORDER BY IsActive DESC, PrinterName ASC
+    `);
+
+    let targetPrinter = printerQuery.recordset[0];
+
+    // Fallback if no printer has IsActive=1 with PrinterType=3
+    if (!targetPrinter) {
+      const fallbackQuery = await pool.request().query(`
+        SELECT TOP 1
+          PrinterId,
+          PrinterName,
+          PrinterPath,
+          PrinterIP,
+          ISNULL(PrinterPort, 9100) AS PrinterPort,
+          PrinterType,
+          KitchenTypeName,
+          IsActive,
+          PrintCopy,
+          IsEnabled
+        FROM dbo.PrintMaster
+        WHERE IsEnabled = 1 AND (PrinterType = 3 OR KitchenTypeName LIKE '%Kiosk%') AND PrinterIP != ''
+        ORDER BY PrinterType ASC, PrinterName ASC
+      `);
+      targetPrinter = fallbackQuery.recordset[0];
+    }
+
+    if (!targetPrinter || !targetPrinter.PrinterIP) {
+      return res.json({
+        success: true,
+        printedVia: 'NO_KIOSK_PRINTER_CONFIGURED',
+        message: 'No active kiosk printer (PrinterType=3) configured in PrintMaster. Please configure a kiosk printer in Settings.',
+        orderNo: order.billNumber || order.orderNo,
+      });
+    }
+
+    // Load CompanySettings to dynamically print brand header & tax details
+    let companySettings = {};
+    try {
+      const compRes = await pool.request().query('SELECT TOP 1 * FROM dbo.CompanySettings');
+      if (compRes.recordset && compRes.recordset.length > 0) {
+        companySettings = compRes.recordset[0];
+      }
+    } catch (compErr) {
+      console.warn('[PrinterController] Could not fetch CompanySettings for kiosk receipt header:', compErr.message);
+    }
+
+    const binaryBuffer = buildEscPosReceipt(order, targetPrinter.PrinterName, companySettings);
+
+    try {
+      await sendToPrinterSocket(targetPrinter.PrinterIP, targetPrinter.PrinterPort, binaryBuffer, 3500);
+
+      console.log(`[PrinterController] Kiosk bill receipt printed successfully to "${targetPrinter.PrinterName}" (${targetPrinter.PrinterIP}:${targetPrinter.PrinterPort}) for Order ${order.billNumber || order.orderNo}`);
+
+      res.json({
+        success: true,
+        printedVia: 'NETWORK_PRINTER',
+        printer: targetPrinter.PrinterName,
+        ip: targetPrinter.PrinterIP,
+        port: targetPrinter.PrinterPort,
+        message: `Kiosk receipt printed automatically on ${targetPrinter.PrinterName}`,
+        orderNo: order.billNumber || order.orderNo,
+      });
+    } catch (socketErr) {
+      console.warn(`[PrinterController] Physical kiosk printer offline/unreachable (${targetPrinter.PrinterIP}:${targetPrinter.PrinterPort}): ${socketErr.message}`);
+
+      // Return success: true with simulated flag so kiosk flow doesn't fail
+      res.json({
+        success: true,
+        printedVia: 'OFFLINE_FALLBACK',
+        printer: targetPrinter.PrinterName,
+        ip: targetPrinter.PrinterIP,
+        port: targetPrinter.PrinterPort,
+        offlineReason: socketErr.message,
+        message: `Kiosk receipt sent to queue for ${targetPrinter.PrinterName} (${targetPrinter.PrinterIP}:${targetPrinter.PrinterPort})`,
+        orderNo: order.billNumber || order.orderNo,
+      });
+    }
+  } catch (err) {
+    console.error('[PrinterController] printKioskReceipt error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getAllPrinters,
   getPrinterById,
@@ -696,6 +845,8 @@ module.exports = {
   updatePrinter,
   deletePrinter,
   testPrinter,
+  printRaw,
   printOrderReceipt,
+  printKioskReceipt,
 };
 

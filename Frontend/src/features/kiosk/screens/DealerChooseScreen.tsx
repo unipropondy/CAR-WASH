@@ -7,11 +7,11 @@ import {
   ScrollView, 
   Image,
   TextInput,
+  ActivityIndicator,
   useWindowDimensions 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
-import { MOCK_DEALERS } from '../data/dealersMockData';
 import { DealerOption } from '../types/kiosk.types';
 import { fetchAllDealers } from '../../../services/dealerApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
@@ -31,12 +31,14 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
   onExitToPos,
 }) => {
   const [selectedDealer, setSelectedDealer] = useState<DealerOption | undefined>(initialDealer);
-  const [dealersList, setDealersList] = useState<DealerOption[]>(MOCK_DEALERS);
+  const [dealersList, setDealersList] = useState<DealerOption[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isNavigating, setIsNavigating] = useState(false);
   const { width } = useWindowDimensions();
 
   useEffect(() => {
+    setIsLoading(true);
     fetchAllDealers(false)
       .then((records) => {
         if (records && records.length > 0) {
@@ -54,9 +56,17 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
             isActive: r.isActive,
           }));
           setDealersList(mapped);
+        } else {
+          setDealersList([]);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn('Failed to load dealer accounts:', err);
+        setDealersList([]);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   const filteredDealers = dealersList.filter((d) => {
@@ -121,55 +131,66 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.gridContainer}>
-          {filteredDealers.map((dealer) => {
-            const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
-            const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
+            <Text style={styles.loadingText}>Loading dealer accounts...</Text>
+          </View>
+        ) : (
+          <View style={styles.gridContainer}>
+            {filteredDealers.map((dealer) => {
+              const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
+              const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
 
-            return (
-              <TouchableOpacity
-                key={dealer.id || dealer.code}
-                style={[
-                  styles.dealerCard,
-                  isSelected && styles.dealerCardSelected,
-                ]}
-                onPress={() => handleSelectDealer(dealer)}
-                activeOpacity={0.88}
-                accessibilityRole="button"
-                accessibilityLabel={`Select ${dealer.name}`}
-              >
-                {/* Dealer Logo Box */}
-                <View style={[styles.logoBox, isSelected && styles.logoBoxSelected]}>
-                  {logoSource ? (
-                    <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
-                  ) : (
-                    <View style={styles.placeholderLogoBox}>
-                      <Ionicons name="business" size={40} color={RED_BAY_COLORS.primary} />
-                    </View>
-                  )}
-                </View>
+              return (
+                <TouchableOpacity
+                  key={dealer.id || dealer.code}
+                  style={[
+                    styles.dealerCard,
+                    isSelected && styles.dealerCardSelected,
+                  ]}
+                  onPress={() => handleSelectDealer(dealer)}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${dealer.name}`}
+                >
+                  {/* Dealer Logo Box */}
+                  <View style={[styles.logoBox, isSelected && styles.logoBoxSelected]}>
+                    {logoSource ? (
+                      <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
+                    ) : (
+                      <View style={styles.placeholderLogoBox}>
+                        <Ionicons name="business" size={40} color={RED_BAY_COLORS.primary} />
+                      </View>
+                    )}
+                  </View>
 
-                {/* Dealer Name */}
-                <View style={styles.cardInfoCol}>
-                  <Text
-                    style={[styles.dealerName, isSelected && styles.dealerNameSelected]}
-                    numberOfLines={2}
-                  >
-                    {dealer.name}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                  {/* Dealer Name */}
+                  <View style={styles.cardInfoCol}>
+                    <Text
+                      style={[styles.dealerName, isSelected && styles.dealerNameSelected]}
+                      numberOfLines={2}
+                    >
+                      {dealer.name}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
 
-          {filteredDealers.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="search-outline" size={44} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>No matching dealer accounts found</Text>
-              <Text style={styles.emptySub}>Try searching for another dealer name or code</Text>
-            </View>
-          )}
-        </View>
+            {filteredDealers.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="business-outline" size={44} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>
+                  {searchQuery ? 'No matching dealer accounts found' : 'No dealer accounts available'}
+                </Text>
+                <Text style={styles.emptySub}>
+                  {searchQuery ? 'Try searching for another dealer name or code' : 'Please contact the station cashier or administrator.'}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -326,5 +347,16 @@ const styles = StyleSheet.create({
   emptySub: {
     fontSize: 13,
     color: '#94A3B8',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748B',
   },
 });
