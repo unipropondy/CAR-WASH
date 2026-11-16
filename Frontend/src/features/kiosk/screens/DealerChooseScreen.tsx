@@ -6,8 +6,10 @@ import {
   StyleSheet, 
   ScrollView, 
   Image,
+  TextInput,
   useWindowDimensions 
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
 import { MOCK_DEALERS } from '../data/dealersMockData';
 import { DealerOption } from '../types/kiosk.types';
@@ -30,6 +32,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
 }) => {
   const [selectedDealer, setSelectedDealer] = useState<DealerOption | undefined>(initialDealer);
   const [dealersList, setDealersList] = useState<DealerOption[]>(MOCK_DEALERS);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isNavigating, setIsNavigating] = useState(false);
   const { width } = useWindowDimensions();
 
@@ -56,8 +59,15 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
       .catch(() => {});
   }, []);
 
-  // 4 items per row on kiosk / desktop (width >= 820), 3 on medium, 2 on narrow
-  const cardWidth = width >= 820 ? '23.2%' : width >= 600 ? '31.2%' : '47.5%';
+  const filteredDealers = dealersList.filter((d) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.trim().toLowerCase();
+    return (
+      (d.name && d.name.toLowerCase().includes(query)) ||
+      (d.code && d.code.toLowerCase().includes(query)) ||
+      (d.contactPerson && d.contactPerson.toLowerCase().includes(query))
+    );
+  });
 
   const handleSelectDealer = (dealer: DealerOption) => {
     if (isNavigating) return;
@@ -78,20 +88,41 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
         backLabel="Back"
       />
 
-      {/* Title Header (Without Subtitle) */}
+      {/* Title Header */}
       <View style={styles.promptHeader}>
         <Text style={styles.title}>Choose Your Dealer Account</Text>
         <View style={styles.titleUnderlineAccent} />
       </View>
 
-      {/* Main Content Area - 4 COLUMNS GRID */}
+      {/* Optional Search Bar for Dealer Accounts */}
+      {dealersList.length > 3 && (
+        <View style={styles.searchBarWrapper}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color="#94A3B8" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search dealer by name or code (e.g. UNIPRO, APEX)..."
+              placeholderTextColor="#94A3B8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {/* Main Content Area */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.gridContainer}>
-          {dealersList.map((dealer) => {
+          {filteredDealers.map((dealer) => {
             const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
             const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
 
@@ -100,7 +131,6 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
                 key={dealer.id || dealer.code}
                 style={[
                   styles.dealerCard,
-                  { width: cardWidth },
                   isSelected && styles.dealerCardSelected,
                 ]}
                 onPress={() => handleSelectDealer(dealer)}
@@ -108,27 +138,37 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${dealer.name}`}
               >
-                {isSelected && <View style={styles.selectedTopStrip} />}
-
-                {/* Dealer Logo Image / Emblem */}
+                {/* Dealer Logo Box */}
                 <View style={[styles.logoBox, isSelected && styles.logoBoxSelected]}>
                   {logoSource ? (
                     <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
                   ) : (
-                    <Text style={styles.logoEmoji}>{dealer.icon || '🏢'}</Text>
+                    <View style={styles.placeholderLogoBox}>
+                      <Ionicons name="business" size={40} color={RED_BAY_COLORS.primary} />
+                    </View>
                   )}
                 </View>
 
-                {/* Dealer Name Only */}
-                <Text
-                  style={[styles.dealerName, isSelected && styles.dealerNameSelected]}
-                  numberOfLines={2}
-                >
-                  {dealer.name}
-                </Text>
+                {/* Dealer Name */}
+                <View style={styles.cardInfoCol}>
+                  <Text
+                    style={[styles.dealerName, isSelected && styles.dealerNameSelected]}
+                    numberOfLines={2}
+                  >
+                    {dealer.name}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
+
+          {filteredDealers.length === 0 && (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search-outline" size={44} color="#94A3B8" />
+              <Text style={styles.emptyTitle}>No matching dealer accounts found</Text>
+              <Text style={styles.emptySub}>Try searching for another dealer name or code</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -142,76 +182,95 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 6, 1),
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.3,
+    textAlign: 'center',
   },
   titleUnderlineAccent: {
-    width: 36,
-    height: 3,
+    width: 44,
+    height: 3.5,
     backgroundColor: RED_BAY_COLORS.primary,
     borderRadius: 2,
-    marginTop: 6,
+    marginTop: 8,
+  },
+  searchBarWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingHorizontal: 20,
+  },
+  searchBar: {
+    width: '100%',
+    maxWidth: 520,
+    height: 44,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    gap: 10,
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 6, 1),
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13.5,
+    color: '#0F172A',
+    fontWeight: '500',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: 24,
-    paddingHorizontal: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
     alignItems: 'center',
     flexGrow: 1,
   },
   gridContainer: {
     width: '100%',
-    maxWidth: 960,
+    maxWidth: 820,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 16,
+    gap: 22,
   },
   dealerCard: {
+    width: 280,
+    minHeight: 190,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    paddingVertical: 24,
-    paddingHorizontal: 14,
+    paddingVertical: 26,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
     position: 'relative',
     overflow: 'hidden',
-    minHeight: 145,
-    ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 2),
   },
   dealerCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
     backgroundColor: '#FFFDFD',
     borderWidth: 2.5,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.22, 16, 4),
-  },
-  selectedTopStrip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: RED_BAY_COLORS.primary,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 10 }, 0.22, 18, 4),
   },
   logoBox: {
-    width: 68,
-    height: 68,
+    width: 82,
+    height: 82,
     borderRadius: 20,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
@@ -219,7 +278,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    padding: 6,
+    padding: 8,
+    marginBottom: 16,
+    ...makeShadow('#000000', { width: 0, height: 3 }, 0.04, 6, 1),
   },
   logoBoxSelected: {
     backgroundColor: '#FEF2F2',
@@ -229,18 +290,41 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  logoEmoji: {
-    fontSize: 34,
+  placeholderLogoBox: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1F2',
+    borderRadius: 14,
+  },
+  cardInfoCol: {
+    width: '100%',
+    alignItems: 'center',
   },
   dealerName: {
-    fontSize: 15.5,
+    fontSize: 17.5,
     fontWeight: '900',
     color: '#0F172A',
     textAlign: 'center',
     letterSpacing: 0.2,
-    minHeight: 38,
+    lineHeight: 23,
   },
   dealerNameSelected: {
     color: RED_BAY_COLORS.primary,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  emptySub: {
+    fontSize: 13,
+    color: '#94A3B8',
   },
 });

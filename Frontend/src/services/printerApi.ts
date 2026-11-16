@@ -228,24 +228,24 @@ export function triggerBrowserReceiptPrint(order: any): void {
           <div class="bold">${pkgName}</div>
           <div class="row">
             <span style="color: #444; font-size: 11px;">  Vehicle Care Service</span>
-            <span class="bold">SGD $${total}</span>
+            <span class="bold">$${total}</span>
           </div>
         </div>
         <div class="divider"></div>
         <div class="section">
           <div class="row">
             <span>Subtotal (Net):</span>
-            <span>SGD $${net}</span>
+            <span>$${net}</span>
           </div>
           <div class="row">
             <span>GST (9% Included):</span>
-            <span>SGD $${gst}</span>
+            <span>$${gst}</span>
           </div>
         </div>
         <div class="divider"></div>
         <div class="row bold" style="font-size: 14px; margin: 6px 0;">
           <span>TOTAL PAID:</span>
-          <span>SGD $${total}</span>
+          <span>$${total}</span>
         </div>
         <div class="divider"></div>
         <div class="row">

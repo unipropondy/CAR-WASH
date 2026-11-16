@@ -539,8 +539,8 @@
                                   <p className="text-sm font-bold text-[#0F172A] truncate">
                                     {order.customer.name}
                                   </p>
-                                  <p className="text-xs text-slate-400 font-medium font-mono-code">
-                                    {order.customer.phone}
+                                  <p className={`text-xs font-medium font-mono-code ${order.payMode === 'CREDIT' || (order.customer.name && order.customer.name.toUpperCase() === 'UNIPRO') ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+                                    {order.payMode === 'CREDIT' || (order.customer.name && order.customer.name.toUpperCase() === 'UNIPRO') ? 'Dealer' : order.customer.phone}
                                   </p>
                                 </div>
                               </div>
@@ -682,7 +682,9 @@
                             </div>
                             <div>
                               <p className="text-sm font-bold text-[#0F172A]">{order.customer.name}</p>
-                              <p className="text-xs text-slate-400 font-mono-code">{order.customer.phone}</p>
+                              <p className={`text-xs font-mono-code ${order.payMode === 'CREDIT' || (order.customer.name && order.customer.name.toUpperCase() === 'UNIPRO') ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+                                {order.payMode === 'CREDIT' || (order.customer.name && order.customer.name.toUpperCase() === 'UNIPRO') ? 'Dealer' : order.customer.phone}
+                              </p>
                             </div>
                           </div>
 

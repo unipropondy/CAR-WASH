@@ -401,11 +401,19 @@ async function assignBay(req, res) {
       conflictReq.input('targetBayNumber', sql.Int, targetBayNumber);
       conflictReq.input('currentOrderNo', sql.NVarChar(50), currentOrderId ? String(currentOrderId) : '');
       const conflictResult = await conflictReq.query(`
-        SELECT TOP 1 OrderId, OrderNo, VehicleNumber
-        FROM dbo.CarWashOrder
-        WHERE BayId = @targetBayNumber
-          AND StatusCode IN (40, 50)
-          AND OrderNo != @currentOrderNo;
+        SELECT TOP 1 o.OrderId, o.OrderNo, o.VehicleNumber
+        FROM dbo.CarWashOrder o
+        INNER JOIN dbo.BayMaster bm ON bm.BayNumber = @targetBayNumber
+        WHERE o.BayId = @targetBayNumber
+          AND o.StatusCode IN (40, 50)
+          AND o.OrderNo != @currentOrderNo
+          AND (
+            bm.CurrentOrderId = o.OrderNo
+            OR (
+              bm.BayStatus IN ('IN_SERVICE', 'OCCUPIED')
+              AND CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)
+            )
+          );
       `);
       if (conflictResult.recordset.length > 0) {
         const busy = conflictResult.recordset[0];

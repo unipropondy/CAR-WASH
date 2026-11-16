@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchDayHistory, DayMetrics } from '../../../services/dayManagementApi';
@@ -44,16 +45,24 @@ interface DayHistoryItem {
 interface BusinessDayHistoryViewProps {
   onBackToOrders?: () => void;
   onSelectDayToViewInOrders?: (day: DayHistoryItem) => void;
+  refreshTrigger?: number;
 }
 
 export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
   onBackToOrders,
   onSelectDayToViewInOrders,
+  refreshTrigger,
 }) => {
   const [days, setDays] = useState<DayHistoryItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
+
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      loadHistory();
+    }
+  }, [refreshTrigger]);
 
   // Orders Modal State
   const [selectedDayForOrders, setSelectedDayForOrders] = useState<DayHistoryItem | null>(null);
@@ -143,47 +152,13 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
     );
   });
 
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={[styles.container, isMobile && { padding: 12 }]}>
       {/* ============================================================== */}
-      {/* 1. TOP HEADER ROW WITH EMBLEM & ACTIONS */}
-      {/* ============================================================== */}
-      <View style={styles.headerRow}>
-        <View style={styles.headerLeft}>
-          <View style={styles.historyEmblem}>
-            <Ionicons name="time" size={24} color="#FFFFFF" />
-          </View>
-          <View style={styles.titleCol}>
-            <View style={styles.titleWithLiveBadge}>
-              <Text style={styles.pageTitle}>Business Day History</Text>
-              <View style={styles.liveAuditBadge}>
-                <View style={styles.liveAuditDot} />
-                <Text style={styles.liveAuditText}>LIVE MSSQL AUDIT</Text>
-              </View>
-            </View>
-            <Text style={styles.pageSubtitle}>
-              Immutable shift records, sales telemetry, and completed wash orders
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.refreshBtn} onPress={loadHistory} activeOpacity={0.7}>
-            <Ionicons name="refresh" size={16} color="#0F172A" />
-            <Text style={styles.refreshBtnText}>Sync Logs</Text>
-          </TouchableOpacity>
-
-          {onBackToOrders && (
-            <TouchableOpacity style={styles.backBtn} onPress={onBackToOrders} activeOpacity={0.8}>
-              <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
-              <Text style={styles.backBtnText}>Back to Dashboard</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* ============================================================== */}
-      {/* 2. TOP SUMMARY KPI CARDS (HIGH-IMPACT TELEMETRY ROW) */}
+      {/* TOP SUMMARY KPI CARDS (HIGH-IMPACT TELEMETRY ROW) */}
       {/* ============================================================== */}
       <View style={styles.kpiGrid}>
         {/* Card 1: Total Business Days */}
@@ -197,7 +172,7 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
           <Text style={styles.kpiValue}>{days.length}</Text>
           <View style={styles.kpiFooterRow}>
             <Ionicons name="shield-checkmark-outline" size={12} color="#94A3B8" />
-            <Text style={styles.kpiHint}>Logged in CarWashDayMaster</Text>
+            <Text style={styles.kpiHint}>Shift logs on record</Text>
           </View>
         </View>
 
@@ -324,11 +299,11 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                     {isOpen ? (
                       <View style={styles.activePillBadge}>
                         <View style={styles.pulseGreenDot} />
-                        <Text style={styles.activePillText}>DAY #{day.dayId} (ACTIVE)</Text>
+                        <Text style={styles.activePillText}>ACTIVE</Text>
                       </View>
                     ) : (
                       <View style={styles.closedPillBadge}>
-                        <Text style={styles.closedPillText}>DAY #{day.dayId}</Text>
+                        <Text style={styles.closedPillText}>CLOSED</Text>
                       </View>
                     )}
 
@@ -350,26 +325,6 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                       <Ionicons name="receipt-outline" size={15} color="#FFFFFF" />
                       <Text style={styles.viewOrdersBtnText}>View Orders ({day.totalOrders})</Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.summaryBtn}
-                      onPress={() => setSelectedDayForSummary(day)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="pie-chart-outline" size={15} color="#0F172A" />
-                      <Text style={styles.summaryBtnText}>Day Summary</Text>
-                    </TouchableOpacity>
-
-                    {onSelectDayToViewInOrders && (
-                      <TouchableOpacity
-                        style={styles.inspectInPosBtn}
-                        onPress={() => onSelectDayToViewInOrders(day)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="speedometer-outline" size={15} color="#FFFFFF" />
-                        <Text style={styles.inspectInPosBtnText}>Inspect in Dashboard ➜</Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
                 </View>
 
@@ -416,6 +371,16 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                         </Text>
                       </Text>
                     </View>
+                    {(Number(day.otherSales || 0) > 0 || Number(day.totalDealerSales || 0) > 0) && (
+                      <View style={styles.tileMixRow}>
+                        <Text style={styles.tileMixText}>
+                          Credit/Dealer:{' '}
+                          <Text style={styles.tileMixBold}>
+                            ${Number(day.otherSales || day.totalDealerSales || 0).toFixed(2)}
+                          </Text>
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Tile 4: Timing & Operator */}
@@ -467,7 +432,7 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                 <View style={{ gap: 4 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <Text style={styles.modalTitle}>
-                      Day #{selectedDayForOrders.dayId} Orders
+                      Orders ({formatDate(selectedDayForOrders.businessDate)})
                     </Text>
                     <View
                       style={[
@@ -611,7 +576,7 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
             <View style={styles.summaryModalCard}>
               <View style={styles.modalHeader}>
                 <View style={{ gap: 4 }}>
-                  <Text style={styles.modalTitle}>Day #{selectedDayForSummary.dayId} Financial Summary</Text>
+                  <Text style={styles.modalTitle}>Financial Summary ({formatDate(selectedDayForSummary.businessDate)})</Text>
                   <Text style={styles.modalSubtitle}>
                     Business Date: {formatDate(selectedDayForSummary.businessDate)}
                   </Text>
@@ -702,6 +667,14 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                       ${Number(selectedDayForSummary.onlineSales || 0).toFixed(2)}
                     </Text>
                   </View>
+                  {(Number(selectedDayForSummary.otherSales || 0) > 0 || Number(selectedDayForSummary.totalDealerSales || 0) > 0) && (
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryRowLabel}>Credit / Dealer Invoiced:</Text>
+                      <Text style={styles.summaryRowValue}>
+                        ${Number(selectedDayForSummary.otherSales || selectedDayForSummary.totalDealerSales || 0).toFixed(2)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* Section 4: Cash Drawer Reconciliation */}
@@ -763,13 +736,17 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
           </View>
         </Modal>
       )}
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    width: '100%',
+    padding: 24,
+    paddingBottom: 60,
+    maxWidth: 1400,
+    alignSelf: 'center',
     backgroundColor: '#F8FAFC',
   },
   content: {

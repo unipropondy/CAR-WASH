@@ -104,7 +104,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <Text style={[styles.methodTitle, selectedMethod === 'CASH' && styles.methodTitleActive]}>
                   Cash
                 </Text>
-                <Text style={styles.methodSub}>SGD Notes</Text>
+                <Text style={styles.methodSub}>Cash Notes</Text>
               </TouchableOpacity>
             </View>
 
@@ -147,7 +147,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
             {selectedMethod === 'CASH' && (
               <View style={styles.cashBox}>
-                <Text style={styles.cashSectionTitle}>Quick Cash Tendered (SGD):</Text>
+                <Text style={styles.cashSectionTitle}>Quick Cash Tendered:</Text>
                 <View style={styles.quickCashButtons}>
                   {[total, 20, 50, 100].map((amt, idx) => (
                     <TouchableOpacity
@@ -180,7 +180,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <Text style={styles.breakdownVal}>$ {order.gstAmount.toFixed(2)}</Text>
               </View>
               <View style={[styles.breakdownRow, styles.grandTotalRow]}>
-                <Text style={styles.grandTotalLabel}>TOTAL SGD</Text>
+                <Text style={styles.grandTotalLabel}>TOTAL</Text>
                 <Text style={styles.grandTotalVal}>$ {order.totalAmount.toFixed(2)}</Text>
               </View>
             </View>

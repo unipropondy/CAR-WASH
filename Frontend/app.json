@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "RED BAY CAR WASH POS",
+    "name": "CAR POS",
     "slug": "red-bay-carwash",
     "version": "1.0.0",
-    "orientation": "landscape",
-    "icon": "./assets/images/red_bay_logo.png",
+    "orientation": "default",
+    "icon": "./assets/images/app_icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/red_bay_logo.png",
@@ -12,13 +12,13 @@
       "backgroundColor": "#080808"
     },
     "web": {
-      "favicon": "./assets/images/red_bay_logo.png",
+      "favicon": "./assets/images/app_icon.png",
       "bundler": "metro"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/red_bay_logo.png",
-        "backgroundColor": "#080808"
+        "foregroundImage": "./assets/images/adaptive_foreground.png",
+        "backgroundColor": "#0B0F19"
       },
       "package": "com.redbay.carwash.pos",
       "usesCleartextTraffic": true,

@@ -12,6 +12,9 @@ router.get('/:categoryId/packages', packageController.getPackages);
 // 3. GET /api/service-categories/:id/image
 router.get('/:id/image', categoryController.getCategoryImage);
 
+// 3b. GET /api/service-categories/:id/icon
+router.get('/:id/icon', categoryController.getCategoryIcon);
+
 // 4. POST /api/service-categories
 router.post('/', categoryController.createServiceCategory);
 

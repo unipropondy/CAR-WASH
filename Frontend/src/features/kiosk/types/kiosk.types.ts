@@ -54,6 +54,9 @@ export interface ServiceCategory {
   imageUrl?: string | null;
   imageContentType?: string | null;
   hasImage?: boolean;
+  iconUrl?: string | null;
+  iconContentType?: string | null;
+  hasIcon?: boolean;
   displayOrder?: number;
   isActive?: boolean;
 }
@@ -101,5 +104,7 @@ export interface KioskOrder {
   paymentStatus: PaymentStatus;
   totalAmount: number;
   gstAmount: number;
+  additionalServices?: string;
+  outstandingAmount?: number;
   createdAt: string;
 }

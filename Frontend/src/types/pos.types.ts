@@ -64,7 +64,7 @@ export type OrderQueueStatus =
   | 'CLOSED'
   | 'CANCELLED';
 
-export type PaymentStatus = 'PAID' | 'PENDING' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
+export type PaymentStatus = 'PAID' | 'PENDING' | 'FAILED' | 'REFUNDED' | 'CANCELLED' | 'CREDIT';
 export type PaymentStatusType = PaymentStatus;
 export type PaymentMethodType = 'YEAHPAY_QR' | 'YEAHPAY_CARD' | 'CASH' | 'MEMBER' | 'CREDIT' | string;
 
@@ -104,6 +104,9 @@ export interface PosOrder {
   startedDate?: string;
   completedDate?: string;
   closedDate?: string;
+  isDealer?: boolean;
+  dealerId?: number;
+  dealerName?: string;
 }
 
 export interface SalesMetrics {

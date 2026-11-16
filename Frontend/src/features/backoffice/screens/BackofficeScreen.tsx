@@ -24,6 +24,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 
@@ -33,6 +34,11 @@ import { useAuthStore } from '../../auth/store/authStore';
 // ── POS Queue screen ──
 import { PosDashboardScreen } from '../../pos/screens/PosDashboardScreen';
 import { PosNavTab } from '../../pos/components/PosSidebar';
+
+// ── Dealer Management Views ──
+import { DealerCreditHistoryView } from '../components/DealerCreditHistoryView';
+import { DealerCreditSettlementView } from '../components/DealerCreditSettlementView';
+import { DealerVehicleHistoryView } from '../components/DealerVehicleHistoryView';
 
 // ── Services & APIs ──
 import {
@@ -133,6 +139,9 @@ const C = {
 type NavId =
   | 'dashboard'
   | 'carwash'
+  | 'dealer-credit'
+  | 'dealer-settlement'
+  | 'dealer-history'
   | 'users'
   | 'settings'
   | 'audit'
@@ -363,28 +372,61 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [cOrder, setCOrder] = useState('1');
   const [cActive, setCActive] = useState(true);
   const [cImage, setCImage] = useState('');
+  const [cIcon, setCIcon] = useState('');
 
-  const handlePickImage = (onSuccess: (base64: string) => void) => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = (e: any) => {
-        const file = e.target?.files?.[0];
-        if (file) {
-          if (file.size > 5 * 1024 * 1024) {
-            showAlert('File Too Large', 'Please select an image smaller than 5MB.');
-            return;
+  const handlePickImage = async (onSuccess: (base64: string) => void) => {
+    try {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = (e: any) => {
+          const file = e.target?.files?.[0];
+          if (file) {
+            if (file.size > 5 * 1024 * 1024) {
+              showAlert('File Too Large', 'Please select an image smaller than 5MB.');
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const base64 = event.target?.result as string;
+              onSuccess(base64);
+            };
+            reader.readAsDataURL(file);
           }
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
-            onSuccess(base64);
-          };
-          reader.readAsDataURL(file);
+        };
+        input.click();
+        return;
+      }
+
+      // Native Android / iOS via expo-image-picker
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        showAlert('Permission Required', 'Please enable photo library access in settings to upload images.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (asset.base64) {
+          const mimeType = asset.mimeType || 'image/jpeg';
+          const fullBase64 = `data:${mimeType};base64,${asset.base64}`;
+          onSuccess(fullBase64);
+        } else if (asset.uri) {
+          onSuccess(asset.uri);
         }
-      };
-      input.click();
+      }
+    } catch (err: any) {
+      console.warn('Failed to pick image:', err);
+      showAlert('Upload Error', err?.message || 'Could not select the chosen image.');
     }
   };
 
@@ -562,6 +604,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
           imageData: cImage || undefined,
+          iconData: cIcon || undefined,
         });
         showAlert('Success', `Category "${cName}" updated.`);
       } else {
@@ -572,6 +615,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
           imageData: cImage || undefined,
+          iconData: cIcon || undefined,
         });
         showAlert('Success', `Category "${cName}" created.`);
       }
@@ -944,10 +988,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       <View style={styles.heroBanner}>
         <View style={styles.heroInner}>
           <View style={{ flex: 1 }}>
-            <View style={styles.badgeRow}>
-              <View style={styles.statusDot} />
-              <Text style={styles.badgeText}>MSSQL CONNECTED · UCSSMOKE</Text>
-            </View>
             <Text style={styles.heroTitle}>Backoffice Operations</Text>
             <Text style={styles.heroSub}>
               Real-time synchronization with CarWashOrder, BayMaster, and SQL Server tables.
@@ -1399,6 +1439,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setCOrder('1');
                 setCActive(true);
                 setCImage('');
+                setCIcon('');
                 setCategoryModalOpen(true);
               }}
             >
@@ -1408,41 +1449,56 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
 
           <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 0.8 }]}>IMAGE</Text>
-            <Text style={[styles.th, { flex: 1.2 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>CATEGORY NAME</Text>
-            <Text style={[styles.th, { flex: 2.2 }]}>DESCRIPTION</Text>
-            <Text style={[styles.th, { flex: 0.8 }]}>ORDER</Text>
-            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>COVER IMAGE</Text>
+            <Text style={[styles.th, { flex: 0.7 }]}>ICON</Text>
+            <Text style={[styles.th, { flex: 1.1 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 1.4 }]}>CATEGORY NAME</Text>
+            <Text style={[styles.th, { flex: 2 }]}>DESCRIPTION</Text>
+            <Text style={[styles.th, { flex: 0.7 }]}>ORDER</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
           </View>
 
           {categories.map((c) => (
             <View key={c.serviceCategoryId} style={styles.tableRow}>
-              <View style={{ flex: 0.8, justifyContent: 'center' }}>
+              <View style={{ flex: 0.9, justifyContent: 'center' }}>
                 {c.imageUrl ? (
                   <Image
                     source={{ uri: c.imageUrl }}
                     style={styles.tableThumb}
+                    resizeMode="cover"
                   />
                 ) : (
                   <View style={styles.tableThumbPlaceholder}>
-                    <Ionicons name="sparkles-outline" size={16} color={C.textMuted} />
+                    <Ionicons name="image-outline" size={16} color={C.textMuted} />
                   </View>
                 )}
               </View>
-              <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '700' }]}>{c.serviceCategoryCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>{c.categoryName}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 2.2 }]}>{c.description || '-'}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 0.8 }]}>{c.displayOrder}</Text>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 0.7, justifyContent: 'center' }}>
+                {c.iconUrl ? (
+                  <Image
+                    source={{ uri: c.iconUrl }}
+                    style={[styles.tableThumb, { width: 32, height: 32, borderRadius: 6 }]}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <View style={[styles.tableThumbPlaceholder, { width: 32, height: 32 }]}>
+                    <Ionicons name="sparkles-outline" size={14} color={C.textMuted} />
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.td, styles.textAccent, { flex: 1.1, fontWeight: '700' }]}>{c.serviceCategoryCode}</Text>
+              <Text style={[styles.td, styles.textWhite, { flex: 1.4, fontWeight: '700' }]}>{c.categoryName}</Text>
+              <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{c.description || '-'}</Text>
+              <Text style={[styles.td, styles.textSec, { flex: 0.7 }]}>{c.displayOrder}</Text>
+              <View style={{ flex: 0.9 }}>
                 <View style={[styles.statusBadge, c.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                   <Text style={[styles.statusBadgeText, c.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                     {c.isActive ? 'Active' : 'Inactive'}
                   </Text>
                 </View>
               </View>
-              <View style={[styles.actionRow, { flex: 1 }]}>
+              <View style={[styles.actionRow, { flex: 0.9 }]}>
                 <Pressable
                   style={styles.btnAction}
                   onPress={() => {
@@ -1453,6 +1509,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setCOrder(String(c.displayOrder));
                     setCActive(c.isActive);
                     setCImage(c.imageUrl || '');
+                    setCIcon(c.iconUrl || '');
                     setCategoryModalOpen(true);
                   }}
                 >
@@ -1497,7 +1554,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <Text style={[styles.th, { flex: 1.5 }]}>CATEGORY</Text>
             <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
             <Text style={[styles.th, { flex: 1.8 }]}>PACKAGE NAME</Text>
-            <Text style={[styles.th, { flex: 1 }]}>PRICE (SGD)</Text>
+            <Text style={[styles.th, { flex: 1 }]}>PRICE ($)</Text>
             <Text style={[styles.th, { flex: 0.8 }]}>GST %</Text>
             <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
@@ -1550,7 +1607,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'BAYS' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Washing Bay Master (dbo.BayMaster)</Text>
+            <Text style={styles.cardHeading}>Washing Bay Master</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -1962,18 +2019,18 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <TextInput style={styles.fieldInput} value={cDesc} onChangeText={setCDesc} />
             </View>
             <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CATEGORY ICON / IMAGE</Text>
+              <Text style={styles.fieldLabel}>CATEGORY COVER / HERO IMAGE</Text>
               <View style={styles.uploadRow}>
                 {cImage ? (
                   <View style={styles.previewBox}>
-                    <Image source={{ uri: cImage }} style={styles.previewImg} />
+                    <Image source={{ uri: cImage }} style={styles.previewImg} resizeMode="cover" />
                     <Pressable style={styles.previewRemoveBtn} onPress={() => setCImage('')}>
                       <Ionicons name="trash" size={12} color="#EF4444" />
                     </Pressable>
                   </View>
                 ) : (
                   <View style={styles.previewBoxPlaceholder}>
-                    <Ionicons name="sparkles-outline" size={24} color={C.textMuted} />
+                    <Ionicons name="image-outline" size={24} color={C.textMuted} />
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
@@ -1982,9 +2039,37 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     onPress={() => handlePickImage((base64) => setCImage(base64))}
                   >
                     <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
-                    <Text style={styles.btnUploadText}>{cImage ? 'Change Image' : 'Upload Image'}</Text>
+                    <Text style={styles.btnUploadText}>{cImage ? 'Change Cover Image' : 'Upload Cover Image'}</Text>
                   </Pressable>
-                  <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL)</Text>
+                  <Text style={styles.uploadHint}>Top banner image displayed on Kiosk category card</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>CATEGORY EMBLEM / ICON</Text>
+              <View style={styles.uploadRow}>
+                {cIcon ? (
+                  <View style={[styles.previewBox, { width: 56, height: 56, borderRadius: 12 }]}>
+                    <Image source={{ uri: cIcon }} style={[styles.previewImg, { width: 44, height: 44 }]} resizeMode="contain" />
+                    <Pressable style={styles.previewRemoveBtn} onPress={() => setCIcon('')}>
+                      <Ionicons name="trash" size={12} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={[styles.previewBoxPlaceholder, { width: 56, height: 56, borderRadius: 12 }]}>
+                    <Ionicons name="sparkles-outline" size={22} color={C.textMuted} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Pressable
+                    style={styles.btnUpload}
+                    onPress={() => handlePickImage((base64) => setCIcon(base64))}
+                  >
+                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                    <Text style={styles.btnUploadText}>{cIcon ? 'Change Icon' : 'Upload Icon'}</Text>
+                  </Pressable>
+                  <Text style={styles.uploadHint}>Emblem badge icon shown inside the category badge</Text>
                 </View>
               </View>
             </View>
@@ -2032,7 +2117,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </View>
             <View style={styles.formRow}>
               <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>PRICE (SGD) *</Text>
+                <Text style={styles.fieldLabel}>PRICE ($) *</Text>
                 <TextInput style={styles.fieldInput} value={pPrice} onChangeText={setPPrice} keyboardType="numeric" />
               </View>
               <View style={[styles.formGroup, { flex: 1 }]}>
@@ -2359,7 +2444,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
       <View style={styles.glassCard}>
         <Text style={styles.cardHeading}>Export Car Wash Orders to CSV</Text>
-        <Text style={styles.cardSubhead}>Direct query extraction from dbo.CarWashOrder</Text>
+        <Text style={styles.cardSubhead}>Export complete order records and transactions</Text>
 
         <View style={{ marginTop: 24, gap: 16 }}>
           <View style={styles.exportTile}>
@@ -2485,6 +2570,12 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             />
           </View>
         );
+      case 'dealer-credit':
+        return <DealerCreditHistoryView />;
+      case 'dealer-settlement':
+        return <DealerCreditSettlementView />;
+      case 'dealer-history':
+        return <DealerVehicleHistoryView />;
       case 'users':
         return renderUsers();
       case 'settings':
@@ -2545,6 +2636,29 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <Text style={styles.navBadgeText}>Live</Text>
           </View>
         </Pressable>
+
+        {/* Navigation Group: DEALER CREDIT */}
+        <Text style={styles.navGroupLabel}>DEALER CREDIT</Text>
+        {[
+          { id: 'dealer-credit', icon: 'card-outline', label: 'Credit History' },
+          { id: 'dealer-settlement', icon: 'cash-outline', label: 'Credit Settlement' },
+          { id: 'dealer-history', icon: 'car-outline', label: 'Fleet & Visits' },
+        ].map((item) => {
+          const active = activeNav === item.id;
+          return (
+            <Pressable
+              key={item.id}
+              style={[styles.navItem, active && styles.navItemActive]}
+              onPress={() => navigateTo(item.id as NavId)}
+            >
+              {active && <View style={styles.navActiveLine} />}
+              <View style={[styles.navIconBox, active && styles.navIconBoxActive]}>
+                <Ionicons name={item.icon as any} size={17} color={active ? C.white : C.textSec} />
+              </View>
+              <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
 
         {/* Navigation Group: SYSTEM */}
         <Text style={styles.navGroupLabel}>SYSTEM</Text>
@@ -2618,17 +2732,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               </View>
               <Text style={styles.topbarTitle}>RedBay Backoffice</Text>
               <View style={styles.topbarSep} />
-              <Text style={styles.topbarPageName}>{activeNav.toUpperCase()}</Text>
+              <Text style={styles.topbarPageName}>{activeNav.replace('-', ' ').toUpperCase()}</Text>
               <ScreenNameBadge name="BackofficeScreen.tsx" variant="dark" style={{ marginLeft: 8 }} />
             </>
           )}
         </View>
 
         <View style={styles.topbarRight}>
-          <View style={styles.systemStatusChip}>
-            <View style={styles.systemStatusDot} />
-            <Text style={styles.systemStatusText}>MSSQL Online</Text>
-          </View>
           <View style={styles.adminBadge}>
             <Ionicons name="person-outline" size={13} color={C.accent} />
             <Text style={styles.adminBadgeText}>{loggedInUser?.userName || 'Admin'}</Text>

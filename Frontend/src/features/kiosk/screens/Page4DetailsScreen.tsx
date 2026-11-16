@@ -7,7 +7,8 @@ import {
   StyleSheet, 
   ScrollView,
   Platform,
-  Image 
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
@@ -40,6 +41,9 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   onBack,
   onExitToPos,
 }) => {
+  const { width } = useWindowDimensions();
+  const isWideTablet = width >= 800;
+
   const [customerName, setCustomerName] = useState(initialDetails?.customerName || '');
   const [mobileNumber, setMobileNumber] = useState(initialDetails?.mobileNumber || '');
   const [vehicleNumber, setVehicleNumber] = useState(initialDetails?.vehicleNumber === 'WALK-IN' ? '' : (initialDetails?.vehicleNumber || ''));
@@ -54,11 +58,11 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   const hasPlate = vehicleNumber.trim().length > 0;
 
   // Validation errors (for non-dealer flow)
-  const nameError = hasAttemptedSubmit && !isNameValid
+  const nameError = !isDealer && hasAttemptedSubmit && !isNameValid
     ? (customerName.trim().length === 0 ? 'Customer name is required' : 'Please enter a valid name (min 2 characters)')
     : null;
 
-  const mobileError = hasAttemptedSubmit && !isMobileValid
+  const mobileError = !isDealer && hasAttemptedSubmit && !isMobileValid
     ? (cleanMobile.length === 0 ? 'Mobile number is required' : 'Please enter a valid 8-digit mobile number')
     : null;
 
@@ -123,7 +127,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   };
 
   const priceFormatted = selectedPackage 
-    ? `${selectedPackage.currencyCode || 'SGD'} $${selectedPackage.price.toFixed(2)}`
+    ? `$${selectedPackage.price.toFixed(2)}`
     : '';
 
   const vehicleImgSource = getVehicleImageSource(selectedVehicle);
@@ -132,7 +136,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
     <View style={styles.container}>
       {/* Top Center Logo & Header */}
       <KioskTopHeader
-        subtitle={isDealer ? "DEALER STEP 5: VEHICLE & CONTACT" : "STEP 4 OF 5: CUSTOMER DETAILS"}
+        subtitle={isDealer ? "DEALER STEP 5: VEHICLE & CONTACT (OPTIONAL)" : "STEP 4 OF 5: CUSTOMER DETAILS"}
         screenName="Page4DetailsScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
@@ -142,7 +146,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
       {/* Main Title & Prompt Header */}
       <View style={styles.promptHeader}>
         <Text style={styles.mainTitle}>
-          {isDealer ? "Vehicle & Driver Details" : "Customer & Contact Details"}
+          {isDealer ? "Vehicle & Driver Details (Optional)" : "Customer & Contact Details"}
         </Text>
         <View style={styles.titleUnderlineAccent} />
       </View>
@@ -153,9 +157,9 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
+        <View style={[styles.portraitContainer, isWideTablet && { maxWidth: 880, flexDirection: 'row', alignItems: 'flex-start' }]}>
           {/* ================= DETAILS FORM CARD ================= */}
-          <View style={styles.formCard}>
+          <View style={[styles.formCard, isWideTablet && { flex: 1.2 }]}>
             <View style={styles.formAccentStrip} />
 
             {/* Dealer Fast-Track Banner */}
@@ -164,9 +168,9 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 <View style={styles.dealerSkipLeft}>
                   <Text style={styles.dealerSkipIcon}>⚡</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.dealerSkipTitle}>Dealer Fast-Track Available</Text>
+                    <Text style={styles.dealerSkipTitle}>Dealer Account Billing</Text>
                     <Text style={styles.dealerSkipSubtitle}>
-                      Skip entering details to use {dealer?.name || 'Dealer'} billing profile.
+                      {dealer ? `${dealer.name} account • ` : ''}All driver & contact fields are completely optional.
                     </Text>
                   </View>
                 </View>
@@ -184,36 +188,54 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderLeft}>
                 <View style={styles.sectionIconBadge}>
-                  <Ionicons name="id-card-outline" size={20} color={RED_BAY_COLORS.primary} />
+                  <Ionicons name={isDealer ? "business-outline" : "id-card-outline"} size={20} color={RED_BAY_COLORS.primary} />
                 </View>
                 <View>
-                  <Text style={styles.cardSectionTitle}>Vehicle & Contact Details</Text>
-                  <Text style={styles.cardSectionSubtitle}>Quick verification for wash queue</Text>
+                  <Text style={styles.cardSectionTitle}>
+                    {isDealer ? "Dealer Fleet & Driver Details" : "Vehicle & Contact Details"}
+                  </Text>
+                  <Text style={styles.cardSectionSubtitle}>
+                    {isDealer ? "All details below are optional for commercial billing" : "Quick verification for wash queue"}
+                  </Text>
                 </View>
               </View>
-              <View style={styles.secureBadge}>
-                <Ionicons name="shield-checkmark" size={12} color="#16A34A" />
-                <Text style={styles.secureBadgeText}>Fast Checkout</Text>
+              <View style={[styles.secureBadge, isDealer && { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                <Ionicons name="shield-checkmark" size={12} color={isDealer ? "#D97706" : "#16A34A"} />
+                <Text style={[styles.secureBadgeText, isDealer && { color: '#B45309' }]}>
+                  {isDealer ? "Account Credit" : "Fast Checkout"}
+                </Text>
               </View>
             </View>
 
-            {/* 1. Customer Name (REQUIRED) */}
+            {/* 1. Customer Name (Optional for Dealer) */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
                   <Text style={styles.fieldLabel}>
-                    {isDealer ? "Driver Name" : "Customer Name"}
+                    {isDealer ? "Driver / Contact Name" : "Customer Name"}
                   </Text>
-                  <Text style={styles.requiredAsterisk}>*</Text>
+                  {!isDealer ? (
+                    <Text style={styles.requiredAsterisk}>*</Text>
+                  ) : (
+                    <Text style={styles.fieldOptionalHint}>(Optional)</Text>
+                  )}
                 </View>
-                <View style={[styles.badgePill, isNameValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired)]}>
+                <View style={[
+                  styles.badgePill, 
+                  isDealer 
+                    ? (isNameValid ? styles.badgePillSuccess : styles.badgePillOptional)
+                    : (isNameValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired))
+                ]}>
                   <Ionicons 
-                    name={isNameValid ? "checkmark-circle" : (hasAttemptedSubmit ? "alert-circle" : "ellipse")} 
+                    name={isNameValid ? "checkmark-circle" : (isDealer ? "information-circle-outline" : (hasAttemptedSubmit ? "alert-circle" : "ellipse"))} 
                     size={11} 
-                    color={isNameValid ? "#16A34A" : "#DC2626"} 
+                    color={isNameValid ? "#16A34A" : (isDealer ? "#64748B" : "#DC2626")} 
                   />
-                  <Text style={[styles.badgeText, isNameValid ? styles.badgeTextSuccess : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired)]}>
-                    {isNameValid ? 'Done' : 'Required'}
+                  <Text style={[
+                    styles.badgeText, 
+                    isNameValid ? styles.badgeTextSuccess : (isDealer ? styles.badgeTextOptional : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired))
+                  ]}>
+                    {isNameValid ? 'Done' : (isDealer ? 'Optional' : 'Required')}
                   </Text>
                 </View>
               </View>
@@ -236,7 +258,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                     setCustomerName(text);
                     if (hasAttemptedSubmit) setHasAttemptedSubmit(false);
                   }}
-                  placeholder={isDealer ? "Driver name (required)" : "Enter customer name"}
+                  placeholder={isDealer ? "Enter driver / contact name (optional)" : "Enter customer name"}
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="words"
                 />
@@ -254,21 +276,33 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
               )}
             </View>
 
-            {/* 2. Singapore Mobile Number (REQUIRED) */}
+            {/* 2. Singapore Mobile Number (Optional for Dealer) */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
                   <Text style={styles.fieldLabel}>Mobile Number</Text>
-                  <Text style={styles.requiredAsterisk}>*</Text>
+                  {!isDealer ? (
+                    <Text style={styles.requiredAsterisk}>*</Text>
+                  ) : (
+                    <Text style={styles.fieldOptionalHint}>(Optional)</Text>
+                  )}
                 </View>
-                <View style={[styles.badgePill, isMobileValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired)]}>
+                <View style={[
+                  styles.badgePill, 
+                  isDealer 
+                    ? (isMobileValid ? styles.badgePillSuccess : styles.badgePillOptional)
+                    : (isMobileValid ? styles.badgePillSuccess : (hasAttemptedSubmit ? styles.badgePillError : styles.badgePillRequired))
+                ]}>
                   <Ionicons 
-                    name={isMobileValid ? "checkmark-circle" : (hasAttemptedSubmit ? "alert-circle" : "ellipse")} 
+                    name={isMobileValid ? "checkmark-circle" : (isDealer ? "information-circle-outline" : (hasAttemptedSubmit ? "alert-circle" : "ellipse"))} 
                     size={11} 
-                    color={isMobileValid ? "#16A34A" : "#DC2626"} 
+                    color={isMobileValid ? "#16A34A" : (isDealer ? "#64748B" : "#DC2626")} 
                   />
-                  <Text style={[styles.badgeText, isMobileValid ? styles.badgeTextSuccess : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired)]}>
-                    {isMobileValid ? 'Done' : 'Required'}
+                  <Text style={[
+                    styles.badgeText, 
+                    isMobileValid ? styles.badgeTextSuccess : (isDealer ? styles.badgeTextOptional : (hasAttemptedSubmit ? styles.badgeTextError : styles.badgeTextRequired))
+                  ]}>
+                    {isMobileValid ? 'Done' : (isDealer ? 'Optional' : 'Required')}
                   </Text>
                 </View>
               </View>
@@ -291,7 +325,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                     setMobileNumber(text);
                     if (hasAttemptedSubmit) setHasAttemptedSubmit(false);
                   }}
-                  placeholder="Enter mobile number"
+                  placeholder={isDealer ? "Enter mobile number (optional)" : "Enter mobile number"}
                   placeholderTextColor="#94A3B8"
                   keyboardType="phone-pad"
                   maxLength={15}
@@ -361,8 +395,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             </View>
           </View>
 
-          {/* ================= ORDER SUMMARY CARD (STACKED IN PORTRAIT) ================= */}
-          <View style={styles.summaryCard}>
+          {/* ================= ORDER SUMMARY CARD (STACKED IN PORTRAIT / SIDE-BY-SIDE IN TABLET) ================= */}
+          <View style={[styles.summaryCard, isWideTablet && { flex: 1 }]}>
             <View style={styles.summaryTopStrip} />
 
             <View style={styles.summaryHeaderRow}>
@@ -439,7 +473,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
           isSubmitting
             ? 'Processing Order...'
             : isDealer
-              ? 'CONTINUE TO CREDIT SUMMARY'
+              ? 'Confirm Dealer Order (Account Credit)'
               : selectedPackage
                 ? `Proceed to Payment (${priceFormatted})`
                 : 'Proceed to Payment'

@@ -11,6 +11,7 @@ import {
   Platform,
   ActivityIndicator,
   useWindowDimensions,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { loginUser } from '../../../services/authApi';
@@ -81,12 +82,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const { width, height } = useWindowDimensions();
   const isWide = width >= 900;
 
-  // shrink the right side so it always fits the window: no scrolling
+  // Responsive scale and width calculation
   const rightWidth = isWide ? width * 0.35 : width;
-  const scale = Math.max(
-    0.5,
-    Math.min(1, (height - 48) / RIGHT_H, (rightWidth - 24) / RIGHT_W),
-  );
+  const isLandscapeCompact = !isWide && height < 520;
+  const scale = isWide
+    ? Math.max(0.65, Math.min(1, (height - 48) / RIGHT_H, (rightWidth - 24) / RIGHT_W))
+    : Math.max(0.85, Math.min(1, (rightWidth - 24) / RIGHT_W));
   const shiftX = isWide ? -Math.round(width * SHIFT_LEFT) : 0;
 
   const [username, setUsername] = useState('');
@@ -211,22 +212,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </View>
           )}
 
-          {/* ================= RIGHT 35% (fixed, no scroll) ================= */}
-          <View style={[styles.right, { width: isWide ? '35%' : '100%' }]}>
+          {/* ================= RIGHT 35% (responsive scrollable) ================= */}
+          <ScrollView
+            style={{ width: isWide ? '35%' : '100%', height: '100%' }}
+            contentContainerStyle={styles.rightScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
             <View
               style={[
                 styles.rightInner,
-                { transform: [{ translateX: shiftX }, { scale }] },
+                isWide && { transform: [{ translateX: shiftX }, { scale }] },
               ]}
             >
-              <View style={styles.card}>
+              <View style={[styles.card, isLandscapeCompact && { paddingVertical: 14, paddingHorizontal: 18 }]}>
                 <ScreenNameBadge name="LoginScreen.tsx" variant="dark" style={{ alignSelf: 'flex-start', marginBottom: 14 }} />
-                <Text style={styles.title}>Sign In</Text>
-                <Text style={styles.subtitle}>Enter your credentials to continue</Text>
+                <Text style={[styles.title, isLandscapeCompact && { fontSize: 24 }]}>Sign In</Text>
+                <Text style={[styles.subtitle, isLandscapeCompact && { marginBottom: 10, fontSize: 12 }]}>Enter your credentials to continue</Text>
 
                 {/* USER ID */}
                 <Text style={styles.label}>USER ID</Text>
-                <View style={styles.field}>
+                <View style={[styles.field, isLandscapeCompact && { height: 44 }]}>
                   <Ionicons name="person-outline" size={20} color="rgba(255, 255, 255, 0.75)" />
                   <TextInput
                     style={styles.input}
@@ -241,8 +247,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 </View>
 
                 {/* PASSWORD */}
-                <Text style={[styles.label, { marginTop: 14 }]}>PASSWORD</Text>
-                <View style={styles.field}>
+                <Text style={[styles.label, { marginTop: isLandscapeCompact ? 8 : 14 }]}>PASSWORD</Text>
+                <View style={[styles.field, isLandscapeCompact && { height: 44 }]}>
                   <Ionicons name="lock-closed-outline" size={20} color="rgba(255, 255, 255, 0.75)" />
                   <TextInput
                     style={styles.input}
@@ -271,7 +277,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
                 {/* Remember me */}
                 <Pressable
-                  style={styles.rememberRow}
+                  style={[styles.rememberRow, isLandscapeCompact && { marginVertical: 8 }]}
                   onPress={() => setRemember((r) => !r)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: remember }}
@@ -290,6 +296,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   disabled={loading}
                   style={({ pressed }) => [
                     styles.button,
+                    isLandscapeCompact && { height: 44 },
                     pressed && { opacity: 0.85 },
                     loading && { opacity: 0.7 },
                   ]}
@@ -304,32 +311,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   )}
                 </Pressable>
 
-                {onQuickSwitchToKiosk && (
-                  <Pressable
-                    onPress={onQuickSwitchToKiosk}
-                    style={{
-                      marginTop: 12,
-                      paddingVertical: 10,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 12,
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.25)',
-                    }}
-                  >
-                    <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                      🖥️ Switch to Customer Kiosk ›
-                    </Text>
-                  </Pressable>
-                )}
-
                 <Text style={styles.footer}>
                   © 2026 Unipro Softwares SG. All Rights Reserved.
                 </Text>
               </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </ImageBackground>
     </View>
@@ -399,7 +386,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center', // vertical centre
     alignItems: 'center', // horizontal centre
   },
-  rightInner: { width: RIGHT_W, alignItems: 'center' },
+  rightScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+  },
+  rightInner: { width: RIGHT_W, maxWidth: '100%', alignItems: 'center' },
 
   /* card: dark red glass */
   card: {

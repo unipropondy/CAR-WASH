@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Modal, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { IconSearch, IconMenu, IconBell } from '../../../components/common/AppIcons';
 import { DayStatusIndicator } from '../../dayManagement/components/DayStatusIndicator';
@@ -8,101 +8,150 @@ import { makeShadow } from '../../../theme/shadows';
 
 interface PosTopNavbarProps {
   pageTitle?: string;
+  pageSubtitle?: string;
   screenName?: string;
   onSearch?: (query: string) => void;
+  showSearch?: boolean;
+  showDayStatus?: boolean;
   onToggleSidebar?: () => void;
   cashierName?: string;
   onLogout?: () => void;
   onPressNotification?: () => void;
   unreadCount?: number;
   onPressDayManagement?: () => void;
+  rightCustomActions?: React.ReactNode;
+  categoryBadge?: string;
+  onBack?: () => void;
 }
 
 export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
-  pageTitle = 'Orders',
+  pageTitle = "Today's orders",
+  pageSubtitle,
   screenName,
   onSearch,
+  showSearch = true,
+  showDayStatus = false,
   onToggleSidebar,
   cashierName = 'Cashier',
   onLogout,
   onPressNotification,
   unreadCount = 0,
   onPressDayManagement,
+  rightCustomActions,
+  categoryBadge,
+  onBack,
 }) => {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+  const isVeryNarrow = width < 480;
+
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   return (
-    <View style={styles.navbarContainer}>
-      {/* Left side: Menu Button, Orders Title, and Search Input */}
+    <View style={[styles.navbarContainer, isMobile && styles.navbarContainerMobile]}>
+      {/* Left side: Menu Button / Back Button, Orders Title, and Search Input */}
       <View style={styles.leftSection}>
-        {/* Menu Icon Button replacing W logo */}
-        <TouchableOpacity
-          style={styles.menuBtn}
-          onPress={onToggleSidebar}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Toggle side menu"
-        >
-          <IconMenu size={20} color="#FFFFFF" strokeWidth={2.4} />
-        </TouchableOpacity>
+        {onBack ? (
+          <TouchableOpacity
+            style={styles.backBtnSquare}
+            onPress={onBack}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={20} color="#0F172A" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.menuBtn}
+            onPress={onToggleSidebar}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle side menu"
+          >
+            <IconMenu size={20} color="#FFFFFF" strokeWidth={2.4} />
+          </TouchableOpacity>
+        )}
 
-        {/* Title */}
-        <Text style={styles.pageTitle}>{pageTitle}</Text>
+        {/* Title & Subtitle matching reference */}
+        <View style={styles.titleContainer}>
+          {categoryBadge ? (
+            <Text style={styles.categoryBadgeText}>{categoryBadge}</Text>
+          ) : null}
+          <Text style={[styles.pageTitle, isMobile && styles.pageTitleMobile]}>
+            {isVeryNarrow && pageTitle.length > 14 ? pageTitle.slice(0, 12) + '..' : pageTitle}
+          </Text>
+          {pageSubtitle && !isVeryNarrow ? (
+            <Text style={[styles.pageSubtitle, isMobile && styles.pageSubtitleMobile]}>
+              {pageSubtitle}
+            </Text>
+          ) : null}
+        </View>
 
-        {screenName && (
+        {screenName && !isMobile && (
           <ScreenNameBadge name={screenName} variant="light" style={{ marginLeft: 10 }} />
         )}
 
         {/* Rounded Search Input matching screenshot */}
-        <View style={styles.searchBox}>
-          <View style={{ marginRight: 10 }}>
-            <IconSearch size={15} color="#94A3B8" strokeWidth={2.2} />
+        {!isVeryNarrow && showSearch && (
+          <View style={[styles.searchBox, isMobile && styles.searchBoxMobile]}>
+            <View style={{ marginRight: 6 }}>
+              <IconSearch size={14} color="#94A3B8" strokeWidth={2.2} />
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={isMobile ? "Search..." : "Search order, customer or plate"}
+              placeholderTextColor="#94A3B8"
+              onChangeText={onSearch}
+            />
           </View>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search order, customer or plate"
-            placeholderTextColor="#94A3B8"
-            onChangeText={onSearch}
-          />
-        </View>
+        )}
       </View>
 
-      {/* Right side: Day status, Notification button & Cashier profile */}
-      <View style={styles.rightSection}>
-        {/* Global Business Day Status Indicator */}
-        <DayStatusIndicator onPress={onPressDayManagement} />
+      {/* Right side: Day status, Notification button & Cashier profile OR Custom Actions */}
+      <View style={[styles.rightSection, isMobile && { gap: 8 }]}>
+        {rightCustomActions ? (
+          rightCustomActions
+        ) : (
+          <>
+            {/* Global Business Day Status Indicator - Dashboard only */}
+            {showDayStatus && (
+              <DayStatusIndicator onPress={onPressDayManagement} compact={isMobile} />
+            )}
 
-        {/* Notification Button */}
-        <TouchableOpacity
-          style={styles.notificationBtn}
-          onPress={onPressNotification}
-          activeOpacity={0.75}
-          accessibilityRole="button"
-          accessibilityLabel="Notifications"
-        >
-          <IconBell size={19} color="#334155" strokeWidth={2.2} />
-          {unreadCount > 0 && (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+            {/* Notification Button */}
+            <TouchableOpacity
+              style={styles.notificationBtn}
+              onPress={onPressNotification}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+            >
+              <IconBell size={19} color="#334155" strokeWidth={2.2} />
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-        {/* Cashier avatar CS + Cashier label */}
-        <TouchableOpacity
-          style={styles.cashierProfile}
-          activeOpacity={0.75}
-          onPress={() => setShowLogoutModal(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Cashier profile / logout"
-        >
-          <View style={styles.cashierAvatar}>
-            <Text style={styles.cashierAvatarText}>CS</Text>
-          </View>
-          <Text style={styles.cashierLabel}>{cashierName}</Text>
-        </TouchableOpacity>
+            {/* Cashier avatar CS + Cashier label */}
+            <TouchableOpacity
+              style={styles.cashierProfile}
+              activeOpacity={0.75}
+              onPress={() => setShowLogoutModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Cashier profile / logout"
+            >
+              <View style={styles.cashierAvatar}>
+                <Text style={styles.cashierAvatarText}>CS</Text>
+              </View>
+              {!isMobile && <Text style={styles.cashierLabel}>{cashierName}</Text>}
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Logout Confirmation Modal */}
@@ -190,20 +239,27 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
 
 const styles = StyleSheet.create({
   navbarContainer: {
-    height: 64,
+    minHeight: 66,
+    height: 66,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     width: '100%',
     zIndex: 10,
   },
+  navbarContainerMobile: {
+    minHeight: 58,
+    height: 58,
+    paddingHorizontal: 12,
+  },
   leftSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
   },
   menuBtn: {
     width: 38,
@@ -214,12 +270,48 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
-  pageTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
+  backBtnSquare: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  titleContainer: {
     marginLeft: 14,
+    justifyContent: 'center',
+  },
+  categoryBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#E60012',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.5,
     fontFamily: 'system-ui, -apple-system, sans-serif',
+  },
+  pageTitleMobile: {
+    fontSize: 16,
+  },
+  pageSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 1,
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+  },
+  pageSubtitleMobile: {
+    fontSize: 10,
   },
   searchBox: {
     flexDirection: 'row',
@@ -232,6 +324,14 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     marginLeft: 24,
     width: 340,
+    maxWidth: 340,
+  },
+  searchBoxMobile: {
+    marginLeft: 8,
+    width: 140,
+    maxWidth: 140,
+    height: 36,
+    paddingHorizontal: 8,
   },
   searchInput: {
     flex: 1,

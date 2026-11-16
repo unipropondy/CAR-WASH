@@ -51,6 +51,22 @@ const CATEGORY_SVGS = {
 `.trim(),
 };
 
+let iconColumnsChecked = false;
+async function ensureIconColumns(pool) {
+  if (iconColumnsChecked) return;
+  try {
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.ServiceCategoryMaster') AND name = 'IconData')
+      BEGIN
+        ALTER TABLE dbo.ServiceCategoryMaster ADD IconData VARBINARY(MAX) NULL, IconContentType NVARCHAR(200) NULL;
+      END
+    `);
+    iconColumnsChecked = true;
+  } catch (err) {
+    console.warn('[ensureIconColumns warning]', err.message);
+  }
+}
+
 /**
  * 1. GET /api/service-categories or /api/categories
  * Retrieve categories from ServiceCategoryMaster
@@ -62,6 +78,7 @@ async function getServiceCategories(req, res) {
     const includeAll = all === 'true' || all === '1';
 
     const pool = await getPool();
+    await ensureIconColumns(pool);
     const request = pool.request();
 
     let query = `
@@ -72,6 +89,8 @@ async function getServiceCategories(req, res) {
         Description,
         ImageData,
         ImageContentType,
+        IconData,
+        IconContentType,
         DisplayOrder,
         IsActive,
         CreatedDate
@@ -113,6 +132,18 @@ async function getServiceCategories(req, res) {
         imageUrl = `${baseUrl}/api/service-categories/${row.ServiceCategoryId}/image`;
       }
 
+      let iconUrl = null;
+      const hasIcon = Boolean(row.IconData && row.IconData.length > 0);
+      if (hasIcon) {
+        const iconMime = row.IconContentType || 'image/png';
+        const iconBase64 = Buffer.isBuffer(row.IconData)
+          ? row.IconData.toString('base64')
+          : Buffer.from(row.IconData).toString('base64');
+        iconUrl = `data:${iconMime};base64,${iconBase64}`;
+      } else {
+        iconUrl = `${baseUrl}/api/service-categories/${row.ServiceCategoryId}/icon`;
+      }
+
       return {
         serviceCategoryId: row.ServiceCategoryId,
         serviceCategoryCode: (row.ServiceCategoryCode || '').trim(),
@@ -124,6 +155,9 @@ async function getServiceCategories(req, res) {
         imageContentType: row.ImageContentType,
         imageUrl,
         hasImage,
+        iconContentType: row.IconContentType,
+        iconUrl,
+        hasIcon,
       };
     });
 
@@ -188,6 +222,52 @@ async function getCategoryImage(req, res) {
 }
 
 /**
+ * 2b. GET /api/service-categories/:id/icon
+ * Stream raw binary IconData or tailored SVG placeholder
+ */
+async function getCategoryIcon(req, res) {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (isNaN(categoryId)) {
+      return res.status(400).send('Invalid Category ID');
+    }
+
+    const pool = await getPool();
+    await ensureIconColumns(pool);
+    const request = pool.request();
+    request.input('id', sql.Int, categoryId);
+
+    const result = await request.query(`
+      SELECT ServiceCategoryCode, IconData, IconContentType
+      FROM dbo.ServiceCategoryMaster
+      WHERE ServiceCategoryId = @id
+    `);
+
+    if (!result.recordset || result.recordset.length === 0) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.send(CATEGORY_SVGS.DEFAULT);
+    }
+
+    const row = result.recordset[0];
+
+    if (!row.IconData || row.IconData.length === 0) {
+      const svg = CATEGORY_SVGS[row.ServiceCategoryCode] || CATEGORY_SVGS.DEFAULT;
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.send(svg);
+    }
+
+    const contentType = row.IconContentType || 'image/png';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(row.IconData);
+  } catch (err) {
+    console.error('[getCategoryIcon Error]', err);
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.send(CATEGORY_SVGS.DEFAULT);
+  }
+}
+
+/**
  * 3. POST /api/service-categories
  * Create new service category
  */
@@ -200,6 +280,7 @@ async function createServiceCategory(req, res) {
       displayOrder = 1,
       isActive = true,
       imageData,
+      iconData,
     } = req.body || {};
 
     if (!serviceCategoryCode || !serviceCategoryCode.trim()) {
@@ -210,6 +291,7 @@ async function createServiceCategory(req, res) {
     }
 
     const pool = await getPool();
+    await ensureIconColumns(pool);
 
     // Check duplicate code
     const dupCheck = pool.request();
@@ -239,6 +321,21 @@ async function createServiceCategory(req, res) {
       }
     }
 
+    let iconBuffer = null;
+    let iconContentType = null;
+    if (iconData && typeof iconData === 'string') {
+      if (iconData.startsWith('data:')) {
+        const match = iconData.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          iconContentType = match[1];
+          iconBuffer = Buffer.from(match[2], 'base64');
+        }
+      } else {
+        iconContentType = 'image/png';
+        iconBuffer = Buffer.from(iconData, 'base64');
+      }
+    }
+
     const insertReq = pool.request();
     insertReq.input('code', sql.NVarChar(50), serviceCategoryCode.trim().toUpperCase());
     insertReq.input('name', sql.NVarChar(150), categoryName.trim());
@@ -247,6 +344,8 @@ async function createServiceCategory(req, res) {
     insertReq.input('active', sql.Bit, isActive ? 1 : 0);
     insertReq.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
     insertReq.input('imgContentType', sql.NVarChar(100), imgContentType);
+    insertReq.input('iconData', sql.VarBinary(sql.MAX), iconBuffer);
+    insertReq.input('iconContentType', sql.NVarChar(100), iconContentType);
 
     const result = await insertReq.query(`
       INSERT INTO dbo.ServiceCategoryMaster (
@@ -257,6 +356,8 @@ async function createServiceCategory(req, res) {
         IsActive,
         ImageData,
         ImageContentType,
+        IconData,
+        IconContentType,
         CreatedDate
       )
       OUTPUT INSERTED.ServiceCategoryId, INSERTED.ServiceCategoryCode, INSERTED.CategoryName, INSERTED.Description, INSERTED.DisplayOrder, INSERTED.IsActive, INSERTED.CreatedDate
@@ -268,6 +369,8 @@ async function createServiceCategory(req, res) {
         @active,
         @imgData,
         @imgContentType,
+        @iconData,
+        @iconContentType,
         GETDATE()
       );
     `);
@@ -305,9 +408,11 @@ async function updateServiceCategory(req, res) {
       displayOrder,
       isActive,
       imageData,
+      iconData,
     } = req.body || {};
 
     const pool = await getPool();
+    await ensureIconColumns(pool);
     const reqDb = pool.request();
     reqDb.input('id', sql.Int, categoryId);
 
@@ -352,6 +457,27 @@ async function updateServiceCategory(req, res) {
         updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
       } else if (imageData === null || imageData === '') {
         updates.push(`ImageData = NULL, ImageContentType = NULL`);
+      }
+    }
+    if (iconData !== undefined) {
+      if (iconData && typeof iconData === 'string') {
+        let iconBuffer = null;
+        let iconContentType = null;
+        if (iconData.startsWith('data:')) {
+          const match = iconData.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            iconContentType = match[1];
+            iconBuffer = Buffer.from(match[2], 'base64');
+          }
+        } else {
+          iconContentType = 'image/png';
+          iconBuffer = Buffer.from(iconData, 'base64');
+        }
+        reqDb.input('iconData', sql.VarBinary(sql.MAX), iconBuffer);
+        reqDb.input('iconContentType', sql.NVarChar(100), iconContentType);
+        updates.push(`IconData = @iconData, IconContentType = @iconContentType`);
+      } else if (iconData === null || iconData === '') {
+        updates.push(`IconData = NULL, IconContentType = NULL`);
       }
     }
 
@@ -437,6 +563,7 @@ async function deleteServiceCategory(req, res) {
 module.exports = {
   getServiceCategories,
   getCategoryImage,
+  getCategoryIcon,
   createServiceCategory,
   updateServiceCategory,
   deleteServiceCategory,

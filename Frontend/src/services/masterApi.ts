@@ -84,7 +84,11 @@ export interface ServiceCategoryRecord {
   isActive: boolean;
   createdDate?: string;
   imageUrl?: string;
+  imageContentType?: string;
   hasImage?: boolean;
+  iconUrl?: string;
+  iconContentType?: string;
+  hasIcon?: boolean;
 }
 
 export async function fetchAllServiceCategories(includeAll: boolean = true, search?: string): Promise<ServiceCategoryRecord[]> {
@@ -108,6 +112,7 @@ export async function createServiceCategory(payload: {
   displayOrder?: number;
   isActive?: boolean;
   imageData?: string;
+  iconData?: string;
 }): Promise<ServiceCategoryRecord> {
   const res = await apiFetch('/api/service-categories', {
     method: 'POST',
@@ -123,7 +128,7 @@ export async function createServiceCategory(payload: {
 
 export async function updateServiceCategory(
   id: number,
-  payload: Partial<ServiceCategoryRecord> & { imageData?: string }
+  payload: Partial<ServiceCategoryRecord> & { imageData?: string; iconData?: string }
 ): Promise<ServiceCategoryRecord> {
   const res = await apiFetch(`/api/service-categories/${id}`, {
     method: 'PUT',

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, StatusBar, StyleSheet, Platform } from 'react-native';
+import { View, StatusBar, StyleSheet, Platform, BackHandler } from 'react-native';
 import { 
   BrowserRouter, 
   MemoryRouter, 
@@ -16,6 +16,7 @@ import { BackofficeScreen } from '../features/backoffice/screens/BackofficeScree
 import { useAuthStore } from '../features/auth/store/authStore';
 import { PosNavTab } from '../features/pos/components/PosSidebar';
 import { KioskPage, KioskUserType } from '../features/kiosk/types/kiosk.types';
+import { loadKioskSession } from '../features/kiosk/store/kioskSessionStorage';
 
 export type AppMode = 'LOGIN' | 'POS' | 'KIOSK';
 
@@ -44,6 +45,7 @@ export const POS_ROUTES = [
   '/bays',
   '/settings',
   '/customers',
+  '/history',
 ];
 
 function AppContent() {
@@ -97,6 +99,9 @@ function AppContent() {
       case 'CUSTOMERS':
         navigate('/customers');
         break;
+      case 'HISTORY':
+        navigate('/history');
+        break;
     }
   };
 
@@ -108,11 +113,84 @@ function AppContent() {
     if (location.pathname === '/bays') return 'BAYS';
     if (location.pathname === '/settings') return 'SETTINGS';
     if (location.pathname === '/customers') return 'CUSTOMERS';
+    if (location.pathname === '/history') return 'HISTORY';
     return 'ORDERS';
   };
 
+  // Hardware/gesture back-button navigation for Android
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onBackPress = () => {
+      const path = location.pathname;
+
+      // Kiosk step navigation backwards
+      if (path === '/vehicles' || path === '/new-wash') {
+        navigate('/customer-login');
+        return true;
+      }
+      if (path === '/services' || path === '/packages') {
+        navigate('/new-wash');
+        return true;
+      }
+      if (path === '/details') {
+        navigate('/services');
+        return true;
+      }
+      if (path === '/payment' || path === '/checkout' || path === '/dealer-confirm') {
+        navigate('/details');
+        return true;
+      }
+      if (path === '/dealer-login') {
+        navigate('/customer-login');
+        return true;
+      }
+      if (path === '/dealer-password') {
+        navigate('/dealer-login');
+        return true;
+      }
+      if (path === '/success') {
+        navigate('/customer-login');
+        return true;
+      }
+
+      // POS sub-tab navigation backwards
+      if (
+        path === '/reports' ||
+        path === '/bays' ||
+        path === '/settings' ||
+        path === '/customers' ||
+        path === '/history'
+      ) {
+        navigate('/dashboard');
+        return true;
+      }
+
+      // Backoffice navigation backwards
+      if (path === '/backoffice') {
+        navigate('/login');
+        return true;
+      }
+
+      // Login navigation backwards
+      if (path === '/login') {
+        navigate('/customer-login');
+        return true;
+      }
+
+      // Root pages (/dashboard, /customer-login): allow standard Android behavior
+      return false;
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backSub.remove();
+  }, [location.pathname, navigate]);
+
   // Determine initial kiosk page and user type from pathname
   const getKioskInitial = (): { page: KioskPage; userType: KioskUserType } => {
+    const session = loadKioskSession();
+    const sessionUserType: KioskUserType = session?.userType || 'CUSTOMER';
+
     switch (location.pathname) {
       case '/dealer-login':
         return { page: 'DEALER_CHOOSE', userType: 'DEALER' };
@@ -122,17 +200,17 @@ function AppContent() {
         return { page: 'DEALER_CREDIT_CONFIRM', userType: 'DEALER' };
       case '/new-wash':
       case '/vehicles':
-        return { page: 'PAGE_2_VEHICLE', userType: 'CUSTOMER' };
+        return { page: 'PAGE_2_VEHICLE', userType: sessionUserType };
       case '/services':
       case '/packages':
-        return { page: 'PAGE_3_SERVICE_CAT', userType: 'CUSTOMER' };
+        return { page: 'PAGE_3_SERVICE_CAT', userType: sessionUserType };
       case '/details':
-        return { page: 'PAGE_4_DETAILS', userType: 'CUSTOMER' };
+        return { page: 'PAGE_4_DETAILS', userType: sessionUserType };
       case '/checkout':
       case '/payment':
-        return { page: 'PAGE_5_PAYMENT', userType: 'CUSTOMER' };
+        return { page: 'PAGE_5_PAYMENT', userType: sessionUserType };
       case '/success':
-        return { page: 'PAGE_6_SUCCESS', userType: 'CUSTOMER' };
+        return { page: 'PAGE_6_SUCCESS', userType: sessionUserType };
       case '/customer-login':
       case '/kiosk':
       default:

@@ -1,12 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
-import {
-  IconClipboard,
-  IconCarWashBay,
-  IconUsers,
-  IconReports,
-  IconSettings,
-} from '../../../components/common/AppIcons';
+import { Ionicons } from '@expo/vector-icons';
 
 export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
 
@@ -194,17 +188,17 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
     const iconColor = isActive ? '#FFFFFF' : '#111827';
     switch (id) {
       case 'ORDERS':
-        return <IconClipboard size={16} color={iconColor} strokeWidth={2.2} />;
+        return <Ionicons name="receipt-outline" size={18} color={iconColor} />;
       case 'BAYS':
-        return <IconCarWashBay size={16} color={iconColor} strokeWidth={2.2} />;
+        return <Ionicons name="car-sport-outline" size={18} color={iconColor} />;
       case 'CUSTOMERS':
-        return <IconUsers size={16} color={iconColor} strokeWidth={2.2} />;
+        return <Ionicons name="people-outline" size={18} color={iconColor} />;
       case 'HISTORY':
-        return <Text style={{ fontSize: 16 }}>📜</Text>;
+        return <Ionicons name="time-outline" size={18} color={iconColor} />;
       case 'REPORTS':
-        return <IconReports size={16} color={iconColor} strokeWidth={2.2} />;
+        return <Ionicons name="bar-chart-outline" size={18} color={iconColor} />;
       case 'SETTINGS':
-        return <IconSettings size={16} color={iconColor} strokeWidth={2.2} />;
+        return <Ionicons name="settings-outline" size={18} color={iconColor} />;
     }
   };
 
@@ -411,8 +405,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   navIconBox: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -143,12 +143,12 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
 
               <View style={styles.row}>
                 <Text style={styles.label}>Subtotal (excl. GST):</Text>
-                <Text style={styles.val}>SGD ${subtotal.toFixed(2)}</Text>
+                <Text style={styles.val}>${subtotal.toFixed(2)}</Text>
               </View>
 
               <View style={styles.row}>
                 <Text style={styles.label}>Singapore 9% GST:</Text>
-                <Text style={styles.val}>SGD ${gstAmount.toFixed(2)}</Text>
+                <Text style={styles.val}>${gstAmount.toFixed(2)}</Text>
               </View>
 
               <View style={styles.pricingDivider} />
@@ -158,7 +158,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
                   <Text style={styles.totalLabel}>TOTAL BILLED TO CREDIT:</Text>
                   <Text style={styles.totalCycleNote}>Due per {dealer.billingCycle} credit terms</Text>
                 </View>
-                <Text style={styles.totalAmountText}>SGD ${total.toFixed(2)}</Text>
+                <Text style={styles.totalAmountText}>${total.toFixed(2)}</Text>
               </View>
             </View>
           </View>
@@ -170,7 +170,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
         onContinue={handleConfirmOrder}
         continueDisabled={isSubmitting}
         isLoading={isSubmitting}
-        continueLabel={isSubmitting ? "Authorizing Order..." : `Authorize Credit Order (SGD $${total.toFixed(2)}) ›`}
+        continueLabel={isSubmitting ? "Authorizing Order..." : `Authorize Credit Order ($${total.toFixed(2)}) ›`}
       />
     </View>
   );

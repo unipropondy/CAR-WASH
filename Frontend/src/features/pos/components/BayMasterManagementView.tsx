@@ -10,6 +10,7 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import {
   BayMasterRecord,
@@ -123,52 +124,26 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
     return { bg: '#FFFBEB', text: '#D97706', label: s || 'MAINTENANCE' };
   };
 
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+
   return (
     <View style={styles.container}>
-      {/* Header section */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <IconCarWashBay size={20} color="#FFFFFF" strokeWidth={2.4} />
-          </View>
-          <View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={styles.title}>Bay Management</Text>
-              <View style={styles.dbTableChip}>
-                <Text style={styles.dbTableChipText}>dbo.BayMaster</Text>
-              </View>
-            </View>
-            <Text style={styles.subtitle}>
-              Live SQL Server table: BayMaster • Physical wash bays & layout mapping
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.headerActions}>
-          {onBackToOrders && (
-            <TouchableOpacity style={styles.backBtn} onPress={onBackToOrders} activeOpacity={0.8}>
-              <Text style={styles.backBtnText}>← Back to Orders</Text>
+      {/* Top Controls Toolbar: Filter Tabs on Left, Actions on Right */}
+      <View style={[styles.filterRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {(['ALL', 'AVAILABLE', 'IN_SERVICE', 'MAINTENANCE'] as const).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.filterPill, filter === tab && styles.filterPillActive]}
+              onPress={() => setFilter(tab)}
+            >
+              <Text style={[styles.filterPillText, filter === tab && styles.filterPillTextActive]}>
+                {tab.replace('_', ' ')}
+              </Text>
             </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh} activeOpacity={0.8}>
-            <Text style={styles.refreshBtnText}>↻ Refresh Bays</Text>
-          </TouchableOpacity>
+          ))}
         </View>
-      </View>
-
-      {/* Filter Tabs */}
-      <View style={styles.filterRow}>
-        {(['ALL', 'AVAILABLE', 'IN_SERVICE', 'MAINTENANCE'] as const).map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.filterPill, filter === tab && styles.filterPillActive]}
-            onPress={() => setFilter(tab)}
-          >
-            <Text style={[styles.filterPillText, filter === tab && styles.filterPillTextActive]}>
-              {tab.replace('_', ' ')}
-            </Text>
-          </TouchableOpacity>
-        ))}
       </View>
 
       {/* Bays Grid */}
@@ -179,7 +154,7 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
           const hasVehicle = Boolean(bay.vehicleNumber || bay.customerName);
 
           return (
-            <View key={bay.bayId || bay.bayNumber} style={styles.bayCard}>
+            <View key={bay.bayId || bay.bayNumber} style={[styles.bayCard, isMobile && { minWidth: '100%', maxWidth: '100%' }]}>
               {/* Card top */}
               <View style={styles.cardTop}>
                 <View style={styles.bayHeaderLeft}>
@@ -434,8 +409,11 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 16,
+    flexWrap: 'wrap',
   },
   filterPill: {
     paddingHorizontal: 16,

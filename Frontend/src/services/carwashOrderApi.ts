@@ -20,6 +20,10 @@ export interface CreateOrderPayload {
   vehicleTypeId: number;
   serviceCategoryId: number;
   packageId: number;
+  dealerId?: number;
+  payMode?: string;
+  additionalServices?: string;
+  additionalAmount?: number;
 }
 
 export interface CreatedOrderResponse {
@@ -37,9 +41,15 @@ export interface CreatedOrderResponse {
   gstAmount: number;
   totalAmount: number;
   currencyCode: string;
+  payMode?: string;
   paymentStatus: string;
   statusCode: number;
   statusName: string;
+  dealerId?: number;
+  additionalServices?: string;
+  paidAmount?: number;
+  outstandingAmount?: number;
+  creditStatus?: string;
   createdDate: string;
 }
 
@@ -80,7 +90,7 @@ export interface ApiOrder {
   totalAmount: number;
   currencyCode: string;
   payMode: string;
-  paymentStatus: 'PAID' | 'PENDING' | 'CANCELLED';
+  paymentStatus: 'PAID' | 'PENDING' | 'CANCELLED' | 'CREDIT' | string;
   paymentReference?: string;
   statusCode: number;
   statusName: string;
@@ -88,6 +98,9 @@ export interface ApiOrder {
   bayStatus: string;
   waitTime: string;
   waitMinutes: number;
+  dealerId?: number;
+  dealerName?: string;
+  creditStatus?: string;
   createdDate: string;
   paidDate?: string;
   startedDate?: string;

@@ -8,7 +8,8 @@ import {
   Text, 
   TouchableOpacity, 
   Alert,
-  ActivityIndicator 
+  ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { PosSidebar, PosNavTab } from '../components/PosSidebar';
 import { PosTopNavbar } from '../components/PosTopNavbar';
@@ -22,7 +23,7 @@ import { BusinessDayHistoryView } from '../components/BusinessDayHistoryView';
 import { SimpleDayModal } from '../../dayManagement/components/SimpleDayModal';
 import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 import { INITIAL_BAYS } from '../../../data/mockData';
-import { PosOrder, WashingBay } from '../../../types/pos.types';
+import { PosOrder, WashingBay, PaymentStatus } from '../../../types/pos.types';
 import { 
   fetchCarWashOrders, 
   updateOrderPayment, 
@@ -45,6 +46,11 @@ import {
   getStoredPendingRequests,
   playNotificationChime,
 } from '../../../services/helpNotificationService';
+import {
+  subscribeToKioskOrders,
+  playOrderAlertSound,
+  KioskOrderNotification,
+} from '../../../services/kioskOrderNotificationService';
 import { Ionicons } from '@expo/vector-icons';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
@@ -68,6 +74,10 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   currentTab = 'ORDERS',
   onTabChange,
 }) => {
+  const { width, height } = useWindowDimensions();
+  const isMobile = width < 680;
+  const isTablet = width >= 680 && width < 1024;
+
   const [activeTab, setActiveTab] = useState<PosNavTab>(currentTab);
 
   useEffect(() => {
@@ -87,6 +97,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [customerRefreshTrigger, setCustomerRefreshTrigger] = useState<number>(0);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState<number>(0);
+  const [reportsRefreshTrigger, setReportsRefreshTrigger] = useState<number>(0);
+  const [isReportsFilterOpen, setIsReportsFilterOpen] = useState<boolean>(false);
+  const [isReportsDownloadModalOpen, setIsReportsDownloadModalOpen] = useState<boolean>(false);
 
   // Business Day Store & History Selection State
   const isDayOpen = useDayManagementStore((state) => state.isOpen);
@@ -109,6 +124,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [activeHelpAlerts, setActiveHelpAlerts] = useState<HelpRequestItem[]>([]);
   const [latestHelpAlert, setLatestHelpAlert] = useState<HelpRequestItem | null>(null);
 
+  // Kiosk New Order Alert State
+  const [latestOrderAlert, setLatestOrderAlert] = useState<KioskOrderNotification | null>(null);
+  const knownOrderKeysRef = useRef<Set<string>>(new Set());
+  const isFirstLoadRef = useRef<boolean>(true);
+
   // History Modal State
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [orderHistoryList, setOrderHistoryList] = useState<OrderStatusHistoryItem[]>([]);
@@ -117,13 +137,22 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
   // Convert ApiOrder to PosOrder
   const mapApiOrderToPosOrder = (api: ApiOrder): PosOrder => {
+    // Check if order belongs to a dealer / commercial credit account
+    const isDealer = Boolean(
+      (api.dealerId) ||
+      (api.payMode && api.payMode.trim().toUpperCase() === 'CREDIT') ||
+      api.paymentStatus === 'CREDIT' ||
+      (api.vehicleNumber && (api.vehicleNumber.includes('DLR-') || api.vehicleNumber.includes('FLEET'))) ||
+      (api.customerName && (api.customerName.toUpperCase() === 'UNIPRO' || api.customerName.toUpperCase().includes('DEALER')))
+    );
+
     // Determine Pos status
     let status: any = 'IN_QUEUE';
-    const isPaid = api.paymentStatus === 'PAID' || (api.statusCode != null && api.statusCode >= 30);
+    const isPaid = isDealer || api.paymentStatus === 'PAID' || (api.statusCode != null && api.statusCode >= 30);
     if (!isPaid && (api.statusCode === 10 || api.statusCode === 20 || api.paymentStatus === 'PENDING')) {
       status = 'IN_QUEUE'; // Pending payment
     } else if (api.statusCode === 30 || (isPaid && !api.bayId && (api.statusCode == null || api.statusCode < 50))) {
-      status = 'WAITING_ASSIGN'; // Paid, awaiting bay
+      status = 'WAITING_ASSIGN'; // Paid / Dealer Account Credit, awaiting bay
     } else if (api.statusCode === 40) {
       status = 'ASSIGNED_TO_BAY';
     } else if (api.statusCode === 50) {
@@ -152,10 +181,10 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       gstRate: api.gstPercent,
       gstAmount: api.gstAmount,
       totalAmount: api.totalAmount,
-      payMode: api.payMode,
-      paymentStatus: api.paymentStatus,
-      statusCode: api.statusCode,
-      statusName: api.statusName,
+      payMode: isDealer ? 'CREDIT' : (api.payMode ? api.payMode.trim() : 'CASH'),
+      paymentStatus: (isDealer ? 'PAID' : api.paymentStatus) as PaymentStatus,
+      statusCode: isDealer && (api.statusCode == null || api.statusCode < 30) ? 30 : api.statusCode,
+      statusName: isDealer && (api.statusCode == null || api.statusCode < 30) ? 'PAID (CREDIT)' : api.statusName,
       status,
       assignedBayId: api.bayId ? String(api.bayId) : undefined,
       assignedBayName: api.bayId ? `Bay ${api.bayId}` : undefined,
@@ -167,6 +196,9 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       startedDate: api.startedDate,
       completedDate: api.completedDate,
       closedDate: api.closedDate,
+      // @ts-ignore
+      isDealer,
+      dealerId: api.dealerId,
     };
   };
 
@@ -277,6 +309,39 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       ]);
 
       const mappedOrders = apiOrders.map(mapApiOrderToPosOrder);
+
+      // Detect newly created orders from polling (e.g. from external Kiosk device)
+      if (!isFirstLoadRef.current && knownOrderKeysRef.current.size > 0) {
+        const newlyCreated = mappedOrders.filter((o) => {
+          const key = String(o.orderId || o.id || o.orderNumber);
+          return !knownOrderKeysRef.current.has(key);
+        });
+
+        if (newlyCreated.length > 0) {
+          const firstNew = newlyCreated[0];
+          setLatestOrderAlert({
+            orderId: firstNew.orderId,
+            orderNo: firstNew.orderNumber,
+            customerName: firstNew.customerName,
+            vehiclePlate: firstNew.vehiclePlate,
+            vehicleType: firstNew.vehicleTypeName || firstNew.vehicleCategory,
+            packageName: firstNew.packageName,
+            amount: firstNew.totalAmount,
+            payMode: firstNew.payMode || 'CASH',
+            payStatus: String(firstNew.paymentStatus),
+            isDealer: Boolean(firstNew.isDealer),
+            dealerName: firstNew.dealerName,
+            timestamp: new Date().toISOString(),
+          });
+          playOrderAlertSound();
+        }
+      }
+
+      mappedOrders.forEach((o) => {
+        knownOrderKeysRef.current.add(String(o.orderId || o.id || o.orderNumber));
+      });
+      isFirstLoadRef.current = false;
+
       setOrders(mappedOrders);
       setRawBayMaster(bayMasterList);
 
@@ -353,6 +418,14 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       setLatestHelpAlert((prev) => (prev?.id === resolvedId ? null : prev));
     });
 
+    // Real-time listener for instant new kiosk orders placed across tabs/kiosk
+    const unsubscribeKioskOrders = subscribeToKioskOrders((newOrder) => {
+      knownOrderKeysRef.current.add(String(newOrder.orderId || newOrder.orderNo));
+      setLatestOrderAlert(newOrder);
+      playOrderAlertSound();
+      loadOrders(true);
+    });
+
     const pollTimer = setInterval(() => {
       loadOrders(true);
       fetchActiveHelpRequests()
@@ -370,18 +443,17 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           });
         })
         .catch(() => {});
-    }, 4000);
+    }, 1500);
 
     return () => {
       unsubscribeHelp();
       unsubscribeResolved();
+      unsubscribeKioskOrders();
       clearInterval(pollTimer);
     };
   }, []);
 
   // Auto-hide Kiosk Help Pop-up after 5 seconds if not clicked
-  // If the cashier does NOT click the close button within 5 seconds,
-  // the pop-up hides but the notification is kept safe in the Notification Box!
   useEffect(() => {
     if (!latestHelpAlert) return;
     const hideTimer = setTimeout(() => {
@@ -389,6 +461,15 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     }, 5000);
     return () => clearTimeout(hideTimer);
   }, [latestHelpAlert]);
+
+  // Auto-hide Kiosk New Order Pop-up after 8 seconds
+  useEffect(() => {
+    if (!latestOrderAlert) return;
+    const hideTimer = setTimeout(() => {
+      setLatestOrderAlert(null);
+    }, 8000);
+    return () => clearTimeout(hideTimer);
+  }, [latestOrderAlert]);
 
   // 1. Confirm Cash Payment Action
   const handlePayOrder = async (order: PosOrder) => {
@@ -682,47 +763,114 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     year: 'numeric',
   });
 
+  const formatFullDate = (d?: string | Date | null) => {
+    if (!d) return formattedTodayDate;
+    try {
+      const dateObj = typeof d === 'string' ? new Date(d) : d;
+      if (isNaN(dateObj.getTime())) return formattedTodayDate;
+      return dateObj.toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+    } catch {
+      return formattedTodayDate;
+    }
+  };
+
   return (
     <View style={styles.screenContainer}>
-      {/* Top Navbar Header matching the screenshot (hidden on Reports view) */}
-      {activeTab !== 'REPORTS' && (
-        <PosTopNavbar 
-          cashierName={cashierName} 
-          screenName={
-            activeTab === 'CUSTOMERS'
-              ? 'PosCustomerHistoryView.tsx'
-              : activeTab === 'BAYS'
-              ? 'BayMasterManagementView.tsx'
-              : activeTab === 'HISTORY'
-              ? 'BusinessDayHistoryView.tsx'
-              : activeTab === 'SETTINGS'
-              ? 'PosSettingsView.tsx'
-              : 'DashboardScreen.tsx (OrdersScreen.tsx)'
-          }
-          pageTitle={
-            activeTab === 'CUSTOMERS'
-              ? 'Customer History'
-              : activeTab === 'BAYS'
-              ? 'Bays'
-              : activeTab === 'HISTORY'
-              ? 'Business Day History'
-              : activeTab === 'SETTINGS'
-              ? 'Settings'
-              : 'Orders'
-          }
-          onLogout={onLogout} 
-          onSearch={setSearchQuery}
-          onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-          onPressNotification={() => setNotificationModalVisible(true)}
-          onPressDayManagement={() => {
-            useDayManagementStore.getState().openModal();
-          }}
-          unreadCount={
-            orders.filter((o) => o.statusCode === 30 || (o.paymentStatus === 'PAID' && !o.assignedBayId)).length +
-            activeHelpAlerts.length
-          }
-        />
-      )}
+      {/* Top Navbar Header matching the screenshot */}
+      <PosTopNavbar 
+        cashierName={cashierName} 
+        categoryBadge={activeTab === 'REPORTS' ? '2026' : undefined}
+        screenName={
+          activeTab === 'CUSTOMERS'
+            ? 'PosCustomerHistoryView.tsx'
+            : activeTab === 'BAYS'
+            ? 'BayMasterManagementView.tsx'
+            : activeTab === 'HISTORY'
+            ? 'BusinessDayHistoryView.tsx'
+            : activeTab === 'REPORTS'
+            ? 'PosReportsView.tsx'
+            : activeTab === 'SETTINGS'
+            ? 'PosSettingsView.tsx'
+            : 'DashboardScreen.tsx (OrdersScreen.tsx)'
+        }
+        pageTitle={
+          activeTab === 'CUSTOMERS'
+            ? 'Customer History'
+            : activeTab === 'BAYS'
+            ? 'Bay Management'
+            : activeTab === 'HISTORY'
+            ? 'Business Day History'
+            : activeTab === 'REPORTS'
+            ? 'SALES ANALYTICS 📊'
+            : activeTab === 'SETTINGS'
+            ? 'Settings'
+            : selectedHistoryDay
+            ? 'Orders (History)'
+            : "Today's orders"
+        }
+        pageSubtitle={
+          activeTab === 'CUSTOMERS'
+            ? 'Lifetime car wash records, vehicle history, customer loyalty & spend logs'
+            : activeTab === 'HISTORY'
+            ? 'Immutable shift records, sales telemetry, and completed wash orders'
+            : activeTab === 'BAYS'
+            ? 'Physical wash bays & layout mapping'
+            : activeTab === 'REPORTS'
+            ? 'Real-time insights for better sales analytics 🚀'
+            : activeTab === 'ORDERS'
+            ? (selectedHistoryDay
+                ? formatFullDate(selectedHistoryDay.businessDate)
+                : formattedTodayDate)
+            : undefined
+        }
+        rightCustomActions={
+          activeTab === 'REPORTS' ? (
+            <View style={styles.navbarCustomerActions}>
+              <TouchableOpacity
+                style={[
+                  styles.navbarRedSquareBtn,
+                  isReportsDownloadModalOpen && { backgroundColor: '#FEE2E2', borderColor: '#E60012' },
+                ]}
+                onPress={() => setIsReportsDownloadModalOpen(true)}
+                activeOpacity={0.8}
+                accessibilityLabel="Download Sales Report"
+              >
+                <Ionicons name="download-outline" size={19} color="#E60012" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.navbarRedSquareBtn,
+                  isReportsFilterOpen && { backgroundColor: '#FEE2E2', borderColor: '#E60012' },
+                ]}
+                onPress={() => setIsReportsFilterOpen((prev) => !prev)}
+                activeOpacity={0.8}
+                accessibilityLabel="Filter Options"
+              >
+                <Ionicons name="options-outline" size={19} color="#E60012" />
+              </TouchableOpacity>
+            </View>
+          ) : undefined
+        }
+        onLogout={onLogout} 
+        onSearch={setSearchQuery}
+        showSearch={activeTab === 'ORDERS'}
+        showDayStatus={activeTab === 'ORDERS'}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onPressNotification={() => setNotificationModalVisible(true)}
+        onPressDayManagement={() => {
+          useDayManagementStore.getState().openModal();
+        }}
+        unreadCount={
+          orders.filter((o) => o.statusCode === 30 || (o.paymentStatus === 'PAID' && !o.assignedBayId)).length +
+          activeHelpAlerts.length
+        }
+      />
 
       {/* ================= FLOATING TOAST POP-UP: KIOSK HELP (CENTERED) ================= */}
       {latestHelpAlert && (
@@ -780,6 +928,113 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         </View>
       )}
 
+      {/* ================= FLOATING TOAST POP-UP: NEW KIOSK ORDER ================= */}
+      {latestOrderAlert && (
+        <View style={styles.orderToastContainer} pointerEvents="box-none">
+          <View style={styles.orderToastCard}>
+            {/* Left Accent Strip (Green for paid/credit, Orange for pending cash) */}
+            <View style={[
+              styles.orderToastStrip,
+              latestOrderAlert.payStatus === 'PENDING'
+                ? { backgroundColor: '#F59E0B' }
+                : { backgroundColor: '#22C55E' }
+            ]} />
+
+            <View style={styles.orderToastContent}>
+              <View style={styles.orderToastTopRow}>
+                <View style={[
+                  styles.orderToastIconWrapper,
+                  latestOrderAlert.payStatus === 'PENDING'
+                    ? { backgroundColor: '#FEF3C7' }
+                    : { backgroundColor: '#DCFCE7' }
+                ]}>
+                  <Text style={styles.orderToastIcon}>
+                    {latestOrderAlert.isDealer ? '🏢' : '🚗'}
+                  </Text>
+                </View>
+
+                <View style={styles.orderToastTextCol}>
+                  <View style={styles.orderToastBadgeRow}>
+                    <Text style={styles.orderToastTitle}>
+                      {latestOrderAlert.isDealer ? 'New Dealer Fleet Order!' : 'New Kiosk Order Placed!'}
+                    </Text>
+                    <View style={[
+                      styles.orderToastBadge,
+                      latestOrderAlert.isDealer
+                        ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
+                        : { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }
+                    ]}>
+                      <Text style={[
+                        styles.orderToastBadgeText,
+                        latestOrderAlert.isDealer ? { color: '#2563EB' } : { color: RED_BAY_COLORS.primary }
+                      ]}>
+                        {latestOrderAlert.isDealer ? 'DEALER' : 'KIOSK'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.orderToastDetails}>
+                    <Text style={styles.orderToastOrderNo}>{latestOrderAlert.orderNo}</Text>
+                    {' • '}
+                    <Text style={styles.orderToastPlate}>{latestOrderAlert.vehiclePlate}</Text>
+                    {' • '}
+                    <Text style={styles.orderToastCustomer}>
+                      {latestOrderAlert.isDealer && latestOrderAlert.dealerName
+                        ? latestOrderAlert.dealerName
+                        : latestOrderAlert.customerName}
+                    </Text>
+                  </Text>
+
+                  <View style={styles.orderToastSubRow}>
+                    <Text style={styles.orderToastPkg} numberOfLines={1}>
+                      {latestOrderAlert.packageName}
+                    </Text>
+                    <Text style={styles.orderToastAmount}>
+                      ${latestOrderAlert.amount.toFixed(2)}
+                    </Text>
+                    <View style={[
+                      styles.orderToastPayPill,
+                      latestOrderAlert.payStatus === 'PENDING'
+                        ? { backgroundColor: '#FEF3C7' }
+                        : { backgroundColor: '#DCFCE7' }
+                    ]}>
+                      <Text style={[
+                        styles.orderToastPayPillText,
+                        latestOrderAlert.payStatus === 'PENDING'
+                          ? { color: '#B45309' }
+                          : { color: '#15803D' }
+                      ]}>
+                        {latestOrderAlert.payMode} • {latestOrderAlert.payStatus}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.orderToastCloseBtn}
+                  onPress={() => setLatestOrderAlert(null)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close notification"
+                >
+                  <Text style={styles.orderToastCloseIcon}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* 8-Second Animated Progress Bar */}
+              <View style={styles.orderToastProgressTrack}>
+                <View style={[
+                  styles.orderToastProgressBar,
+                  latestOrderAlert.payStatus === 'PENDING'
+                    ? { backgroundColor: '#F59E0B' }
+                    : { backgroundColor: '#22C55E' }
+                ]} />
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Slide-out Sidebar Drawer with Backdrop */}
       {isSidebarOpen && (
         <View style={styles.sidebarOverlayContainer}>
@@ -814,7 +1069,10 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       )}
 
       {/* Main Scrollable Content Area */}
-      <ScrollView style={styles.mainPane} contentContainerStyle={styles.mainContent}>
+      <ScrollView
+        style={styles.mainPane}
+        contentContainerStyle={[styles.mainContent, isMobile && { padding: 12, paddingBottom: 32 }]}
+      >
         {activeTab === 'SETTINGS' ? (
           <PosSettingsView
             cashierName={cashierName}
@@ -824,7 +1082,6 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           <BayMasterManagementView
             bays={rawBayMaster}
             onRefresh={() => loadOrders(false)}
-            onBackToOrders={() => handleSelectTab('ORDERS')}
           />
         ) : activeTab === 'REPORTS' ? (
           <PosReportsView
@@ -833,6 +1090,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             cashierName={cashierName}
             onBackToOrders={() => handleSelectTab('ORDERS')}
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+            refreshTrigger={reportsRefreshTrigger}
+            isFilterOpen={isReportsFilterOpen}
+            onCloseFilter={() => setIsReportsFilterOpen(false)}
+            isDownloadModalOpen={isReportsDownloadModalOpen}
+            onCloseDownloadModal={() => setIsReportsDownloadModalOpen(false)}
           />
         ) : activeTab === 'CUSTOMERS' ? (
           <PosCustomerHistoryView
@@ -840,6 +1102,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             onBackToOrders={() => handleSelectTab('ORDERS')}
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
             searchQuery={searchQuery}
+            refreshTrigger={customerRefreshTrigger}
           />
         ) : activeTab === 'HISTORY' ? (
           <BusinessDayHistoryView
@@ -848,45 +1111,18 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               setSelectedHistoryDay(day);
               handleSelectTab('ORDERS');
             }}
+            refreshTrigger={historyRefreshTrigger}
           />
         ) : (
           <View style={styles.ordersContentWrapper}>
-            {/* 1. Header: Business Day / Today's Orders & Date */}
-            <View style={styles.todayHeaderSection}>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <Text style={styles.todayTitle}>
-                    {selectedHistoryDay
-                      ? `Day #${selectedHistoryDay.dayId} Orders (History)`
-                      : isDayOpen
-                      ? `Day #${activeDayId || 1} Orders`
-                      : "Today’s orders"}
+            {/* Historical Day Banner if viewing closed day */}
+            {selectedHistoryDay && (
+              <View style={[styles.todayHeaderSection, { marginBottom: 12 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.todaySubtitle}>
+                    Viewing historical shift records for {formatFullDate(selectedHistoryDay.businessDate)}
                   </Text>
-                  {selectedHistoryDay ? (
-                    <View style={styles.historyTag}>
-                      <Text style={styles.historyTagText}>HISTORICAL RECORD</Text>
-                    </View>
-                  ) : isDayOpen ? (
-                    <View style={styles.activeDayTag}>
-                      <Text style={styles.activeDayTagText}>ACTIVE BUSINESS DAY</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.closedDayTag}>
-                      <Text style={styles.closedDayTagText}>DAY CLOSED</Text>
-                    </View>
-                  )}
                 </View>
-
-                <Text style={styles.todaySubtitle}>
-                  {selectedHistoryDay
-                    ? `Business Date: ${formatFriendlyDate(selectedHistoryDay.businessDate)} • Closed • ${orders.length} total orders recorded`
-                    : isDayOpen
-                    ? `Business Date: ${formatFriendlyDate(activeBusinessDate || activeDay?.businessDate || formattedTodayDate)} • Started ${formatFriendlyDate(activeDay?.startedDate || activeBusinessDate || formattedTodayDate)}`
-                    : `${formattedTodayDate} • Business day is currently closed (Start Day to begin)`}
-                </Text>
-              </View>
-
-              {selectedHistoryDay ? (
                 <TouchableOpacity
                   style={styles.returnActiveBtn}
                   onPress={() => setSelectedHistoryDay(null)}
@@ -894,36 +1130,48 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 >
                   <Text style={styles.returnActiveBtnText}>◀ Return to Active Day</Text>
                 </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.historyShortcutBtn}
-                  onPress={() => handleSelectTab('HISTORY')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.historyShortcutBtnText}>📜 Day History</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+              </View>
+            )}
 
             {/* 2. Four Summary Cards */}
             <View style={styles.summaryCardsRow}>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>TOTAL ORDERS</Text>
+              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+                <View style={styles.summaryTopRow}>
+                  <Text style={styles.summaryCardLabel}>TOTAL ORDERS</Text>
+                  <View style={[styles.summaryIconBadge, { backgroundColor: '#FEF2F2' }]}>
+                    <Ionicons name="receipt-outline" size={14} color="#ED0712" />
+                  </View>
+                </View>
                 <Text style={styles.summaryCardValue}>{totalOrdersCount}</Text>
               </View>
 
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>IN SERVICE</Text>
+              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+                <View style={styles.summaryTopRow}>
+                  <Text style={styles.summaryCardLabel}>IN SERVICE</Text>
+                  <View style={[styles.summaryIconBadge, { backgroundColor: '#EFF6FF' }]}>
+                    <Ionicons name="car-sport-outline" size={14} color="#2563EB" />
+                  </View>
+                </View>
                 <Text style={styles.summaryCardValue}>{inServiceCount}</Text>
               </View>
 
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>CLOSED</Text>
+              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+                <View style={styles.summaryTopRow}>
+                  <Text style={styles.summaryCardLabel}>CLOSED</Text>
+                  <View style={[styles.summaryIconBadge, { backgroundColor: '#ECFDF5' }]}>
+                    <Ionicons name="checkmark-done-circle-outline" size={14} color="#059669" />
+                  </View>
+                </View>
                 <Text style={styles.summaryCardValue}>{closedCount}</Text>
               </View>
 
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>REVENUE</Text>
+              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+                <View style={styles.summaryTopRow}>
+                  <Text style={styles.summaryCardLabel}>REVENUE</Text>
+                  <View style={[styles.summaryIconBadge, { backgroundColor: '#FFFBEB' }]}>
+                    <Ionicons name="cash-outline" size={14} color="#D97706" />
+                  </View>
+                </View>
                 <Text style={styles.summaryCardValue}>${totalRevenue.toFixed(2)}</Text>
               </View>
             </View>
@@ -984,89 +1232,97 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 </Text>
               </View>
             ) : (
-              <View style={styles.bayOptionsList}>
-                {availableBays.map((bay) => {
-                  const isSelected = selectedBayToAssign === bay.id;
-                  return (
-                    <TouchableOpacity
-                      key={bay.id}
-                      style={[
-                        styles.bayOptionItem,
-                        isSelected && styles.bayOptionItemSelected,
-                      ]}
-                      onPress={() => setSelectedBayToAssign(bay.id)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.bayOptionLeft}>
+              <ScrollView
+                style={styles.bayOptionsScrollView}
+                contentContainerStyle={{ paddingBottom: 4 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.bayOptionsList}>
+                  {availableBays.map((bay) => {
+                    const isSelected = selectedBayToAssign === bay.id;
+                    return (
+                      <TouchableOpacity
+                        key={bay.id}
+                        style={[
+                          styles.bayOptionItem,
+                          isSelected && styles.bayOptionItemSelected,
+                        ]}
+                        onPress={() => setSelectedBayToAssign(bay.id)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.bayOptionLeft}>
+                          <View
+                            style={[
+                              styles.bayOptionDot,
+                              isSelected && { backgroundColor: RED_BAY_COLORS.primary },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.bayOptionName,
+                              isSelected && { color: RED_BAY_COLORS.primary, fontWeight: '900' },
+                            ]}
+                          >
+                            {bay.name}
+                          </Text>
+                        </View>
                         <View
                           style={[
-                            styles.bayOptionDot,
-                            isSelected && { backgroundColor: RED_BAY_COLORS.primary },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            styles.bayOptionName,
-                            isSelected && { color: RED_BAY_COLORS.primary, fontWeight: '900' },
+                            styles.assignPill,
+                            isSelected
+                              ? { backgroundColor: RED_BAY_COLORS.primary }
+                              : { backgroundColor: '#F1F5F9' },
                           ]}
                         >
-                          {bay.name}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.assignPill,
-                          isSelected
-                            ? { backgroundColor: RED_BAY_COLORS.primary }
-                            : { backgroundColor: '#F1F5F9' },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.assignPillText,
-                            isSelected ? { color: '#FFFFFF' } : { color: '#475569' },
-                          ]}
-                        >
-                          {isSelected ? '✓ Selected' : 'Select'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                          <Text
+                            style={[
+                              styles.assignPillText,
+                              isSelected ? { color: '#FFFFFF' } : { color: '#475569' },
+                            ]}
+                          >
+                            {isSelected ? '✓ Selected' : 'Select'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
             )}
 
-            {availableBays.length > 0 && (
+            <View style={styles.modalActionFooter}>
+              {availableBays.length > 0 && (
+                <TouchableOpacity
+                  style={[
+                    styles.confirmBayActionBtn,
+                    (!selectedBayToAssign || isAssigning) && styles.confirmBayActionBtnDisabled,
+                  ]}
+                  disabled={!selectedBayToAssign || isAssigning}
+                  onPress={() => selectedBayToAssign && handleConfirmAssign(selectedBayToAssign)}
+                  activeOpacity={0.85}
+                >
+                  {isAssigning ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.confirmBayActionBtnText}>
+                      {selectedBayToAssign
+                        ? `Confirm ${availableBays.find((b) => b.id === selectedBayToAssign)?.name || 'Bay'} & Start Service`
+                        : 'Choose an Available Bay Above'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
-                style={[
-                  styles.confirmBayActionBtn,
-                  (!selectedBayToAssign || isAssigning) && styles.confirmBayActionBtnDisabled,
-                ]}
-                disabled={!selectedBayToAssign || isAssigning}
-                onPress={() => selectedBayToAssign && handleConfirmAssign(selectedBayToAssign)}
-                activeOpacity={0.85}
+                style={styles.modalCancelBtn}
+                onPress={() => {
+                  setAssignModalVisible(false);
+                  setSelectedBayToAssign(null);
+                }}
               >
-                {isAssigning ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.confirmBayActionBtnText}>
-                    {selectedBayToAssign
-                      ? `Confirm ${availableBays.find((b) => b.id === selectedBayToAssign)?.name || 'Bay'} & Start Service`
-                      : 'Choose an Available Bay Above'}
-                  </Text>
-                )}
+                <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.modalCancelBtn}
-              onPress={() => {
-                setAssignModalVisible(false);
-                setSelectedBayToAssign(null);
-              }}
-            >
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1082,127 +1338,148 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {selectedOrderForView && (
-              <View style={styles.viewBody}>
-                {selectedOrderForView.assignedBayName && (
-                  <View style={styles.inServiceBadge}>
-                    <Text style={styles.inServiceBadgeText}>
-                      ASSIGNED: {selectedOrderForView.assignedBayName}
-                    </Text>
-                  </View>
-                )}
+            {selectedOrderForView && (() => {
+              const isDealerForView = Boolean(
+                (selectedOrderForView as any).isDealer ||
+                (selectedOrderForView as any).dealerId ||
+                (selectedOrderForView.payMode && selectedOrderForView.payMode.trim().toUpperCase() === 'CREDIT') ||
+                selectedOrderForView.paymentStatus === 'CREDIT' ||
+                (selectedOrderForView.vehiclePlate && (selectedOrderForView.vehiclePlate.includes('DLR-') || selectedOrderForView.vehiclePlate.includes('FLEET'))) ||
+                (selectedOrderForView.customerName && (selectedOrderForView.customerName.toUpperCase() === 'UNIPRO' || selectedOrderForView.customerName.toUpperCase().includes('DEALER')))
+              );
 
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Order No:</Text>
-                  <Text style={[styles.viewVal, { fontWeight: '900', color: RED_BAY_COLORS.primary }]}>
-                    #{selectedOrderForView.orderNumber}
-                  </Text>
-                </View>
-
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Customer:</Text>
-                  <Text style={styles.viewVal}>{selectedOrderForView.customerName} ({selectedOrderForView.customerMobile || 'Kiosk'})</Text>
-                </View>
-
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Vehicle Plate:</Text>
-                  <Text style={styles.viewVal}>{selectedOrderForView.vehiclePlate} ({selectedOrderForView.vehicleTypeName || 'Sedan'})</Text>
-                </View>
-
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Package:</Text>
-                  <Text style={styles.viewVal}>{selectedOrderForView.packageName} ({selectedOrderForView.serviceCategoryName || 'Car Wash'})</Text>
-                </View>
-
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Payment Mode:</Text>
-                  <Text style={styles.viewVal}>{selectedOrderForView.payMode || 'CASH'}</Text>
-                </View>
-
-                <View style={styles.viewInfoRow}>
-                  <Text style={styles.viewLabel}>Payment Status:</Text>
-                  <Text style={[styles.viewVal, { color: selectedOrderForView.paymentStatus === 'PAID' ? '#059669' : '#D97706', fontWeight: '800' }]}>
-                    {selectedOrderForView.paymentStatus} ($ {selectedOrderForView.totalAmount.toFixed(2)})
-                  </Text>
-                </View>
-
-                <View style={styles.viewActions}>
-                  {/* Manual Confirm Payment: ONLY displayed for unpaid CASH orders awaiting counter payment */}
-                  {selectedOrderForView.paymentStatus !== 'PAID' &&
-                    (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 20) &&
-                    (selectedOrderForView.payMode || '').trim().toUpperCase() === 'CASH' && (
-                    <TouchableOpacity
-                      style={[styles.completeWashBtn, { backgroundColor: '#0F172A' }]}
-                      onPress={async () => {
-                        const target = selectedOrderForView;
-                        setViewModalVisible(false);
-                        await handlePayOrder(target);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.completeWashText}>✓ Confirm Payment ($ {selectedOrderForView.totalAmount.toFixed(2)})</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* If Paid & Waiting for bay assignment: Show Select Bay button */}
-                  {(selectedOrderForView.paymentStatus === 'PAID' || (selectedOrderForView.statusCode != null && selectedOrderForView.statusCode >= 30)) &&
-                    !selectedOrderForView.assignedBayId &&
-                    (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 40) && (
-                    <TouchableOpacity
-                      style={[styles.completeWashBtn, { backgroundColor: RED_BAY_COLORS.primary }]}
-                      onPress={() => {
-                        const orderToAssign = selectedOrderForView;
-                        setViewModalVisible(false);
-                        handleOpenAssignModal(orderToAssign);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.completeWashText}>💧 Select Bay & Start Service</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* If In Service (bay assigned, service ongoing): Show Complete Service button */}
-                  {(selectedOrderForView.statusCode === 50 ||
-                    (selectedOrderForView.assignedBayId && (selectedOrderForView.statusCode === 40 || selectedOrderForView.status === 'IN_SERVICE'))) && (
-                    <TouchableOpacity
-                      style={styles.completeWashBtn}
-                      onPress={() => handleCompleteOrder(selectedOrderForView)}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Complete Service"
-                    >
-                      <Text style={styles.completeWashText}>✓ Complete Service</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {selectedOrderForView.statusCode === 60 && (
-                    <TouchableOpacity
-                      style={styles.closeOrderBtn}
-                      onPress={() => handleCloseOrder(selectedOrderForView)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.closeOrderText}>Close Order & Handover</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* If Order is already Closed (StatusCode 70) */}
-                  {selectedOrderForView.statusCode === 70 && (
-                    <View style={{ alignItems: 'center', width: '100%', marginTop: 8 }}>
-                      <View style={{ backgroundColor: '#F0FDF4', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: '#BBF7D0', marginBottom: 12 }}>
-                        <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 13 }}>✓ Service Completed & Order Closed</Text>
-                      </View>
-                      <TouchableOpacity
-                        style={[styles.closeOrderBtn, { backgroundColor: '#64748B' }]}
-                        onPress={() => setViewModalVisible(false)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.closeOrderText}>Close Window</Text>
-                      </TouchableOpacity>
+              return (
+                <View style={styles.viewBody}>
+                  {selectedOrderForView.assignedBayName && (
+                    <View style={styles.inServiceBadge}>
+                      <Text style={styles.inServiceBadgeText}>
+                        ASSIGNED: {selectedOrderForView.assignedBayName}
+                      </Text>
                     </View>
                   )}
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Order No:</Text>
+                    <Text style={[styles.viewVal, { fontWeight: '900', color: RED_BAY_COLORS.primary }]}>
+                      #{selectedOrderForView.orderNumber}
+                    </Text>
+                  </View>
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Customer:</Text>
+                    <Text style={styles.viewVal}>
+                      {selectedOrderForView.customerName} ({isDealerForView ? 'Dealer' : (selectedOrderForView.customerMobile || 'Kiosk')})
+                    </Text>
+                  </View>
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Vehicle Plate:</Text>
+                    <Text style={styles.viewVal}>{selectedOrderForView.vehiclePlate} ({selectedOrderForView.vehicleTypeName || 'Sedan'})</Text>
+                  </View>
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Package:</Text>
+                    <Text style={styles.viewVal}>{selectedOrderForView.packageName} ({selectedOrderForView.serviceCategoryName || 'Car Wash'})</Text>
+                  </View>
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Payment Mode:</Text>
+                    <Text style={[styles.viewVal, isDealerForView && { color: '#1D4ED8', fontWeight: '800' }]}>
+                      {isDealerForView ? 'CREDIT (ACCOUNT)' : (selectedOrderForView.payMode || 'CASH')}
+                    </Text>
+                  </View>
+
+                  <View style={styles.viewInfoRow}>
+                    <Text style={styles.viewLabel}>Payment Status:</Text>
+                    <Text style={[
+                      styles.viewVal, 
+                      { 
+                        color: isDealerForView ? '#1D4ED8' : (selectedOrderForView.paymentStatus === 'PAID' ? '#059669' : '#D97706'), 
+                        fontWeight: '800' 
+                      }
+                    ]}>
+                      {isDealerForView ? 'CREDIT (AUTHORIZED)' : selectedOrderForView.paymentStatus} ($ {selectedOrderForView.totalAmount.toFixed(2)})
+                    </Text>
+                  </View>
+
+                  <View style={styles.viewActions}>
+                    {/* Manual Confirm Payment: ONLY displayed for unpaid CASH orders awaiting counter payment */}
+                    {!isDealerForView && selectedOrderForView.paymentStatus !== 'PAID' &&
+                      (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 20) &&
+                      (selectedOrderForView.payMode || '').trim().toUpperCase() === 'CASH' && (
+                      <TouchableOpacity
+                        style={[styles.completeWashBtn, { backgroundColor: '#0F172A' }]}
+                        onPress={async () => {
+                          const target = selectedOrderForView;
+                          setViewModalVisible(false);
+                          await handlePayOrder(target);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.completeWashText}>✓ Confirm Payment ($ {selectedOrderForView.totalAmount.toFixed(2)})</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* If Dealer OR Paid & Waiting for bay assignment: Show Select Bay button */}
+                    {(isDealerForView || selectedOrderForView.paymentStatus === 'PAID' || (selectedOrderForView.statusCode != null && selectedOrderForView.statusCode >= 30)) &&
+                      !selectedOrderForView.assignedBayId &&
+                      (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 40) && (
+                      <TouchableOpacity
+                        style={[styles.completeWashBtn, { backgroundColor: RED_BAY_COLORS.primary }]}
+                        onPress={() => {
+                          const orderToAssign = selectedOrderForView;
+                          setViewModalVisible(false);
+                          handleOpenAssignModal(orderToAssign);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.completeWashText}>💧 Select Bay & Start Service</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* If In Service (bay assigned, service ongoing): Show Complete Service button */}
+                    {(selectedOrderForView.statusCode === 50 ||
+                      (selectedOrderForView.assignedBayId && (selectedOrderForView.statusCode === 40 || selectedOrderForView.status === 'IN_SERVICE'))) && (
+                      <TouchableOpacity
+                        style={styles.completeWashBtn}
+                        onPress={() => handleCompleteOrder(selectedOrderForView)}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Complete Service"
+                      >
+                        <Text style={styles.completeWashText}>✓ Complete Service</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {selectedOrderForView.statusCode === 60 && (
+                      <TouchableOpacity
+                        style={styles.closeOrderBtn}
+                        onPress={() => handleCloseOrder(selectedOrderForView)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.closeOrderText}>Close Order & Handover</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* If Order is already Closed (StatusCode 70) */}
+                    {selectedOrderForView.statusCode === 70 && (
+                      <View style={{ alignItems: 'center', width: '100%', marginTop: 8 }}>
+                        <View style={{ backgroundColor: '#F0FDF4', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: '#BBF7D0', marginBottom: 12 }}>
+                          <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 13 }}>✓ Service Completed & Order Closed</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.closeOrderBtn, { backgroundColor: '#64748B' }]}
+                          onPress={() => setViewModalVisible(false)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.closeOrderText}>Close Window</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
                 </View>
-              </View>
-            )}
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -1215,7 +1492,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               <View>
                 <Text style={styles.modalTitle}>Order Status Audit Trail</Text>
                 <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-                  Order #{historyOrderNo} (From dbo.CarWashOrderStatusHistory)
+                  Order #{historyOrderNo}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setHistoryModalVisible(false)}>
@@ -1409,6 +1686,56 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  navbarCustomerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  navbarSyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  navbarRedSquareBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', transition: 'all 0.15s ease' } as any) : {}),
+  },
+  navbarSyncBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.3,
+  },
+  navbarActiveOrdersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ED0712',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  navbarActiveOrdersBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
   screenContainer: {
     flex: 1,
     backgroundColor: '#F1F4F9',
@@ -1587,6 +1914,19 @@ const styles = StyleSheet.create({
         } as any)
       : { elevation: 2 }),
   },
+  summaryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  summaryIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   summaryCardLabel: {
     fontSize: 10,
     fontWeight: '800',
@@ -1607,14 +1947,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 12,
   },
   modalBox: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     width: '100%',
     maxWidth: 480,
+    maxHeight: '88%',
     padding: 22,
+    overflow: 'hidden',
     ...makeShadow('#000000', { width: 0, height: 10 }, 0.15, 20, 8),
   },
   modalHeader: {
@@ -1681,9 +2023,12 @@ const styles = StyleSheet.create({
     color: '#B45309',
     fontWeight: '700',
   },
+  bayOptionsScrollView: {
+    maxHeight: 220,
+    marginBottom: 10,
+  },
   bayOptionsList: {
     gap: 8,
-    marginBottom: 16,
   },
   bayOptionItem: {
     flexDirection: 'row',
@@ -1728,10 +2073,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 11,
   },
+  modalActionFooter: {
+    marginTop: 4,
+  },
   confirmBayActionBtn: {
     backgroundColor: RED_BAY_COLORS.primary,
-    paddingVertical: 13,
-    borderRadius: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -1743,15 +2091,15 @@ const styles = StyleSheet.create({
   },
   confirmBayActionBtnText: {
     color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 13,
+    fontWeight: '900',
+    fontSize: 14,
+    letterSpacing: 0.2,
   },
   modalCancelBtn: {
     backgroundColor: '#F1F5F9',
-    paddingVertical: 11,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
-    marginTop: 4,
   },
   modalCancelText: {
     fontSize: 13,
@@ -2058,6 +2406,159 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           animation: 'shrinkProgress 5s linear forwards',
+          transformOrigin: 'left',
+        } as any)
+      : {}),
+  },
+
+  /* Kiosk New Order Pop-up Notification Styles */
+  orderToastContainer: {
+    position: 'absolute',
+    top: 64,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  orderToastCard: {
+    width: '92%',
+    maxWidth: 580,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    flexDirection: 'row',
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 16px 36px -4px rgba(15, 23, 42, 0.22), 0 6px 14px -2px rgba(0, 0, 0, 0.08)',
+          animation: 'slideDownCenter 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+        } as any)
+      : makeShadow('#000000', { width: 0, height: 8 }, 0.18, 18, 5)),
+  },
+  orderToastStrip: {
+    width: 6,
+    backgroundColor: '#22C55E',
+  },
+  orderToastContent: {
+    flex: 1,
+    paddingTop: 12,
+  },
+  orderToastTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    gap: 12,
+  },
+  orderToastIconWrapper: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  orderToastIcon: {
+    fontSize: 22,
+  },
+  orderToastTextCol: {
+    flex: 1,
+  },
+  orderToastBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  orderToastTitle: {
+    fontSize: 14.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  orderToastBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  orderToastBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  orderToastDetails: {
+    fontSize: 12.5,
+    color: '#475569',
+    marginBottom: 6,
+  },
+  orderToastOrderNo: {
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  orderToastPlate: {
+    fontWeight: '900',
+    color: '#2563EB',
+  },
+  orderToastCustomer: {
+    fontWeight: '700',
+    color: '#334155',
+  },
+  orderToastSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  orderToastPkg: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    maxWidth: 180,
+  },
+  orderToastAmount: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  orderToastPayPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  orderToastPayPillText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  orderToastCloseBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    cursor: 'pointer' as any,
+  },
+  orderToastCloseIcon: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  orderToastProgressTrack: {
+    height: 3,
+    backgroundColor: '#F1F5F9',
+    width: '100%',
+    overflow: 'hidden',
+  },
+  orderToastProgressBar: {
+    height: '100%',
+    width: '100%',
+    backgroundColor: '#22C55E',
+    ...(Platform.OS === 'web'
+      ? ({
+          animation: 'shrinkProgress 8s linear forwards',
           transformOrigin: 'left',
         } as any)
       : {}),

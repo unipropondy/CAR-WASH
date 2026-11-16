@@ -19,7 +19,7 @@ const config = {
   password: process.env.DB_PASSWORD || 'ups',
   server: process.env.DB_SERVER || '202.156.19.151',
   port: parseInt(process.env.DB_PORT || '9199', 10),
-  database: process.env.DB_NAME || 'UCSSMOKE',
+  database: process.env.DB_NAME || 'UCSCARWASH',
   connectionTimeout: 45000,
   requestTimeout: 45000,
   options: {
@@ -35,6 +35,7 @@ const config = {
 };
 
 let pool = null;
+let poolConnecting = null;
 
 /**
  * Get or initialize the MSSQL connection pool
@@ -43,37 +44,48 @@ async function getPool(retries = 3, delayMs = 2000) {
   if (pool && pool.connected) {
     return pool;
   }
+  if (poolConnecting) {
+    return poolConnecting;
+  }
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      if (pool) {
-        try { await pool.close(); } catch (_) {}
-        pool = null;
+  poolConnecting = (async () => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        if (pool && !pool.connected) {
+          try { await pool.close(); } catch (_) {}
+          pool = null;
+        }
+        // Alternate between Dyndns and direct IP if connection attempt fails
+        if (attempt === 2 && config.server === 'myerpcloud.dyndns.org') {
+          config.server = '202.156.19.151';
+          console.log(`[Database] Retrying attempt ${attempt} with direct IP ${config.server}`);
+        } else if (attempt === 3 && config.server === '202.156.19.151') {
+          config.server = 'myerpcloud.dyndns.org';
+          console.log(`[Database] Retrying attempt ${attempt} with hostname ${config.server}`);
+        }
+        const newPool = new sql.ConnectionPool(config);
+        await newPool.connect();
+        pool = newPool;
+        console.log(`[Database] Connected to SQL Server database "${config.database}" at ${config.server}:${config.port}`);
+        return pool;
+      } catch (err) {
+        console.error(`[Database] Connection attempt ${attempt}/${retries} failed:`, err.message);
+        if (pool) {
+          try { await pool.close(); } catch (_) {}
+          pool = null;
+        }
+        if (attempt === retries) {
+          throw err;
+        }
+        await new Promise((res) => setTimeout(res, delayMs));
       }
-      // Alternate between Dyndns and direct IP if connection attempt fails
-      if (attempt === 2 && config.server === 'myerpcloud.dyndns.org') {
-        config.server = '202.156.19.151';
-        console.log(`[Database] Retrying attempt ${attempt} with direct IP ${config.server}`);
-      } else if (attempt === 3 && config.server === '202.156.19.151') {
-        config.server = 'myerpcloud.dyndns.org';
-        console.log(`[Database] Retrying attempt ${attempt} with hostname ${config.server}`);
-      }
-      const newPool = new sql.ConnectionPool(config);
-      await newPool.connect();
-      pool = newPool;
-      console.log(`[Database] Connected to SQL Server database "${config.database}" at ${config.server}:${config.port}`);
-      return pool;
-    } catch (err) {
-      console.error(`[Database] Connection attempt ${attempt}/${retries} failed:`, err.message);
-      if (pool) {
-        try { await pool.close(); } catch (_) {}
-        pool = null;
-      }
-      if (attempt === retries) {
-        throw err;
-      }
-      await new Promise((res) => setTimeout(res, delayMs));
     }
+  })();
+
+  try {
+    return await poolConnecting;
+  } finally {
+    poolConnecting = null;
   }
 }
 

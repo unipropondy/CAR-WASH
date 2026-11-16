@@ -196,6 +196,16 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                   </>
                 )}
 
+                {Boolean(order.additionalServices) && (
+                  <>
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaLabel}>Add-on Services</Text>
+                      <Text style={styles.metaValue}>{order.additionalServices}</Text>
+                    </View>
+                    <View style={styles.metaDivider} />
+                  </>
+                )}
+
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>{isDealer ? "Driver / Rep" : "Customer Name"}</Text>
                   <Text style={styles.metaValue}>{order.customerDetails?.customerName || 'Walk-in Customer'}</Text>
@@ -242,7 +252,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                     Includes Singapore 9% GST (${(order.gstAmount || 0).toFixed(2)})
                   </Text>
                 </View>
-                <Text style={styles.totalBannerPrice}>SGD ${(order.totalAmount || 0).toFixed(2)}</Text>
+                <Text style={styles.totalBannerPrice}>${(order.totalAmount || 0).toFixed(2)}</Text>
               </View>
             </View>
           </View>

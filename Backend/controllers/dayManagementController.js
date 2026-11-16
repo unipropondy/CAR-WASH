@@ -983,35 +983,104 @@ async function getHistory(req, res) {
 
     const result = await request.query(query);
 
+    const data = await Promise.all(
+      result.recordset.map(async (row) => {
+        // If the business day is currently OPEN, calculate live real-time metrics from CarWashOrder
+        // so total washes, gross sales, payment mix, and tender stats are completely accurate.
+        if (row.DayStatus === 'OPEN') {
+          try {
+            const liveMetrics = await calculateDayMetrics(pool, row.DayId);
+            if (liveMetrics) {
+              // Asynchronously keep CarWashDayMaster in sync with live counts
+              pool.request()
+                .input('dayId', sql.Int, row.DayId)
+                .input('totalOrders', sql.Int, liveMetrics.totalOrders)
+                .input('totalSales', sql.Decimal(18, 2), liveMetrics.totalSales)
+                .input('totalCustSales', sql.Decimal(18, 2), liveMetrics.totalCustomerSales)
+                .input('totalDealerSales', sql.Decimal(18, 2), liveMetrics.totalDealerSales)
+                .input('cashSales', sql.Decimal(18, 2), liveMetrics.cashSales)
+                .input('cardSales', sql.Decimal(18, 2), liveMetrics.cardSales)
+                .input('onlineSales', sql.Decimal(18, 2), liveMetrics.onlineSales)
+                .input('otherSales', sql.Decimal(18, 2), liveMetrics.otherSales)
+                .query(`
+                  UPDATE dbo.CarWashDayMaster
+                  SET TotalOrders = @totalOrders,
+                      TotalSales = @totalSales,
+                      TotalCustomerSales = @totalCustSales,
+                      TotalDealerSales = @totalDealerSales,
+                      CashSales = @cashSales,
+                      CardSales = @cardSales,
+                      OnlineSales = @onlineSales,
+                      OtherSales = @otherSales,
+                      UpdatedDate = GETDATE()
+                  WHERE DayId = @dayId AND DayStatus = 'OPEN';
+                `).catch(() => {});
+
+              return {
+                dayId: row.DayId,
+                businessDate: row.BusinessDate,
+                dayStatus: row.DayStatus,
+                openingCash: Number(row.OpeningCash || 0),
+                closingCash: row.ClosingCash != null ? Number(row.ClosingCash) : null,
+                expectedCash: liveMetrics.expectedCash,
+                cashDifference: null,
+                totalOrders: liveMetrics.totalOrders,
+                totalSales: liveMetrics.totalSales,
+                totalCustomerSales: liveMetrics.totalCustomerSales,
+                totalDealerSales: liveMetrics.totalDealerSales,
+                cashSales: liveMetrics.cashSales,
+                cardSales: liveMetrics.cardSales,
+                onlineSales: liveMetrics.onlineSales,
+                otherSales: liveMetrics.otherSales,
+                totalCashIn: liveMetrics.totalCashIn,
+                totalCashOut: liveMetrics.totalCashOut,
+                totalRefunds: liveMetrics.totalRefunds,
+                startedBy: row.StartedBy,
+                startedDate: row.StartedDate,
+                endedBy: row.EndedBy,
+                endedDate: row.EndedDate,
+                startRemarks: row.StartRemarks,
+                closingRemarks: row.ClosingRemarks,
+              };
+            }
+          } catch (mErr) {
+            console.warn(`[getHistory] Live metrics calculation failed for open Day #${row.DayId}:`, mErr);
+          }
+        }
+
+        return {
+          dayId: row.DayId,
+          businessDate: row.BusinessDate,
+          dayStatus: row.DayStatus,
+          openingCash: Number(row.OpeningCash || 0),
+          closingCash: row.ClosingCash != null ? Number(row.ClosingCash) : null,
+          expectedCash: row.ExpectedCash != null ? Number(row.ExpectedCash) : null,
+          cashDifference: row.CashDifference != null ? Number(row.CashDifference) : null,
+          totalOrders: Number(row.TotalOrders || 0),
+          totalSales: Number(row.TotalSales || 0),
+          totalCustomerSales: Number(row.TotalCustomerSales || 0),
+          totalDealerSales: Number(row.TotalDealerSales || 0),
+          cashSales: Number(row.CashSales || 0),
+          cardSales: Number(row.CardSales || 0),
+          onlineSales: Number(row.OnlineSales || 0),
+          otherSales: Number(row.OtherSales || 0),
+          totalCashIn: Number(row.TotalCashIn || 0),
+          totalCashOut: Number(row.TotalCashOut || 0),
+          totalRefunds: Number(row.TotalRefunds || 0),
+          startedBy: row.StartedBy,
+          startedDate: row.StartedDate,
+          endedBy: row.EndedBy,
+          endedDate: row.EndedDate,
+          startRemarks: row.StartRemarks,
+          closingRemarks: row.ClosingRemarks,
+        };
+      })
+    );
+
     return res.status(200).json({
       success: true,
-      count: result.recordset.length,
-      data: result.recordset.map((row) => ({
-        dayId: row.DayId,
-        businessDate: row.BusinessDate,
-        dayStatus: row.DayStatus,
-        openingCash: Number(row.OpeningCash || 0),
-        closingCash: row.ClosingCash != null ? Number(row.ClosingCash) : null,
-        expectedCash: row.ExpectedCash != null ? Number(row.ExpectedCash) : null,
-        cashDifference: row.CashDifference != null ? Number(row.CashDifference) : null,
-        totalOrders: Number(row.TotalOrders || 0),
-        totalSales: Number(row.TotalSales || 0),
-        totalCustomerSales: Number(row.TotalCustomerSales || 0),
-        totalDealerSales: Number(row.TotalDealerSales || 0),
-        cashSales: Number(row.CashSales || 0),
-        cardSales: Number(row.CardSales || 0),
-        onlineSales: Number(row.OnlineSales || 0),
-        otherSales: Number(row.OtherSales || 0),
-        totalCashIn: Number(row.TotalCashIn || 0),
-        totalCashOut: Number(row.TotalCashOut || 0),
-        totalRefunds: Number(row.TotalRefunds || 0),
-        startedBy: row.StartedBy,
-        startedDate: row.StartedDate,
-        endedBy: row.EndedBy,
-        endedDate: row.EndedDate,
-        startRemarks: row.StartRemarks,
-        closingRemarks: row.ClosingRemarks,
-      })),
+      count: data.length,
+      data,
     });
   } catch (err) {
     console.error('[DayManagement getHistory Error]', err);

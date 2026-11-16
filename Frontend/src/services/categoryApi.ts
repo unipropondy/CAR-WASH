@@ -11,6 +11,9 @@ export interface ServiceCategoryDto {
   imageContentType?: string | null;
   imageUrl?: string | null;
   hasImage?: boolean;
+  iconContentType?: string | null;
+  iconUrl?: string | null;
+  hasIcon?: boolean;
 }
 
 /**
@@ -43,6 +46,9 @@ export async function fetchServiceCategories(): Promise<ServiceCategory[]> {
       imageUrl: item.imageUrl || `${baseUrl}/api/service-categories/${item.serviceCategoryId}/image`,
       imageContentType: item.imageContentType || null,
       hasImage: Boolean(item.hasImage),
+      iconUrl: item.iconUrl || `${baseUrl}/api/service-categories/${item.serviceCategoryId}/icon`,
+      iconContentType: item.iconContentType || null,
+      hasIcon: Boolean(item.hasIcon),
       displayOrder: item.displayOrder,
       isActive: item.isActive,
     }));

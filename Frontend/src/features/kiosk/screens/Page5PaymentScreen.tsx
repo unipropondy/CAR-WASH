@@ -172,7 +172,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
 
               <View style={styles.summaryPriceBox}>
                 <Text style={styles.summaryPrice}>
-                  {selectedPackage.currencyCode || 'SGD'} ${total.toFixed(2)}
+                  ${total.toFixed(2)}
                 </Text>
                 <Text style={styles.summaryGst}>
                   {selectedPackage.isTaxInclusive ? 'Incl. 9% GST' : '+ 9% GST'}

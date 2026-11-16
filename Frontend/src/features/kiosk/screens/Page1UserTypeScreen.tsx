@@ -15,6 +15,7 @@ import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
+import { RedBayAlertModal } from '../../../components/common/RedBayAlertModal';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
 
 interface Page1UserTypeScreenProps {
@@ -28,22 +29,21 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
   onSelectDealer,
   onExitToPos,
 }) => {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isCompact = width < 560;
   const isVeryNarrow = width < 380;
+  const isLandscapeMobile = height < 520;
 
   const { language } = useKioskLanguageStore();
   const t = KIOSK_TRANSLATIONS[language] || KIOSK_TRANSLATIONS.EN;
   const [isHelpActive, setIsHelpActive] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const handleRequestHelp = async () => {
     setIsHelpActive(true);
+    setShowHelpModal(true);
     try {
       await sendKioskHelpRequest('Welcome Screen (Account Selection)', 'Station #01');
-      Alert.alert(
-        'Staff Alerted',
-        'Assistance requested! A staff member has been notified on the POS screen and is on their way.'
-      );
     } catch (err) {
       console.warn('Help request error:', err);
     }
@@ -96,11 +96,11 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
       >
         <View style={styles.portraitContainer}>
           {/* Logo & Brand Tagline: Top-Centered */}
-          <View style={styles.heroSection}>
-            <View style={styles.logoBadgeContainer}>
+          <View style={[styles.heroSection, isLandscapeMobile && { marginBottom: 12 }]}>
+            <View style={[styles.logoBadgeContainer, isLandscapeMobile && { paddingVertical: 4, paddingHorizontal: 14, marginBottom: 8 }]}>
               <Image
                 source={require('../../../../assets/images/red_bay_banner.jpg')}
-                style={styles.logoBanner}
+                style={[styles.logoBanner, isLandscapeMobile && { width: 170, height: 38 }]}
                 resizeMode="contain"
               />
             </View>
@@ -111,7 +111,7 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
 
             <ScreenNameBadge name="Page1UserTypeScreen.tsx" variant="header" style={{ marginTop: 8 }} />
 
-            <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact]}>
+            <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact, isLandscapeMobile && { fontSize: 20, marginTop: 6 }]}>
               {t.selectAccountPrompt}
             </Text>
           </View>
@@ -194,6 +194,16 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
           </View>
         </View>
       </ScrollView>
+
+      {/* Red Bay Branded Alert Modal */}
+      <RedBayAlertModal
+        visible={showHelpModal}
+        title="Staff Alerted"
+        message="Assistance requested! A staff member has been notified on the POS screen and is on their way."
+        type="alert"
+        buttonText="OK, Understood"
+        onClose={() => setShowHelpModal(false)}
+      />
     </View>
   );
 };

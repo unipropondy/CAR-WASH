@@ -98,6 +98,10 @@ async function createOrder(req, res) {
       vehicleTypeId,
       serviceCategoryId,
       packageId,
+      dealerId,
+      payMode,
+      additionalServices,
+      additionalAmount,
     } = req.body || {};
 
     // Validate required service fields (customer details are optional)
@@ -211,6 +215,21 @@ async function createOrder(req, res) {
     const todayOrders = (seqResult.recordset[0]?.todayOrders || 0) + 1;
     const orderNo = `RB${datePrefix}-${String(todayOrders).padStart(4, '0')}`;
 
+    // Check if this is a Dealer Credit Order
+    const isDealerByInfo = Boolean(dealerId) ||
+      (safeVehicleNumber && (safeVehicleNumber.includes('DLR-') || safeVehicleNumber.includes('FLEET'))) ||
+      (safeCustomerName && (safeCustomerName.toUpperCase() === 'UNIPRO' || safeCustomerName.toUpperCase().includes('DEALER')));
+    const isCreditOrder = (payMode && String(payMode).trim().toUpperCase() === 'CREDIT') || isDealerByInfo;
+    const finalDealerId = dealerId ? parseInt(dealerId, 10) : (isDealerByInfo ? 1 : null);
+    const extraAmount = Number(additionalAmount) || 0;
+    const finalTotalAmount = Number((totalAmount + extraAmount).toFixed(2));
+    const finalPaidAmount = 0;
+    const finalOutstandingAmount = isCreditOrder ? finalTotalAmount : null;
+    const finalCreditStatus = isCreditOrder ? 'PENDING' : null;
+    const finalPayMode = isCreditOrder ? 'CREDIT' : (payMode ? String(payMode).trim().toUpperCase() : null);
+    const finalPaymentStatus = isCreditOrder ? 'PAID' : 'PENDING';
+    const finalStatusCode = isCreditOrder ? STATUS_CODES.PAID : STATUS_CODES.DETAILS_SAVED;
+
     // 3. Insert into dbo.CarWashOrder
     const orderInsertReq = new sql.Request(transaction);
     orderInsertReq.input('dayId', sql.Int, activeDayId);
@@ -224,17 +243,25 @@ async function createOrder(req, res) {
     orderInsertReq.input('packagePrice', sql.Decimal(18, 2), packagePrice);
     orderInsertReq.input('gstPercent', sql.Decimal(5, 2), gstPercent);
     orderInsertReq.input('gstAmount', sql.Decimal(18, 2), gstAmount);
-    orderInsertReq.input('totalAmount', sql.Decimal(18, 2), totalAmount);
+    orderInsertReq.input('totalAmount', sql.Decimal(18, 2), finalTotalAmount);
     orderInsertReq.input('currencyCode', sql.NVarChar(10), currencyCode);
-    orderInsertReq.input('paymentStatus', sql.VarChar(20), 'PENDING');
-    orderInsertReq.input('statusCode', sql.Int, STATUS_CODES.DETAILS_SAVED); // 10
+    orderInsertReq.input('payMode', sql.Char(10), finalPayMode);
+    orderInsertReq.input('paymentStatus', sql.VarChar(20), finalPaymentStatus);
+    orderInsertReq.input('statusCode', sql.Int, finalStatusCode);
+    orderInsertReq.input('dealerId', sql.Int, finalDealerId);
+    orderInsertReq.input('additionalServices', sql.NVarChar(500), additionalServices ? String(additionalServices) : null);
+    orderInsertReq.input('paidAmount', sql.Decimal(18, 2), finalPaidAmount);
+    orderInsertReq.input('outstandingAmount', sql.Decimal(18, 2), finalOutstandingAmount);
+    orderInsertReq.input('creditStatus', sql.NVarChar(30), finalCreditStatus);
 
     const insertResult = await orderInsertReq.query(`
       INSERT INTO dbo.CarWashOrder (
         DayId, OrderNo, CustomerName, VehicleNumber, MobileNumber,
         VehicleTypeId, ServiceCategoryId, PackageId,
         PackagePrice, GSTPercent, GSTAmount, TotalAmount, CurrencyCode,
-        PaymentStatus, StatusCode, CreatedDate
+        PayMode, PaymentStatus, StatusCode,
+        DealerId, AdditionalServices, PaidAmount, OutstandingAmount, CreditStatus,
+        CreatedDate
       )
       OUTPUT 
         INSERTED.OrderId, 
@@ -245,7 +272,9 @@ async function createOrder(req, res) {
         @dayId, @orderNo, @customerName, @vehicleNumber, @mobileNumber,
         @vehicleTypeId, @serviceCategoryId, @packageId,
         @packagePrice, @gstPercent, @gstAmount, @totalAmount, @currencyCode,
-        @paymentStatus, @statusCode, GETDATE()
+        @payMode, @paymentStatus, @statusCode,
+        @dealerId, @additionalServices, @paidAmount, @outstandingAmount, @creditStatus,
+        GETDATE()
       );
     `);
 
@@ -256,9 +285,9 @@ async function createOrder(req, res) {
     const histReq = new sql.Request(transaction);
     histReq.input('orderId', sql.Int, orderId);
     histReq.input('oldStatusCode', sql.Int, null);
-    histReq.input('newStatusCode', sql.Int, STATUS_CODES.DETAILS_SAVED);
-    histReq.input('remarks', sql.NVarChar(500), 'Kiosk customer details saved - awaiting payment');
-    histReq.input('changedBy', sql.NVarChar(100), 'KIOSK');
+    histReq.input('newStatusCode', sql.Int, finalStatusCode);
+    histReq.input('remarks', sql.NVarChar(500), isCreditOrder ? `Dealer credit order authorized for ${safeCustomerName}. Bill: ${orderNo}, Total Credit: $${finalTotalAmount.toFixed(2)}` : 'Kiosk customer details saved - awaiting payment');
+    histReq.input('changedBy', sql.NVarChar(100), isCreditOrder ? `DEALER:${dealerId || safeCustomerName}` : 'KIOSK');
 
     await histReq.query(`
       INSERT INTO dbo.CarWashOrderStatusHistory (
@@ -269,12 +298,44 @@ async function createOrder(req, res) {
       );
     `);
 
+    // 5. If Dealer Credit Order, also record transaction in dbo.CarWashPaymentTransaction
+    if (isCreditOrder) {
+      try {
+        const txnReq = new sql.Request(transaction);
+        txnReq.input('txnNo', sql.NVarChar(40), `TXN-${orderNo}`);
+        txnReq.input('orderId', sql.Int, orderId);
+        txnReq.input('orderNo', sql.NVarChar(30), orderNo);
+        txnReq.input('payMode', sql.Char(10), 'CREDIT');
+        txnReq.input('txnType', sql.VarChar(20), 'CREDIT');
+        txnReq.input('amount', sql.Decimal(18, 2), finalTotalAmount);
+        txnReq.input('gstAmount', sql.Decimal(18, 2), gstAmount);
+        txnReq.input('netAmount', sql.Decimal(18, 2), packagePrice);
+        txnReq.input('currencyCode', sql.NVarChar(10), currencyCode);
+        txnReq.input('paymentStatus', sql.VarChar(20), 'CREDIT');
+        txnReq.input('processedBy', sql.NVarChar(100), safeCustomerName);
+        txnReq.input('dayId', sql.Int, activeDayId);
+        await txnReq.query(`
+          INSERT INTO dbo.CarWashPaymentTransaction (
+            TransactionNo, OrderId, OrderNo, PayMode, TransactionType,
+            Amount, GSTAmount, NetAmount, CurrencyCode, PaymentStatus,
+            ProcessedBy, CreatedDate, DayId
+          ) VALUES (
+            @txnNo, @orderId, @orderNo, @payMode, @txnType,
+            @amount, @gstAmount, @netAmount, @currencyCode, @paymentStatus,
+            @processedBy, SYSDATETIME(), @dayId
+          );
+        `);
+      } catch (txnErr) {
+        console.warn('[createOrder] Transaction record notice:', txnErr.message);
+      }
+    }
+
     // Commit Transaction
     await transaction.commit();
 
     return res.status(201).json({
       success: true,
-      message: 'Customer booking saved successfully',
+      message: isCreditOrder ? 'Dealer credit order created successfully' : 'Customer booking saved successfully',
       data: {
         orderId,
         orderNo: createdOrder.OrderNo,
@@ -289,11 +350,17 @@ async function createOrder(req, res) {
         packagePrice,
         gstPercent,
         gstAmount,
-        totalAmount,
+        totalAmount: finalTotalAmount,
         currencyCode,
-        paymentStatus: 'PENDING',
-        statusCode: STATUS_CODES.DETAILS_SAVED,
-        statusName: STATUS_NAMES[STATUS_CODES.DETAILS_SAVED],
+        payMode: finalPayMode,
+        paymentStatus: finalPaymentStatus,
+        statusCode: finalStatusCode,
+        statusName: STATUS_NAMES[finalStatusCode] || 'PAID',
+        dealerId: dealerId ? parseInt(dealerId, 10) : null,
+        additionalServices: additionalServices || null,
+        paidAmount: finalPaidAmount,
+        outstandingAmount: finalOutstandingAmount,
+        creditStatus: finalCreditStatus,
         createdDate: createdOrder.CreatedDate,
       },
     });
@@ -669,11 +736,19 @@ async function updateStatus(req, res) {
       conflictReq.input('conflictBayNum', sql.Int, targetBayNum);
       conflictReq.input('currOrderId', sql.Int, orderId);
       const conflictCheck = await conflictReq.query(`
-        SELECT TOP 1 OrderId, OrderNo, VehicleNumber 
-        FROM dbo.CarWashOrder 
-        WHERE BayId = @conflictBayNum 
-          AND StatusCode IN (40, 50) 
-          AND OrderId != @currOrderId;
+        SELECT TOP 1 o.OrderId, o.OrderNo, o.VehicleNumber 
+        FROM dbo.CarWashOrder o
+        INNER JOIN dbo.BayMaster bm ON bm.BayNumber = @conflictBayNum
+        WHERE o.BayId = @conflictBayNum 
+          AND o.StatusCode IN (40, 50) 
+          AND o.OrderId != @currOrderId
+          AND (
+            bm.CurrentOrderId = o.OrderNo
+            OR (
+              bm.BayStatus IN ('IN_SERVICE', 'OCCUPIED')
+              AND CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)
+            )
+          );
       `);
 
       if (conflictCheck.recordset.length > 0) {
@@ -895,6 +970,8 @@ async function getOrders(req, res) {
     if (dayId) {
       request.input('dayId', sql.Int, parseInt(dayId, 10));
       whereConditions.push(`o.DayId = @dayId`);
+    } else if (date === 'all') {
+      // Return ALL historical records across all days and dates (Customer History & Reports)
     } else if (activeDay) {
       // Business Day spans across midnight until Day End is clicked:
       // Always prioritize active Business Day orders regardless of calendar date
@@ -911,11 +988,11 @@ async function getOrders(req, res) {
     // Filter by Status
     const normalizedFilter = filter.toUpperCase();
     if (normalizedFilter === 'PENDING_PAYMENT' || normalizedFilter === 'PENDING') {
-      // Only actual unpaid orders: CASH with PENDING status or status 10/20 where paymentStatus is not PAID
-      whereConditions.push(`(o.PaymentStatus = 'PENDING' AND (RTRIM(o.PayMode) = 'CASH' OR o.StatusCode IN (10, 20)))`);
+      // Only actual unpaid orders: CASH with PENDING status or status 10/20 where paymentStatus is not PAID, excluding commercial dealer credit
+      whereConditions.push(`(o.PaymentStatus = 'PENDING' AND (RTRIM(ISNULL(o.PayMode, '')) = 'CASH' OR o.StatusCode IN (10, 20)) AND RTRIM(ISNULL(o.PayMode, '')) != 'CREDIT' AND o.DealerId IS NULL)`);
     } else if (normalizedFilter === 'PAID_WAITING' || normalizedFilter === 'WAITING') {
-      // Paid and waiting for bay assignment
-      whereConditions.push(`((o.StatusCode IN (30, 40) OR (o.PaymentStatus = 'PAID' AND o.StatusCode < 50)) AND o.PaymentStatus != 'PENDING')`);
+      // Paid and waiting for bay assignment, including dealer credit accounts awaiting bay
+      whereConditions.push(`(((o.StatusCode IN (30, 40) OR (o.PaymentStatus = 'PAID' AND o.StatusCode < 50) OR (RTRIM(ISNULL(o.PayMode, '')) = 'CREDIT' AND o.StatusCode < 50) OR (o.DealerId IS NOT NULL AND o.StatusCode < 50))) AND o.StatusCode NOT IN (50, 60, 70, 80))`);
     } else if (normalizedFilter === 'IN_SERVICE') {
       whereConditions.push(`o.StatusCode = 50`);
     } else if (normalizedFilter === 'COMPLETED') {
@@ -967,6 +1044,12 @@ async function getOrders(req, res) {
         o.PaymentReference,
         o.StatusCode,
         o.BayId,
+        o.DealerId,
+        dm.DealerName,
+        o.AdditionalServices,
+        o.PaidAmount,
+        o.OutstandingAmount,
+        o.CreditStatus,
         o.CreatedDate,
         o.PaidDate,
         o.StartedDate,
@@ -985,6 +1068,7 @@ async function getOrders(req, res) {
       LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
       LEFT JOIN dbo.ServiceCategoryMaster sc ON o.ServiceCategoryId = sc.ServiceCategoryId
       LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
+      LEFT JOIN dbo.DealerMaster dm ON o.DealerId = dm.DealerId
       ${whereClause}
       ORDER BY 
         CASE 
@@ -1040,6 +1124,12 @@ async function getOrders(req, res) {
         statusName: STATUS_NAMES[row.StatusCode] || 'DETAILS_SAVED',
         bayId: row.BayId,
         bayStatus,
+        dealerId: row.DealerId,
+        dealerName: row.DealerName || (row.DealerId ? `Dealer #${row.DealerId}` : null),
+        additionalServices: row.AdditionalServices,
+        paidAmount: row.PaidAmount != null ? Number(row.PaidAmount) : 0,
+        outstandingAmount: row.OutstandingAmount != null ? Number(row.OutstandingAmount) : (row.CreditStatus === 'PENDING' ? Number(row.TotalAmount) : 0),
+        creditStatus: row.CreditStatus,
         waitTime: waitTimeStr,
         waitMinutes: waitMin,
         createdDate: row.CreatedDate,
@@ -1110,6 +1200,12 @@ async function getOrderById(req, res) {
         o.PaymentReference,
         o.StatusCode,
         o.BayId,
+        o.DealerId,
+        dm.DealerName,
+        o.AdditionalServices,
+        o.PaidAmount,
+        o.OutstandingAmount,
+        o.CreditStatus,
         o.CreatedDate,
         o.PaidDate,
         o.StartedDate,
@@ -1128,6 +1224,7 @@ async function getOrderById(req, res) {
       LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
       LEFT JOIN dbo.ServiceCategoryMaster sc ON o.ServiceCategoryId = sc.ServiceCategoryId
       LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
+      LEFT JOIN dbo.DealerMaster dm ON o.DealerId = dm.DealerId
       WHERE o.OrderId = @orderId;
     `;
 
@@ -1170,6 +1267,12 @@ async function getOrderById(req, res) {
         statusName: STATUS_NAMES[row.StatusCode] || 'DETAILS_SAVED',
         bayId: row.BayId,
         bayStatus: row.BayId ? `Bay ${row.BayId}` : 'Unassigned',
+        dealerId: row.DealerId,
+        dealerName: row.DealerName || (row.DealerId ? `Dealer #${row.DealerId}` : null),
+        additionalServices: row.AdditionalServices,
+        paidAmount: row.PaidAmount != null ? Number(row.PaidAmount) : 0,
+        outstandingAmount: row.OutstandingAmount != null ? Number(row.OutstandingAmount) : (row.CreditStatus === 'PENDING' ? Number(row.TotalAmount) : 0),
+        creditStatus: row.CreditStatus,
         waitTime: `${waitMin} min`,
         waitMinutes: waitMin,
         createdDate: row.CreatedDate,

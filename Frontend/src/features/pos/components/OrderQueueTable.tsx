@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { PosOrder } from '../../../types/pos.types';
 import {
@@ -83,13 +84,32 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   onCloseOrder,
   onViewHistory,
 }) => {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [activeFilter, setActiveFilter] = useState<FilterTabKey>('ALL');
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
+  // Helper to identify dealer / commercial account credit orders
+  const isDealerOrder = (o: PosOrder): boolean => {
+    return Boolean(
+      (o.payMode && o.payMode.trim().toUpperCase() === 'CREDIT') ||
+      o.paymentStatus === 'CREDIT' ||
+      (o as any).isDealer ||
+      (o as any).dealerId ||
+      (o as any).DealerId ||
+      (o as any).dealerName ||
+      (o as any).DealerName ||
+      (o.vehiclePlate && (o.vehiclePlate.includes('DLR-') || o.vehiclePlate.includes('FLEET'))) ||
+      (o.customerName && (o.customerName.toUpperCase() === 'UNIPRO' || o.customerName.toUpperCase().includes('DEALER')))
+    );
+  };
+
   // Helper functions for payment status logic:
-  // 1. CASH: Payment status is PENDING until confirmed
-  // 2. Non-CASH (Card, PayNow, Online, Member, Credit): Automatically Paid / Waiting
+  // 1. Dealer / Account Credit: ALWAYS authorized on credit, never stuck in pending payment
+  // 2. CASH: Payment status is PENDING until cashier collects payment
+  // 3. Non-CASH (Card, PayNow, Online, Member, Credit): Automatically Paid / Waiting
   const isOrderPendingPayment = (o: PosOrder) => {
+    if (isDealerOrder(o)) return false;
     if (o.paymentStatus === 'PAID') return false;
     return (
       (o.statusCode != null && (o.statusCode === 10 || o.statusCode === 20)) ||
@@ -100,6 +120,9 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   const isOrderPaidWaiting = (o: PosOrder) => {
     if (isOrderPendingPayment(o)) return false;
     const code = o.statusCode ?? (o.status === 'WAITING_ASSIGN' ? 30 : 20);
+    if (isDealerOrder(o)) {
+      return !o.assignedBayId && code < 50 && o.status !== 'IN_SERVICE' && o.status !== 'COMPLETED' && o.status !== 'CLOSED' && o.status !== 'CANCELLED';
+    }
     return (
       (code === 30 || code === 40 || o.status === 'WAITING_ASSIGN') &&
       code !== 50 &&
@@ -430,27 +453,9 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
         </ScrollView>
       </View>
 
-      {/* ================= DATA TABLE ================= */}
-      <View style={styles.tableWrapper}>
-        {/* Table Column Headers */}
-        <View style={styles.tableHeaderRow}>
-          <Text style={[styles.th, { width: '10%' }]}>ORDER NO</Text>
-          <Text style={[styles.th, { width: '15%' }]}>NAME</Text>
-          <Text style={[styles.th, { width: '12%' }]}>VEHICLE</Text>
-          <Text style={[styles.th, { width: '17%' }]}>PACKAGE</Text>
-          <Text style={[styles.th, { width: '11%' }]}>AMOUNT</Text>
-          <Text style={[styles.th, { width: '11%' }]}>PAYMENT</Text>
-          <Text style={[styles.th, { width: '10%' }]}>BAY</Text>
-          <Text style={[styles.th, { width: '6%' }]}>WAIT</Text>
-          <Text style={[styles.th, { width: '8%', textAlign: 'center' }]}>ACTION</Text>
-        </View>
-
-        {/* Table Body Rows - Fixed to show exactly 7 records with inner scroll */}
-        <ScrollView
-          style={styles.tableBody}
-          nestedScrollEnabled={true}
-          showsVerticalScrollIndicator={true}
-        >
+      {/* ================= DATA VIEW (RESPONSIVE: CARDS ON MOBILE, TABLE ON TABLET/DESKTOP) ================= */}
+      {isMobile ? (
+        <View style={styles.mobileCardsList}>
           {filteredOrders.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyTitle}>No matching orders</Text>
@@ -467,182 +472,347 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   : order.status === 'IN_SERVICE'
                   ? 50
                   : 20);
+              const isDealer = isDealerOrder(order);
               const isPending = isOrderPendingPayment(order);
-              const isPaid = !isPending && (order.paymentStatus === 'PAID' || code >= 30);
-              const isPaidWaiting = isOrderPaidWaiting(order);
-              const isInService =
-                code === 40 ||
-                code === 50 ||
-                order.status === 'ASSIGNED_TO_BAY' ||
-                order.status === 'IN_WASH';
-              const isCompleted = code === 60 || order.status === 'COMPLETED';
-
+              const isPaid = isDealer || (!isPending && (order.paymentStatus === 'PAID' || code >= 30));
               const pkgStyle = getPackageBadgeStyle(order.packageName);
-              const isHovered = hoveredRow === order.id;
               const { text: waitTextDisplay, minutes: waitMins } = getOrderWaitTime(order, now);
-              const isOverdue = waitMins > 40;
 
               return (
-                <View
-                  key={order.id || order.orderNumber || idx}
-                  style={[
-                    styles.tableRow,
-                    isHovered ? styles.tableRowHover : null,
-                    isOverdue ? styles.tableRowOverdue : null,
-                  ]}
-                  // @ts-ignore
-                  onMouseEnter={() => setHoveredRow(order.id)}
-                  // @ts-ignore
-                  onMouseLeave={() => setHoveredRow(null)}
-                >
-                  {/* 1. ORDER NO: Monospace ID without background box */}
-                  <View style={{ width: '10%', justifyContent: 'center' }}>
-                    <Text style={styles.orderIdText} numberOfLines={1}>
-                      {formatOrderNo(order.orderNumber)}
-                    </Text>
-                  </View>
-
-                  {/* 2. NAME: Modern Soft-Tinted Avatar + Name + Subtitle */}
-                  <View style={[styles.customerCell, { width: '15%' }]}>
-                    {(() => {
-                      const avatarTheme = getCustomerAvatarTheme(order.customerName, idx);
-                      return (
-                        <>
-                          <View
-                            style={[
-                              styles.customerAvatar,
-                              {
-                                backgroundColor: avatarTheme.bg,
-                                borderColor: avatarTheme.border,
-                              },
-                            ]}
-                          >
-                            <Text style={[styles.customerAvatarText, { color: avatarTheme.text }]}>
-                              {getInitials(order.customerName)}
-                            </Text>
-                          </View>
-                          <View style={styles.customerInfoBlock}>
-                            <Text style={styles.customerNameText} numberOfLines={1}>
-                              {order.customerName || 'Customer'}
-                            </Text>
-                            <Text style={styles.customerSubText} numberOfLines={1}>
-                              {order.customerMobile ? order.customerMobile : 'Walk-in'}
-                            </Text>
-                          </View>
-                        </>
-                      );
-                    })()}
-                  </View>
-
-                  {/* 3. VEHICLE: Plate without background box */}
-                  <View style={[styles.vehicleCell, { width: '12%' }]}>
-                    <Text style={styles.plateText} numberOfLines={1}>
-                      {order.vehiclePlate}
-                    </Text>
-                  </View>
-
-                  {/* 4. PACKAGE: Colored Pill + CAR WASH */}
-                  <View style={{ width: '17%', justifyContent: 'center', paddingRight: 8, overflow: 'hidden' }}>
-                    <View style={[styles.packagePill, pkgStyle.pill]}>
-                      <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1} ellipsizeMode="tail">
-                        {order.packageName}
-                      </Text>
-                    </View>
-                    <Text style={styles.carWashLabel}>CAR WASH</Text>
-                  </View>
-
-                  {/* 5. AMOUNT: Bold $ 15.00 + CREDIT / CASH */}
-                  <View style={{ width: '11%', justifyContent: 'center' }}>
-                    <Text style={styles.amountBoldText} numberOfLines={1}>
-                      $ {order.totalAmount.toFixed(2)}
-                    </Text>
-                    <Text style={styles.cashTagText}>
-                      {order.payMode || 'CASH'}
-                    </Text>
-                  </View>
-
-                  {/* 6. PAYMENT: Green Paid Badge or Amber Pending Badge */}
-                  <View style={{ width: '11%', justifyContent: 'center' }}>
-                    {isPaid ? (
-                      <View style={styles.paidBadge}>
-                        <Text style={styles.paidCheckmark}>✓</Text>
-                        <Text style={styles.paidBadgeText}>Paid</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.pendingBadge}>
-                        <IconHourglass size={11} color="#D97706" strokeWidth={2.2} />
-                        <Text style={styles.pendingBadgeText}>Pending</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* 7. BAY: Blue Waterdrop Badge or Select Bay Button */}
-                  <View style={{ width: '10%', justifyContent: 'center' }}>
-                    {order.assignedBayName || order.assignedBayId ? (
-                      <View style={styles.bayBadge}>
-                        <Text style={styles.bayWaterDrop}>💧</Text>
-                        <Text style={styles.bayBadgeText}>
-                          {order.assignedBayName || `Bay ${order.assignedBayId}`}
+                <View key={order.id || order.orderNumber || idx} style={styles.mobileOrderCard}>
+                  {/* Top Row: Order # and Payment / Wait badges */}
+                  <View style={styles.mobileCardHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                      <Text style={styles.mobileOrderNo}>#{formatOrderNo(order.orderNumber)}</Text>
+                      <View style={[styles.packagePill, pkgStyle.pill]}>
+                        <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1}>
+                          {order.packageName}
                         </Text>
                       </View>
-                    ) : (isPaid && code < 50) ? (
-                      <TouchableOpacity
-                        style={styles.selectBayBtn}
-                        onPress={() => onAssignOrder(order)}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Select Bay"
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {isDealer ? (
+                        <View style={styles.creditBadge}>
+                          <Text style={styles.creditBadgeIcon}>🏢</Text>
+                          <Text style={styles.creditBadgeText}>Credit</Text>
+                        </View>
+                      ) : isPaid ? (
+                        <View style={styles.paidBadge}>
+                          <Text style={styles.paidCheckmark}>✓</Text>
+                          <Text style={styles.paidBadgeText}>Paid</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.pendingBadge}>
+                          <IconHourglass size={11} color="#D97706" strokeWidth={2.2} />
+                          <Text style={styles.pendingBadgeText}>Pending</Text>
+                        </View>
+                      )}
+                      <Text
+                        style={[
+                          styles.waitText,
+                          waitMins > 40
+                            ? styles.waitTextRed
+                            : waitMins >= 20
+                            ? styles.waitTextAmber
+                            : styles.waitTextNormal,
+                        ]}
                       >
-                        <Text style={styles.selectBayWaterDrop}>💧</Text>
-                        <Text style={styles.selectBayBtnText}>Select Bay</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <Text style={styles.unassignedText}>—</Text>
-                    )}
+                        ⏱ {waitTextDisplay}
+                      </Text>
+                    </View>
                   </View>
 
-                  {/* 8. WAIT: Wait duration */}
-                  <View style={{ width: '6%', justifyContent: 'center' }}>
-                    <Text
-                      style={[
-                        styles.waitText,
-                        waitMins > 40
-                          ? styles.waitTextRed
-                          : waitMins >= 20
-                          ? styles.waitTextAmber
-                          : styles.waitTextNormal,
-                      ]}
-                    >
-                      {waitTextDisplay}
-                    </Text>
+                  {/* Customer & Vehicle Info */}
+                  <View style={styles.mobileCardBody}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.mobileCustomerName}>{order.customerName || 'Customer'}</Text>
+                      <Text style={styles.mobileCustomerSub}>
+                        {isDealer ? (
+                          <Text style={styles.dealerSubText}>Dealer</Text>
+                        ) : (
+                          order.customerMobile || 'Walk-in'
+                        )} • <Text style={styles.mobilePlateText}>{order.vehiclePlate}</Text>
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.amountBoldText}>${order.totalAmount.toFixed(2)}</Text>
+                      <Text style={[styles.cashTagText, isDealer && styles.creditTagText]}>
+                        {isDealer ? 'CREDIT' : (order.payMode || 'CASH')}
+                      </Text>
+                    </View>
                   </View>
 
-                  {/* 9. ACTION: View Button + Clock */}
-                  <View style={[styles.actionCell, { width: '8%' }]}>
-                    <TouchableOpacity
-                      style={styles.viewBtn}
-                      onPress={() => onViewOrder(order)}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.viewBtnText}>View</Text>
-                    </TouchableOpacity>
+                  {/* Bottom Actions Row: Bay badge / Assign & View */}
+                  <View style={styles.mobileCardFooter}>
+                    <View>
+                      {order.assignedBayName || order.assignedBayId ? (
+                        <View style={styles.bayBadge}>
+                          <Text style={styles.bayWaterDrop}>💧</Text>
+                          <Text style={styles.bayBadgeText}>
+                            {order.assignedBayName || `Bay ${order.assignedBayId}`}
+                          </Text>
+                        </View>
+                      ) : ((isPaid || isDealer) && code < 50) ? (
+                        <TouchableOpacity
+                          style={styles.selectBayBtn}
+                          onPress={() => onAssignOrder(order)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Select Bay"
+                        >
+                          <Text style={styles.selectBayWaterDrop}>💧</Text>
+                          <Text style={styles.selectBayBtnText}>Select Bay</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={styles.unassignedText}>—</Text>
+                      )}
+                    </View>
 
-                    {onViewHistory && (
+                    <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                      {onViewHistory && (
+                        <TouchableOpacity
+                          style={styles.historyBtn}
+                          onPress={() => onViewHistory(order)}
+                          activeOpacity={0.7}
+                        >
+                          <IconClock size={14} color="#94A3B8" strokeWidth={2} />
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
-                        style={styles.historyBtn}
-                        onPress={() => onViewHistory(order)}
-                        activeOpacity={0.7}
+                        style={styles.viewBtn}
+                        onPress={() => onViewOrder(order)}
+                        activeOpacity={0.85}
                       >
-                        <IconClock size={14} color="#94A3B8" strokeWidth={2} />
+                        <Text style={styles.viewBtnText}>View Details</Text>
                       </TouchableOpacity>
-                    )}
+                    </View>
                   </View>
                 </View>
               );
             })
           )}
+        </View>
+      ) : (
+        <ScrollView
+          horizontal={width < 960}
+          showsHorizontalScrollIndicator={false}
+          style={{ width: '100%' }}
+        >
+          <View style={[styles.tableWrapper, width < 960 && { minWidth: 880 }]}>
+            {/* Table Column Headers */}
+            <View style={styles.tableHeaderRow}>
+              <Text style={[styles.th, { width: '10%' }]}>ORDER NO</Text>
+              <Text style={[styles.th, { width: '15%' }]}>NAME</Text>
+              <Text style={[styles.th, { width: '12%' }]}>VEHICLE</Text>
+              <Text style={[styles.th, { width: '17%' }]}>PACKAGE</Text>
+              <Text style={[styles.th, { width: '11%' }]}>AMOUNT</Text>
+              <Text style={[styles.th, { width: '11%' }]}>PAYMENT</Text>
+              <Text style={[styles.th, { width: '10%' }]}>BAY</Text>
+              <Text style={[styles.th, { width: '6%' }]}>WAIT</Text>
+              <Text style={[styles.th, { width: '8%', textAlign: 'center' }]}>ACTION</Text>
+            </View>
+
+            {/* Table Body Rows - Fixed to show records with inner scroll */}
+            <ScrollView
+              style={styles.tableBody}
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+            >
+              {filteredOrders.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyTitle}>No matching orders</Text>
+                  <Text style={styles.emptyText}>
+                    No orders found under {activeFilter.replace(/_/g, ' ')}.
+                  </Text>
+                </View>
+              ) : (
+                filteredOrders.map((order, idx) => {
+                  const code =
+                    order.statusCode ??
+                    (order.status === 'WAITING_ASSIGN'
+                      ? 30
+                      : order.status === 'IN_SERVICE'
+                      ? 50
+                      : 20);
+                  const isDealer = isDealerOrder(order);
+                  const isPending = isOrderPendingPayment(order);
+                  const isPaid = isDealer || (!isPending && (order.paymentStatus === 'PAID' || code >= 30));
+                  const pkgStyle = getPackageBadgeStyle(order.packageName);
+                  const isHovered = hoveredRow === order.id;
+                  const { text: waitTextDisplay, minutes: waitMins } = getOrderWaitTime(order, now);
+                  const isOverdue = waitMins > 40;
+
+                  return (
+                    <View
+                      key={order.id || order.orderNumber || idx}
+                      style={[
+                        styles.tableRow,
+                        isHovered ? styles.tableRowHover : null,
+                        isOverdue ? styles.tableRowOverdue : null,
+                      ]}
+                      // @ts-ignore
+                      onMouseEnter={() => setHoveredRow(order.id)}
+                      // @ts-ignore
+                      onMouseLeave={() => setHoveredRow(null)}
+                    >
+                      {/* 1. ORDER NO: Monospace ID without background box */}
+                      <View style={{ width: '10%', justifyContent: 'center' }}>
+                        <Text style={styles.orderIdText} numberOfLines={1}>
+                          {formatOrderNo(order.orderNumber)}
+                        </Text>
+                      </View>
+
+                      {/* 2. NAME: Modern Soft-Tinted Avatar + Name + Subtitle */}
+                      <View style={[styles.customerCell, { width: '15%' }]}>
+                        {(() => {
+                          const avatarTheme = getCustomerAvatarTheme(order.customerName, idx);
+                          return (
+                            <>
+                              <View
+                                style={[
+                                  styles.customerAvatar,
+                                  {
+                                    backgroundColor: avatarTheme.bg,
+                                    borderColor: avatarTheme.border,
+                                  },
+                                ]}
+                              >
+                                <Text style={[styles.customerAvatarText, { color: avatarTheme.text }]}>
+                                  {getInitials(order.customerName)}
+                                </Text>
+                              </View>
+                              <View style={styles.customerInfoBlock}>
+                                <Text style={styles.customerNameText} numberOfLines={1}>
+                                  {order.customerName || 'Customer'}
+                                </Text>
+                                <Text
+                                  style={[styles.customerSubText, isDealer && styles.dealerSubText]}
+                                  numberOfLines={1}
+                                >
+                                  {isDealer ? 'Dealer' : (order.customerMobile ? order.customerMobile : 'Walk-in')}
+                                </Text>
+                              </View>
+                            </>
+                          );
+                        })()}
+                      </View>
+
+                      {/* 3. VEHICLE: Plate without background box */}
+                      <View style={[styles.vehicleCell, { width: '12%' }]}>
+                        <Text style={styles.plateText} numberOfLines={1}>
+                          {order.vehiclePlate}
+                        </Text>
+                      </View>
+
+                      {/* 4. PACKAGE: Colored Pill + CAR WASH */}
+                      <View style={{ width: '17%', justifyContent: 'center', paddingRight: 8, overflow: 'hidden' }}>
+                        <View style={[styles.packagePill, pkgStyle.pill]}>
+                          <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1} ellipsizeMode="tail">
+                            {order.packageName}
+                          </Text>
+                        </View>
+                        <Text style={styles.carWashLabel}>CAR WASH</Text>
+                      </View>
+
+                      {/* 5. AMOUNT: Bold $ 15.00 + CREDIT / CASH */}
+                      <View style={{ width: '11%', justifyContent: 'center' }}>
+                        <Text style={styles.amountBoldText} numberOfLines={1}>
+                          $ {order.totalAmount.toFixed(2)}
+                        </Text>
+                        <Text style={[styles.cashTagText, isDealer && styles.creditTagText]}>
+                          {isDealer ? 'CREDIT' : (order.payMode || 'CASH')}
+                        </Text>
+                      </View>
+
+                      {/* 6. PAYMENT: Credit Badge or Green Paid Badge or Amber Pending Badge */}
+                      <View style={{ width: '11%', justifyContent: 'center' }}>
+                        {isDealer ? (
+                          <View style={styles.creditBadge}>
+                            <Text style={styles.creditBadgeIcon}>🏢</Text>
+                            <Text style={styles.creditBadgeText}>Credit</Text>
+                          </View>
+                        ) : isPaid ? (
+                          <View style={styles.paidBadge}>
+                            <Text style={styles.paidCheckmark}>✓</Text>
+                            <Text style={styles.paidBadgeText}>Paid</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.pendingBadge}>
+                            <IconHourglass size={11} color="#D97706" strokeWidth={2.2} />
+                            <Text style={styles.pendingBadgeText}>Pending</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* 7. BAY: Blue Waterdrop Badge or Select Bay Button */}
+                      <View style={{ width: '10%', justifyContent: 'center' }}>
+                        {order.assignedBayName || order.assignedBayId ? (
+                          <View style={styles.bayBadge}>
+                            <Text style={styles.bayWaterDrop}>💧</Text>
+                            <Text style={styles.bayBadgeText}>
+                              {order.assignedBayName || `Bay ${order.assignedBayId}`}
+                            </Text>
+                          </View>
+                        ) : ((isPaid || isDealer) && code < 50) ? (
+                          <TouchableOpacity
+                            style={styles.selectBayBtn}
+                            onPress={() => onAssignOrder(order)}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Select Bay"
+                          >
+                            <Text style={styles.selectBayWaterDrop}>💧</Text>
+                            <Text style={styles.selectBayBtnText}>Select Bay</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={styles.unassignedText}>—</Text>
+                        )}
+                      </View>
+
+                      {/* 8. WAIT: Wait duration */}
+                      <View style={{ width: '6%', justifyContent: 'center' }}>
+                        <Text
+                          style={[
+                            styles.waitText,
+                            waitMins > 40
+                              ? styles.waitTextRed
+                              : waitMins >= 20
+                              ? styles.waitTextAmber
+                              : styles.waitTextNormal,
+                          ]}
+                        >
+                          {waitTextDisplay}
+                        </Text>
+                      </View>
+
+                      {/* 9. ACTION: View Button + Clock */}
+                      <View style={[styles.actionCell, { width: '8%' }]}>
+                        <TouchableOpacity
+                          style={styles.viewBtn}
+                          onPress={() => onViewOrder(order)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={styles.viewBtnText}>View</Text>
+                        </TouchableOpacity>
+
+                        {onViewHistory && (
+                          <TouchableOpacity
+                            style={styles.historyBtn}
+                            onPress={() => onViewHistory(order)}
+                            activeOpacity={0.7}
+                          >
+                            <IconClock size={14} color="#94A3B8" strokeWidth={2} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
         </ScrollView>
-      </View>
+      )}
     </View>
   );
 };
@@ -712,6 +882,64 @@ const styles = StyleSheet.create({
   // Table
   tableWrapper: {
     width: '100%',
+  },
+  // Mobile Cards List
+  mobileCardsList: {
+    gap: 12,
+    width: '100%',
+  },
+  mobileOrderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    gap: 10,
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : { elevation: 2 }),
+  },
+  mobileCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  mobileOrderNo: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.5,
+  },
+  mobileCardBody: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mobileCustomerName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  mobileCustomerSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  mobilePlateText: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  mobileCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
   tableHeaderRow: {
     flexDirection: 'row',
@@ -808,6 +1036,10 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 1.5,
   },
+  dealerSubText: {
+    color: '#2563EB',
+    fontWeight: '700',
+  },
   // VEHICLE Column
   vehicleCell: {
     justifyContent: 'center',
@@ -878,7 +1110,31 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 2,
   },
+  creditTagText: {
+    color: '#2563EB',
+    fontWeight: '900',
+  },
   // PAYMENT Column
+  creditBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  creditBadgeIcon: {
+    fontSize: 10,
+  },
+  creditBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
   paidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1064,7 +1320,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
-    cursor: 'pointer',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   // Empty
   emptyContainer: {

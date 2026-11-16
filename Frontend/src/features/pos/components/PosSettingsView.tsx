@@ -11,6 +11,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { RED_BAY_COLORS } from '../../../theme/colors';
@@ -402,10 +403,13 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
     }, 800);
   };
 
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+
   return (
     <View style={styles.container}>
       {/* Top Header Banner */}
-      <View style={styles.headerCard}>
+      <View style={[styles.headerCard, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
         <View style={styles.headerLeft}>
           <View style={styles.headerIconBox}>
             <Ionicons name="settings-sharp" size={24} color="#FFFFFF" />
@@ -413,10 +417,6 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
           <View>
             <View style={styles.titleRow}>
               <Text style={styles.headerTitle}>Station & POS Settings</Text>
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>STATION #01 ONLINE</Text>
-              </View>
             </View>
             <Text style={styles.headerSubtitle}>
               Configure hardware peripherals, washing bays, billing, and system parameters
@@ -424,7 +424,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
           </View>
         </View>
 
-        <View style={styles.headerActions}>
+        <View style={[styles.headerActions, isMobile && { width: '100%', justifyContent: 'space-between' }]}>
           {onBackToOrders && (
             <TouchableOpacity style={styles.backBtn} onPress={onBackToOrders} activeOpacity={0.8}>
               <Ionicons name="arrow-back" size={18} color="#475569" />
@@ -455,7 +455,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
       </View>
 
       {/* Navigation Sub-Tabs */}
-      <View style={styles.subTabRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subTabRow}>
         <TouchableOpacity
           style={[styles.subTabBtn, activeSection === 'GENERAL' && styles.subTabBtnActive]}
           onPress={() => setActiveSection('GENERAL')}
@@ -533,7 +533,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
             Services & Pricing
           </Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
 
       {/* Tab 1: General & Station */}
       {activeSection === 'GENERAL' && (
@@ -1096,7 +1096,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="cash-outline" size={20} color="#ED0712" />
-            <Text style={styles.cardTitle}>Service Packages & Add-on Prices (SGD)</Text>
+            <Text style={styles.cardTitle}>Service Packages & Add-on Prices ($)</Text>
           </View>
 
           <View style={styles.pricingGrid}>

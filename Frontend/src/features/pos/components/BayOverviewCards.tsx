@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { WashingBay } from '../../../types/pos.types';
 import {
   IconSettings,
@@ -22,12 +22,21 @@ export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
   onSelectBay,
   onManageBays,
 }) => {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 800;
+  const isTablet = width >= 800 && width < 1100;
   const [hoveredBay, setHoveredBay] = useState<string | null>(null);
 
   // Exactly 5 bays
   const displayBays = bays.slice(0, 5);
   const occupiedCount = displayBays.filter((b) => b.status === 'IN_SERVICE').length;
   const availableCount = displayBays.length - occupiedCount;
+
+  const cardWidthStyle = isMobile
+    ? { width: '100%' as any, minWidth: '100%' as any }
+    : isTablet
+    ? { width: '48%' as any, minWidth: '48%' as any }
+    : { flex: 1 };
 
   const getBayVehicleGraphic = (bay: WashingBay) => {
     if (bay.status !== 'IN_SERVICE') {
@@ -101,140 +110,230 @@ export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* Exactly FIVE Bay Cards in One Horizontal Row */}
-      <View style={styles.baysRow}>
-        {displayBays.map((bay) => {
-          const isOccupied = bay.status === 'IN_SERVICE';
-          const avatar = getBayAvatar(bay);
-          const progress = getBayProgress(bay);
-          const isHovered = hoveredBay === bay.id;
+      {/* Responsive Bay Cards Grid: Dedicated sleek vertical layout for mobile, grid for tablet/desktop */}
+      {isMobile ? (
+        <View style={styles.mobileBaysCol}>
+          {displayBays.map((bay) => {
+            const isOccupied = bay.status === 'IN_SERVICE';
+            const progress = getBayProgress(bay);
 
-          return (
-            <TouchableOpacity
-              key={bay.id}
-              style={[
-                styles.bayCard,
-                isOccupied ? styles.bayCardOccupied : styles.bayCardAvailable,
-                isHovered && styles.bayCardHovered,
-              ]}
-              onPress={() => onSelectBay(bay)}
-              activeOpacity={0.85}
-              // @ts-ignore
-              onMouseEnter={() => setHoveredBay(bay.id)}
-              // @ts-ignore
-              onMouseLeave={() => setHoveredBay(null)}
-            >
-              {/* Card Header: Red Vertical Tag + Bay Name, and Status Pill */}
-              <View style={styles.cardHeader}>
-                <View style={styles.bayTagGroup}>
-                  <View style={[styles.redVerticalTag, !isOccupied && styles.grayVerticalTag]} />
-                  <Text style={styles.bayNameText}>{bay.name}</Text>
+            return (
+              <TouchableOpacity
+                key={bay.id}
+                style={[
+                  styles.mobileBayCard,
+                  isOccupied ? styles.bayCardOccupied : styles.bayCardAvailable,
+                ]}
+                onPress={() => onSelectBay(bay)}
+                activeOpacity={0.85}
+              >
+                {/* Top Row: Bay Name & Status Badge */}
+                <View style={styles.mobileBayHeader}>
+                  <View style={styles.bayTagGroup}>
+                    <View style={[styles.redVerticalTag, !isOccupied && styles.grayVerticalTag]} />
+                    <Text style={styles.bayNameText}>{bay.name}</Text>
+                  </View>
+
+                  {isOccupied ? (
+                    <View style={styles.statusPillOccupied}>
+                      <View style={styles.greenPulseDot} />
+                      <Text style={styles.statusPillOccupiedText}>In Service • {progress}%</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.statusPillAvailable}>
+                      <View style={styles.slateDot} />
+                      <Text style={styles.statusPillAvailableText}>Available</Text>
+                    </View>
+                  )}
                 </View>
 
-                {isOccupied ? (
-                  <View style={styles.statusPillOccupied}>
-                    <View style={styles.greenPulseDot} />
-                    <Text style={styles.statusPillOccupiedText}>In Service</Text>
+                {/* Content Body: Vehicle Graphic + Info */}
+                <View style={styles.mobileBayBody}>
+                  <View style={styles.mobileVehicleIcon}>
+                    {getBayVehicleGraphic(bay)}
                   </View>
-                ) : (
-                  <View style={styles.statusPillAvailable}>
-                    <View style={styles.slateDot} />
-                    <Text style={styles.statusPillAvailableText}>Available</Text>
+
+                  <View style={styles.mobileBayInfo}>
+                    {isOccupied ? (
+                      <>
+                        <Text style={styles.mobileCustomerName} numberOfLines={1}>
+                          {bay.customerName || 'Walk-in'}
+                        </Text>
+                        <View style={styles.mobilePlateRow}>
+                          <View style={styles.plateChip}>
+                            <Text style={styles.vehiclePlateText}>{bay.vehiclePlate}</Text>
+                          </View>
+                          <Text style={styles.mobilePackageText} numberOfLines={1}>
+                            {bay.packageName}
+                          </Text>
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.mobileNoVehicleText}>No Vehicle</Text>
+                        <Text style={styles.mobileReadySubtext}>Ready for Wash</Text>
+                      </>
+                    )}
+                  </View>
+
+                  {isOccupied ? (
+                    <View style={styles.mobileTimeCol}>
+                      <Text style={styles.mobileTimeVal}>{bay.duration || '0m'}</Text>
+                      <Text style={styles.mobileTimeLabel}>Elapsed</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.mobileTimeCol}>
+                      <Text style={styles.mobileTimeEmpty}>--:--</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Progress Bar (Only when occupied) */}
+                {isOccupied && (
+                  <View style={styles.mobileProgressWrap}>
+                    <View style={[styles.mobileProgressFill, { width: `${progress}%` }]} />
                   </View>
                 )}
-              </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={[styles.baysRow, isTablet && { flexWrap: 'wrap' }]}>
+          {displayBays.map((bay) => {
+            const isOccupied = bay.status === 'IN_SERVICE';
+            const avatar = getBayAvatar(bay);
+            const progress = getBayProgress(bay);
+            const isHovered = hoveredBay === bay.id;
 
-              {/* Upper Body: Realistic 3D Vehicle Render with Water Splash */}
-              <View style={[styles.vehicleVisualContainer, !isOccupied && styles.vehicleVisualEmpty]}>
-                {getBayVehicleGraphic(bay)}
-              </View>
+            return (
+              <TouchableOpacity
+                key={bay.id}
+                style={[
+                  styles.bayCard,
+                  cardWidthStyle,
+                  isOccupied ? styles.bayCardOccupied : styles.bayCardAvailable,
+                  isHovered && styles.bayCardHovered,
+                ]}
+                onPress={() => onSelectBay(bay)}
+                activeOpacity={0.85}
+                // @ts-ignore
+                onMouseEnter={() => setHoveredBay(bay.id)}
+                // @ts-ignore
+                onMouseLeave={() => setHoveredBay(null)}
+              >
+                {/* Card Header: Red Vertical Tag + Bay Name, and Status Pill */}
+                <View style={styles.cardHeader}>
+                  <View style={styles.bayTagGroup}>
+                    <View style={[styles.redVerticalTag, !isOccupied && styles.grayVerticalTag]} />
+                    <Text style={styles.bayNameText}>{bay.name}</Text>
+                  </View>
 
-              {/* Middle Body: Customer Details with Circular Avatar OR Empty State Text */}
-              {isOccupied ? (
-                <View style={styles.customerInfoBlock}>
-                  <View style={styles.customerRow}>
-                    <View style={[styles.avatarCircle, { backgroundColor: avatar.bg }]}>
-                      <Text style={styles.avatarText}>{avatar.initials}</Text>
+                  {isOccupied ? (
+                    <View style={styles.statusPillOccupied}>
+                      <View style={styles.greenPulseDot} />
+                      <Text style={styles.statusPillOccupiedText}>In Service</Text>
                     </View>
+                  ) : (
+                    <View style={styles.statusPillAvailable}>
+                      <View style={styles.slateDot} />
+                      <Text style={styles.statusPillAvailableText}>Available</Text>
+                    </View>
+                  )}
+                </View>
 
-                    <View style={styles.bayDetailsBlock}>
-                      <Text numberOfLines={1} style={styles.customerName}>
-                        {bay.customerName}
-                      </Text>
-                      <View style={styles.plateChip}>
-                        <Text style={styles.vehiclePlateText}>{bay.vehiclePlate}</Text>
+                {/* Upper Body: Realistic 3D Vehicle Render with Water Splash */}
+                <View style={[styles.vehicleVisualContainer, !isOccupied && styles.vehicleVisualEmpty]}>
+                  {getBayVehicleGraphic(bay)}
+                </View>
+
+                {/* Middle Body: Customer Details with Circular Avatar OR Empty State Text */}
+                {isOccupied ? (
+                  <View style={styles.customerInfoBlock}>
+                    <View style={styles.customerRow}>
+                      <View style={[styles.avatarCircle, { backgroundColor: avatar.bg }]}>
+                        <Text style={styles.avatarText}>{avatar.initials}</Text>
+                      </View>
+
+                      <View style={styles.bayDetailsBlock}>
+                        <Text numberOfLines={1} style={styles.customerName}>
+                          {bay.customerName}
+                        </Text>
+                        <View style={styles.plateChip}>
+                          <Text style={styles.vehiclePlateText}>{bay.vehiclePlate}</Text>
+                        </View>
                       </View>
                     </View>
+
+                    <View style={styles.packageRow}>
+                      <Text style={styles.packageNameText}>{bay.packageName}</Text>
+                    </View>
                   </View>
-
-                  <View style={styles.packageRow}>
-                    <Text style={styles.packageNameText}>{bay.packageName}</Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.availableInfoBlock}>
-                  <Text style={styles.noVehicleTitle}>No Vehicle</Text>
-                  <Text style={styles.readySubtitle}>Ready for Wash</Text>
-                </View>
-              )}
-
-              {/* Card Footer: Start Time & Elapsed Duration */}
-              <View style={styles.cardFooter}>
-                <View style={styles.footerTimeItem}>
-                  <IconClock
-                    size={12}
-                    color={isOccupied ? '#EF4444' : '#94A3B8'}
-                    strokeWidth={2.2}
-                  />
-                  <Text
-                    style={[
-                      styles.footerTimeText,
-                      isOccupied ? styles.timeDark : styles.timeMuted,
-                    ]}
-                  >
-                    {bay.startTime && bay.startTime !== '-' ? bay.startTime : '--:--'}
-                  </Text>
-                </View>
-
-                <View style={styles.footerTimeItem}>
-                  <IconClock
-                    size={12}
-                    color={isOccupied ? '#10B981' : '#94A3B8'}
-                    strokeWidth={2.2}
-                  />
-                  <Text
-                    style={[
-                      styles.footerDurationText,
-                      isOccupied ? styles.durationGreen : styles.durationGrey,
-                    ]}
-                  >
-                    {bay.duration && bay.duration !== '-' ? bay.duration : '--'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Progress Bar & Percentage */}
-              <View style={styles.progressContainer}>
-                {isOccupied && (
-                  <View style={styles.progressLabelRow}>
-                    <Text style={styles.progressLabel}>Wash Cycle</Text>
-                    <Text style={styles.progressPercentText}>{progress}%</Text>
+                ) : (
+                  <View style={styles.availableInfoBlock}>
+                    <Text style={styles.noVehicleTitle}>No Vehicle</Text>
+                    <Text style={styles.readySubtitle}>Ready for Wash</Text>
                   </View>
                 )}
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${progress}%` },
-                      !isOccupied && { backgroundColor: 'transparent' },
-                    ]}
-                  />
+
+                {/* Card Footer: Start Time & Elapsed Duration */}
+                <View style={styles.cardFooter}>
+                  <View style={styles.footerTimeItem}>
+                    <IconClock
+                      size={12}
+                      color={isOccupied ? '#EF4444' : '#94A3B8'}
+                      strokeWidth={2.2}
+                    />
+                    <Text
+                      style={[
+                        styles.footerTimeText,
+                        isOccupied ? styles.timeDark : styles.timeMuted,
+                      ]}
+                    >
+                      {bay.startTime && bay.startTime !== '-' ? bay.startTime : '--:--'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.footerTimeItem}>
+                    <IconClock
+                      size={12}
+                      color={isOccupied ? '#10B981' : '#94A3B8'}
+                      strokeWidth={2.2}
+                    />
+                    <Text
+                      style={[
+                        styles.footerDurationText,
+                        isOccupied ? styles.durationGreen : styles.durationGrey,
+                      ]}
+                    >
+                      {bay.duration && bay.duration !== '-' ? bay.duration : '--'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+
+                {/* Progress Bar & Percentage */}
+                <View style={styles.progressContainer}>
+                  {isOccupied && (
+                    <View style={styles.progressLabelRow}>
+                      <Text style={styles.progressLabel}>Wash Cycle</Text>
+                      <Text style={styles.progressPercentText}>{progress}%</Text>
+                    </View>
+                  )}
+                  <View style={styles.progressTrack}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${progress}%` },
+                        !isOccupied && { backgroundColor: 'transparent' },
+                      ]}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
     </View>
   );
 };
@@ -338,9 +437,109 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  mobileBaysCol: {
+    flexDirection: 'column',
+    gap: 10,
+    width: '100%',
+  },
+  mobileBayCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 2px 6px rgba(15, 23, 42, 0.04)',
+        } as any)
+      : { elevation: 2 }),
+  },
+  mobileBayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  mobileBayBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mobileVehicleIcon: {
+    width: 52,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mobileBayInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  mobileCustomerName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  mobilePlateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  mobilePackageText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  mobileNoVehicleText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  mobileReadySubtext: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#94A3B8',
+  },
+  mobileTimeCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 46,
+  },
+  mobileTimeVal: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#047857',
+  },
+  mobileTimeLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+  },
+  mobileTimeEmpty: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#CBD5E1',
+  },
+  mobileProgressWrap: {
+    height: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  mobileProgressFill: {
+    height: '100%',
+    backgroundColor: '#ED0712',
+    borderRadius: 2,
+  },
   bayCard: {
     flex: 1,
-    minHeight: 220,
+    minHeight: 180,
+    maxHeight: 220,
     borderRadius: 16,
     padding: 14,
     justifyContent: 'space-between',

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import {
@@ -23,6 +24,7 @@ export interface PosCustomerHistoryViewProps {
   onBackToOrders?: () => void;
   onToggleSidebar?: () => void;
   searchQuery?: string;
+  refreshTrigger?: number;
 }
 
 export interface CustomerProfileSummary {
@@ -38,12 +40,27 @@ export interface CustomerProfileSummary {
   latestPackage: string;
   latestBay?: number | null;
   preferredPayMode: string;
-  isVIP: boolean;
+  isVIP?: boolean;
   isRepeat: boolean;
+  isDealer: boolean;
+  dealerId?: number | null;
+  accountType: 'CUSTOMER' | 'DEALER';
 }
 
-type TabMode = 'ALL_CUSTOMERS' | 'REPEAT_CUSTOMERS' | 'ALL_WASHES';
-type PeriodFilter = 'ALL' | 'THIS_MONTH' | 'THIS_WEEK' | 'TODAY';
+export const isDealerOrder = (order: ApiOrder): boolean => {
+  return Boolean(
+    order.dealerId != null ||
+    (order as any).DealerId != null ||
+    (order.payMode && order.payMode.trim().toUpperCase() === 'CREDIT') ||
+    order.paymentStatus === 'CREDIT' ||
+    (order as any).isDealer ||
+    (order.vehicleNumber && (order.vehicleNumber.includes('DLR-') || order.vehicleNumber.includes('FLEET'))) ||
+    (order.customerName && (order.customerName.toUpperCase() === 'UNIPRO' || order.customerName.toUpperCase().includes('DEALER')))
+  );
+};
+
+type TabMode = 'CUSTOMERS' | 'DEALERS' | 'ALL_CUSTOMERS' | 'REPEAT_CUSTOMERS' | 'ALL_WASHES';
+type PeriodFilter = 'ALL' | 'YEARLY' | 'MONTHLY' | 'WEEKLY' | 'TODAY';
 
 const AVATAR_COLORS = [
   { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }, // Blue
@@ -107,11 +124,18 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
   onBackToOrders,
   onToggleSidebar,
   searchQuery: initialSearch = '',
+  refreshTrigger,
 }) => {
   const [orders, setOrders] = useState<ApiOrder[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      loadOrders(true);
+    }
+  }, [refreshTrigger]);
 
   // Filters & Search
   const [activeTab, setActiveTab] = useState<TabMode>('ALL_CUSTOMERS');
@@ -154,46 +178,77 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
     loadOrders(false);
   }, []);
 
-  // Filter orders by period
+  // Filter orders by period: Today, Weekly, Monthly, Yearly, All Time
   const periodFilteredOrders = useMemo(() => {
     if (periodFilter === 'ALL') return orders;
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
+
+    // Start of Today (00:00:00)
+    const startOfToday = new Date(currentYear, currentMonth, currentDate, 0, 0, 0, 0);
+
+    // Weekly: Monday of current week or rolling 7 days
+    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0, Sunday = 6
+    const startOfWeek = new Date(currentYear, currentMonth, currentDate - dayOfWeek, 0, 0, 0, 0);
+    const rolling7DaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    rolling7DaysAgo.setHours(0, 0, 0, 0);
+
+    // Monthly: 1st day of current month
+    const startOfMonth = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
+
+    // Yearly: Jan 1st of current year
+    const startOfYear = new Date(currentYear, 0, 1, 0, 0, 0, 0);
 
     return orders.filter((o) => {
+      if (!o.createdDate) return true;
       const orderDate = new Date(o.createdDate);
       if (isNaN(orderDate.getTime())) return true;
 
       if (periodFilter === 'TODAY') {
+        const isSameDay = (
+          orderDate.getFullYear() === currentYear &&
+          orderDate.getMonth() === currentMonth &&
+          orderDate.getDate() === currentDate
+        );
+        const isWithin24Hours = (now.getTime() - orderDate.getTime()) <= 24 * 60 * 60 * 1000 && (now.getTime() - orderDate.getTime()) >= 0;
+        return isSameDay || isWithin24Hours;
+      }
+
+      if (periodFilter === 'WEEKLY') {
+        return orderDate >= startOfWeek || orderDate >= rolling7DaysAgo;
+      }
+
+      if (periodFilter === 'MONTHLY') {
         return (
-          orderDate.getDate() === now.getDate() &&
-          orderDate.getMonth() === now.getMonth() &&
-          orderDate.getFullYear() === now.getFullYear()
+          (orderDate.getFullYear() === currentYear && orderDate.getMonth() === currentMonth) ||
+          orderDate >= startOfMonth
         );
       }
-      if (periodFilter === 'THIS_WEEK') {
-        const diffMs = now.getTime() - orderDate.getTime();
-        const diffDays = diffMs / (1000 * 60 * 60 * 24);
-        return diffDays <= 7;
+
+      if (periodFilter === 'YEARLY') {
+        return orderDate.getFullYear() === currentYear || orderDate >= startOfYear;
       }
-      if (periodFilter === 'THIS_MONTH') {
-        return (
-          orderDate.getMonth() === now.getMonth() &&
-          orderDate.getFullYear() === now.getFullYear()
-        );
-      }
+
       return true;
     });
   }, [orders, periodFilter]);
 
-  // Aggregate into Customer Profiles
+  // Aggregate into Customer / Dealer Profiles
   const customerProfiles = useMemo<CustomerProfileSummary[]>(() => {
     const map = new Map<string, CustomerProfileSummary>();
 
     for (const order of periodFilteredOrders) {
-      const rawName = (order.customerName || 'Walk-in Customer').trim();
+      const isDealer = isDealerOrder(order);
+      const rawName = (order.customerName || (isDealer ? 'Dealer Account' : 'Walk-in Customer')).trim();
       const rawMobile = (order.mobileNumber || '').trim();
-      // Group by Name + Mobile (or just Name if mobile not provided)
-      const key = `${rawName.toLowerCase()}::${rawMobile}`;
+
+      // For dealers: group by dealerId or dealer name so all fleet vehicles/washes group together
+      // For retail customers: group by name + mobile
+      const key = isDealer
+        ? `dealer::${order.dealerId ? String(order.dealerId) : rawName.toLowerCase()}`
+        : `customer::${rawName.toLowerCase()}::${rawMobile}`;
 
       if (!map.has(key)) {
         map.set(key, {
@@ -206,7 +261,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
           averageSpend: Number(order.totalAmount || 0),
           vehicles: [
             {
-              plate: order.vehicleNumber || 'WALK-IN',
+              plate: order.vehicleNumber || (isDealer ? 'DLR-FLEET' : 'WALK-IN'),
               type: order.vehicleTypeName || 'Sedan',
               count: 1,
             },
@@ -214,9 +269,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
           lastVisitDate: order.createdDate,
           latestPackage: order.packageName || 'Wash Service',
           latestBay: order.bayId,
-          preferredPayMode: (order.payMode || 'CASH').trim().toUpperCase(),
+          preferredPayMode: isDealer ? 'CREDIT' : (order.payMode || 'CASH').trim().toUpperCase(),
           isVIP: false,
           isRepeat: false,
+          isDealer,
+          dealerId: order.dealerId || ((order as any).DealerId ?? null),
+          accountType: isDealer ? 'DEALER' : 'CUSTOMER',
         });
       } else {
         const item = map.get(key)!;
@@ -224,8 +282,13 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
         item.totalVisits += 1;
         item.totalSpend += Number(order.totalAmount || 0);
 
+        if (isDealer) {
+          item.isDealer = true;
+          item.accountType = 'DEALER';
+        }
+
         // Update vehicle frequency
-        const plate = order.vehicleNumber || 'WALK-IN';
+        const plate = order.vehicleNumber || (isDealer ? 'DLR-FLEET' : 'WALK-IN');
         const vType = order.vehicleTypeName || 'Sedan';
         const existingVehicle = item.vehicles.find((v) => v.plate === plate);
         if (existingVehicle) {
@@ -245,41 +308,52 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
     // Finalize metrics & flags
     const list = Array.from(map.values()).map((c) => {
-      // Sort orders desc
       c.orders.sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
-
       c.averageSpend = c.totalVisits > 0 ? c.totalSpend / c.totalVisits : 0;
       c.isRepeat = c.totalVisits >= 2;
-      c.isVIP = c.totalVisits >= 3;
 
-      // Determine most frequent pay mode
-      const payCounts: Record<string, number> = {};
-      c.orders.forEach((o) => {
-        const p = (o.payMode || 'CASH').trim().toUpperCase();
-        payCounts[p] = (payCounts[p] || 0) + 1;
-      });
-      let maxP = 'CASH';
-      let maxCnt = 0;
-      Object.entries(payCounts).forEach(([k, v]) => {
-        if (v > maxCnt) {
-          maxCnt = v;
-          maxP = k;
-        }
-      });
-      c.preferredPayMode = maxP;
+      if (!c.isDealer) {
+        const payCounts: Record<string, number> = {};
+        c.orders.forEach((o) => {
+          const p = (o.payMode || 'CASH').trim().toUpperCase();
+          payCounts[p] = (payCounts[p] || 0) + 1;
+        });
+        let maxP = 'CASH';
+        let maxCnt = 0;
+        Object.entries(payCounts).forEach(([k, v]) => {
+          if (v > maxCnt) {
+            maxCnt = v;
+            maxP = k;
+          }
+        });
+        c.preferredPayMode = maxP;
+      } else {
+        c.preferredPayMode = 'CREDIT';
+      }
 
       return c;
     });
 
-    // Default sort: highest spend, then most visits
     list.sort((a, b) => b.totalSpend - a.totalSpend || b.totalVisits - a.totalVisits);
     return list;
   }, [periodFilteredOrders]);
 
+  // Counts for tabs & scorecards
+  const customerOnlyCount = useMemo(() => customerProfiles.filter((c) => !c.isDealer).length, [customerProfiles]);
+  const dealerOnlyCount = useMemo(() => customerProfiles.filter((c) => c.isDealer).length, [customerProfiles]);
+  const repeatCustomerCount = useMemo(() => customerProfiles.filter((c) => c.isRepeat).length, [customerProfiles]);
+
+  // Table filter state for ALL_WASHES view
+  const [tableFilter, setTableFilter] = useState<'ALL' | 'CUSTOMERS' | 'DEALERS'>('ALL');
+
   // Search Filtering
   const filteredCustomers = useMemo(() => {
     let list = customerProfiles;
-    if (activeTab === 'REPEAT_CUSTOMERS') {
+    if (activeTab === 'DEALERS') {
+      list = list.filter((c) => c.isDealer);
+    } else if (activeTab === 'CUSTOMERS') {
+      list = list.filter((c) => !c.isDealer);
+    } else if (activeTab === 'REPEAT_CUSTOMERS') {
       list = list.filter((c) => c.isRepeat);
     }
 
@@ -297,10 +371,17 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
   // Filtered Washes (for ALL_WASHES view)
   const filteredWashes = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return periodFilteredOrders;
+    let list = periodFilteredOrders;
+    if (tableFilter === 'DEALERS') {
+      list = list.filter((o) => isDealerOrder(o));
+    } else if (tableFilter === 'CUSTOMERS') {
+      list = list.filter((o) => !isDealerOrder(o));
+    }
 
-    return periodFilteredOrders.filter((o) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter((o) => {
       const matchOrderNo = String(o.orderNo || '').toLowerCase().includes(q);
       const matchName = String(o.customerName || '').toLowerCase().includes(q);
       const matchPlate = String(o.vehicleNumber || '').toLowerCase().includes(q);
@@ -308,13 +389,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
       const matchPackage = String(o.packageName || '').toLowerCase().includes(q);
       return matchOrderNo || matchName || matchPlate || matchPhone || matchPackage;
     });
-  }, [periodFilteredOrders, searchTerm]);
+  }, [periodFilteredOrders, tableFilter, searchTerm]);
 
   // Global KPIs across current dataset
   const totalCustomersCount = customerProfiles.length;
   const totalWashesCount = periodFilteredOrders.length;
   const totalRevenue = customerProfiles.reduce((acc, c) => acc + c.totalSpend, 0);
-  const repeatCustomerCount = customerProfiles.filter((c) => c.isRepeat).length;
   const repeatRate = totalCustomersCount > 0 ? ((repeatCustomerCount / totalCustomersCount) * 100).toFixed(0) : '0';
   const averageCustomerSpend = totalCustomersCount > 0 ? totalRevenue / totalCustomersCount : 0;
 
@@ -323,6 +403,40 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
     setSelectedCustomer(customer);
     setCustomerModalVisible(true);
   };
+
+  // Complete lifetime orders for the selected customer/dealer in modal
+  const selectedCustomerLifetimeOrders = useMemo(() => {
+    if (!selectedCustomer) return [];
+    if (selectedCustomer.isDealer) {
+      return orders
+        .filter((o) => {
+          if (selectedCustomer.dealerId && (o.dealerId === selectedCustomer.dealerId || (o as any).DealerId === selectedCustomer.dealerId)) {
+            return true;
+          }
+          const nameMatch = o.customerName && o.customerName.trim().toLowerCase() === selectedCustomer.customerName.trim().toLowerCase();
+          const uniproMatch = selectedCustomer.customerName.toUpperCase() === 'UNIPRO' && isDealerOrder(o);
+          return Boolean(nameMatch || uniproMatch);
+        })
+        .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
+    }
+
+    return orders
+      .filter((o) => {
+        if (isDealerOrder(o)) return false;
+        const rawName = (o.customerName || 'Walk-in Customer').trim().toLowerCase();
+        const rawMobile = (o.mobileNumber || '').trim();
+        return `${rawName}::${rawMobile}` === selectedCustomer.customerKey.replace('customer::', '');
+      })
+      .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
+  }, [selectedCustomer, orders]);
+
+  const modalTotalSpend = useMemo(() => {
+    return selectedCustomerLifetimeOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+  }, [selectedCustomerLifetimeOrders]);
+
+  const modalAov = useMemo(() => {
+    return selectedCustomerLifetimeOrders.length > 0 ? modalTotalSpend / selectedCustomerLifetimeOrders.length : 0;
+  }, [selectedCustomerLifetimeOrders, modalTotalSpend]);
 
   // View Order Details
   const handleOpenOrderDetails = async (order: ApiOrder) => {
@@ -377,94 +491,48 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
     }
   };
 
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+
   return (
     <View style={styles.container}>
-      {/* 1. TOP HEADER & METRIC SCORECARDS */}
+      {/* 1. FOUR KPI SCORECARDS */}
       <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.titleWithIcon}>
-            <View style={styles.headerIconBox}>
-              <Ionicons name="people" size={22} color="#ED0712" />
-            </View>
-            <View>
-              <View style={styles.titleRow}>
-                <Text style={styles.pageTitle}>Customer History</Text>
-                <View style={styles.liveBadge}>
-                  <View style={styles.livePulseDot} />
-                  <Text style={styles.liveBadgeText}>LIVE DIRECTORY</Text>
-                </View>
-              </View>
-              <Text style={styles.pageSubtitle}>
-                Lifetime car wash records, vehicle history, customer loyalty & spend logs
-              </Text>
-            </View>
-          </View>
-
-          {/* Right Header Actions */}
-          <View style={styles.headerActionsRight}>
-            <TouchableOpacity
-              style={styles.refreshBtn}
-              onPress={() => loadOrders(true)}
-              activeOpacity={0.8}
-              disabled={isRefreshing}
-            >
-              {isRefreshing ? (
-                <ActivityIndicator size="small" color="#0F172A" />
-              ) : (
-                <Feather name="refresh-cw" size={14} color="#0F172A" />
-              )}
-              <Text style={styles.refreshBtnText}>SYNC RECORDS</Text>
-            </TouchableOpacity>
-
-            {onBackToOrders && (
-              <TouchableOpacity
-                style={styles.backOrdersBtn}
-                onPress={onBackToOrders}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="car-outline" size={15} color="#FFFFFF" />
-                <Text style={styles.backOrdersBtnText}>ACTIVE ORDERS</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* 2. FOUR KPI SCORECARDS */}
         <View style={styles.kpiGrid}>
-          {/* Card 1: Total Unique Customers */}
+          {/* Card 1: Total Unique Profiles */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiTopRow}>
-              <Text style={styles.kpiLabel}>TOTAL CUSTOMERS</Text>
+              <Text style={styles.kpiLabel}>TOTAL PROFILES</Text>
               <View style={[styles.kpiIconWrap, { backgroundColor: '#EFF6FF' }]}>
                 <Ionicons name="people-outline" size={16} color="#2563EB" />
               </View>
             </View>
             <Text style={styles.kpiValue}>{totalCustomersCount}</Text>
-            <Text style={styles.kpiFootnote}>Distinct customer profiles on record</Text>
+            <Text style={styles.kpiFootnote}>{customerOnlyCount} Customers • {dealerOnlyCount} Dealers</Text>
           </View>
 
           {/* Card 2: Total Completed Washes */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiTopRow}>
-              <Text style={styles.kpiLabel}>LIFETIME WASHES</Text>
+              <Text style={styles.kpiLabel}>TOTAL WASHES</Text>
               <View style={[styles.kpiIconWrap, { backgroundColor: '#ECFDF5' }]}>
                 <Ionicons name="water-outline" size={16} color="#059669" />
               </View>
             </View>
             <Text style={styles.kpiValue}>{totalWashesCount}</Text>
-            <Text style={styles.kpiFootnote}>Total customer wash orders logged</Text>
+            <Text style={styles.kpiFootnote}>Total wash orders in selected period</Text>
           </View>
 
           {/* Card 3: Total Reconciled Revenue */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiTopRow}>
-              <Text style={styles.kpiLabel}>LIFETIME SPEND</Text>
+              <Text style={styles.kpiLabel}>TOTAL SPEND</Text>
               <View style={[styles.kpiIconWrap, { backgroundColor: '#FFFBEB' }]}>
                 <Ionicons name="cash-outline" size={16} color="#D97706" />
               </View>
             </View>
             <Text style={styles.kpiValue}>{formatCurrency(totalRevenue)}</Text>
-            <Text style={styles.kpiFootnote}>Avg {formatCurrency(averageCustomerSpend)} per customer</Text>
+            <Text style={styles.kpiFootnote}>Avg {formatCurrency(averageCustomerSpend)} per profile</Text>
           </View>
 
           {/* Card 4: Repeat Customer Loyalty */}
@@ -486,22 +554,39 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
       {/* 3. CONTROLS BAR: SEARCH & TABS */}
       <View style={styles.controlsBar}>
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs: Customer, Dealer, Repeat, All Wash Records */}
         <View style={styles.tabGroup}>
           <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'ALL_CUSTOMERS' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('ALL_CUSTOMERS')}
+            style={[styles.tabButton, (activeTab === 'CUSTOMERS' || activeTab === 'ALL_CUSTOMERS') && styles.tabButtonActive]}
+            onPress={() => setActiveTab('CUSTOMERS')}
             activeOpacity={0.8}
           >
             <Ionicons
-              name="people-outline"
+              name="person-outline"
               size={15}
-              color={activeTab === 'ALL_CUSTOMERS' ? '#FFFFFF' : '#475569'}
+              color={(activeTab === 'CUSTOMERS' || activeTab === 'ALL_CUSTOMERS') ? '#FFFFFF' : '#475569'}
             />
             <Text
-              style={[styles.tabButtonText, activeTab === 'ALL_CUSTOMERS' && styles.tabButtonTextActive]}
+              style={[styles.tabButtonText, (activeTab === 'CUSTOMERS' || activeTab === 'ALL_CUSTOMERS') && styles.tabButtonTextActive]}
             >
-              All Customers ({customerProfiles.length})
+              Customer ({customerOnlyCount})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'DEALERS' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('DEALERS')}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="business-outline"
+              size={15}
+              color={activeTab === 'DEALERS' ? '#FFFFFF' : '#475569'}
+            />
+            <Text
+              style={[styles.tabButtonText, activeTab === 'DEALERS' && styles.tabButtonTextActive]}
+            >
+              Dealer ({dealerOnlyCount})
             </Text>
           </TouchableOpacity>
 
@@ -518,7 +603,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
             <Text
               style={[styles.tabButtonText, activeTab === 'REPEAT_CUSTOMERS' && styles.tabButtonTextActive]}
             >
-              Repeat / VIP ({repeatCustomerCount})
+              Repeated ({repeatCustomerCount})
             </Text>
           </TouchableOpacity>
 
@@ -559,24 +644,25 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
             )}
           </View>
 
-          {/* Period Filter Pills */}
+          {/* Period Filter Pills: All Time, Yearly, Monthly, Weekly, Today */}
           <View style={styles.periodPillGroup}>
-            {(['ALL', 'THIS_MONTH', 'THIS_WEEK', 'TODAY'] as PeriodFilter[]).map((p) => {
-              const isActive = periodFilter === p;
-              const labelMap: Record<PeriodFilter, string> = {
-                ALL: 'All Time',
-                THIS_MONTH: 'Month',
-                THIS_WEEK: '7 Days',
-                TODAY: 'Today',
-              };
+            {([
+              { key: 'ALL', label: 'All Time' },
+              { key: 'YEARLY', label: 'Yearly' },
+              { key: 'MONTHLY', label: 'Monthly' },
+              { key: 'WEEKLY', label: 'Weekly' },
+              { key: 'TODAY', label: 'Today' },
+            ] as Array<{ key: PeriodFilter; label: string }>).map((p) => {
+              const isActive = periodFilter === p.key;
               return (
                 <TouchableOpacity
-                  key={p}
+                  key={p.key}
                   style={[styles.periodPill, isActive && styles.periodPillActive]}
-                  onPress={() => setPeriodFilter(p)}
+                  onPress={() => setPeriodFilter(p.key)}
+                  activeOpacity={0.8}
                 >
                   <Text style={[styles.periodPillText, isActive && styles.periodPillTextActive]}>
-                    {labelMap[p]}
+                    {p.label}
                   </Text>
                 </TouchableOpacity>
               );
@@ -603,6 +689,43 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
       ) : activeTab === 'ALL_WASHES' ? (
         /* ================= ALL WASH ORDERS LEDGER TABLE ================= */
         <View style={styles.tableCard}>
+          {/* Sub-filter row to filter table by All Washes / Customer Washes / Dealer Washes */}
+          <View style={styles.tableFilterBar}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="filter-outline" size={13} color="#64748B" />
+              <Text style={styles.tableFilterTitle}>VIEW LEDGER:</Text>
+            </View>
+            <View style={styles.tableFilterPills}>
+              <TouchableOpacity
+                style={[styles.tableFilterPill, tableFilter === 'ALL' && styles.tableFilterPillActive]}
+                onPress={() => setTableFilter('ALL')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.tableFilterPillText, tableFilter === 'ALL' && styles.tableFilterPillTextActive]}>
+                  All Records ({periodFilteredOrders.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tableFilterPill, tableFilter === 'CUSTOMERS' && styles.tableFilterPillActive]}
+                onPress={() => setTableFilter('CUSTOMERS')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.tableFilterPillText, tableFilter === 'CUSTOMERS' && styles.tableFilterPillTextActive]}>
+                  Customers ({periodFilteredOrders.filter((o) => !isDealerOrder(o)).length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tableFilterPill, tableFilter === 'DEALERS' && styles.tableFilterPillActive]}
+                onPress={() => setTableFilter('DEALERS')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.tableFilterPillText, tableFilter === 'DEALERS' && styles.tableFilterPillTextActive]}>
+                  Dealers ({periodFilteredOrders.filter((o) => isDealerOrder(o)).length})
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={styles.tableHeaderRow}>
             <Text style={[styles.th, { width: 85 }]}>ORDER NO</Text>
             <Text style={[styles.th, { flex: 1.4 }]}>CUSTOMER</Text>
@@ -627,9 +750,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
               </View>
             ) : (
               filteredWashes.map((order, idx) => {
+                const isDealer = isDealerOrder(order);
                 const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus);
                 const payStyle = getPayModeStyle(order.payMode);
-                const avatarStyle = getAvatarStyle(order.customerName || 'Walk-in');
+                const avatarStyle = isDealer
+                  ? { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }
+                  : getAvatarStyle(order.customerName || 'Walk-in');
 
                 return (
                   <View
@@ -659,8 +785,8 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                         <Text style={styles.tableCustomerName} numberOfLines={1}>
                           {order.customerName || 'Walk-in Customer'}
                         </Text>
-                        <Text style={styles.tableCustomerPhone}>
-                          {order.mobileNumber ? `📞 ${order.mobileNumber}` : 'Walk-in'}
+                        <Text style={[styles.tableCustomerPhone, isDealer && { color: '#2563EB', fontWeight: '700' }]}>
+                          {isDealer ? 'Dealer' : (order.mobileNumber ? `📞 ${order.mobileNumber}` : 'Walk-in')}
                         </Text>
                       </View>
                     </View>
@@ -757,25 +883,44 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
           </ScrollView>
         </View>
       ) : (
-        /* ================= CUSTOMER PROFILES DIRECTORY VIEW ================= */
+        /* ================= CUSTOMER / DEALER PROFILES DIRECTORY VIEW ================= */
         <ScrollView style={styles.cardsScrollView} showsVerticalScrollIndicator>
           {filteredCustomers.length === 0 ? (
             <View style={styles.emptyTableBox}>
-              <Ionicons name="people-outline" size={40} color="#CBD5E1" />
-              <Text style={styles.emptyTableTitle}>No customers found</Text>
+              <Ionicons
+                name={activeTab === 'DEALERS' ? 'business-outline' : 'people-outline'}
+                size={40}
+                color="#CBD5E1"
+              />
+              <Text style={styles.emptyTableTitle}>
+                {activeTab === 'DEALERS'
+                  ? 'No dealer accounts found'
+                  : activeTab === 'CUSTOMERS'
+                  ? 'No retail customers found'
+                  : activeTab === 'REPEAT_CUSTOMERS'
+                  ? 'No repeated customers found'
+                  : 'No customer profiles found'}
+              </Text>
               <Text style={styles.emptyTableSubtitle}>
-                {searchTerm ? `No customer profiles matching "${searchTerm}"` : 'No customers recorded yet'}
+                {searchTerm
+                  ? `No profiles matching "${searchTerm}"`
+                  : activeTab === 'DEALERS'
+                  ? 'No commercial dealer records found for this period'
+                  : 'No customers recorded yet for this period'}
               </Text>
             </View>
           ) : (
             <View style={styles.customerGrid}>
               {filteredCustomers.map((cust) => {
-                const avatarStyle = getAvatarStyle(cust.customerName);
+                const isDealer = cust.isDealer;
+                const avatarStyle = isDealer
+                  ? { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }
+                  : getAvatarStyle(cust.customerName);
                 const payStyle = getPayModeStyle(cust.preferredPayMode);
 
                 return (
-                  <View key={cust.customerKey} style={styles.customerCard}>
-                    {/* Top Customer Info Row */}
+                  <View key={cust.customerKey} style={[styles.customerCard, isDealer && styles.dealerCardBorder]}>
+                    {/* Top Customer / Dealer Info Row */}
                     <View style={styles.cardHeader}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
                         <View
@@ -790,29 +935,37 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                         </View>
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <Text style={styles.cardCustomerName} numberOfLines={1}>
+                            <Text style={styles.cardCustomerName} numberOfLines={2}>
                               {cust.customerName}
                             </Text>
-                            {cust.isVIP ? (
-                              <View style={styles.vipBadge}>
-                                <Ionicons name="star" size={10} color="#B45309" />
-                                <Text style={styles.vipBadgeText}>VIP LOYAL</Text>
+                            {isDealer ? (
+                              <View style={styles.dealerBadge}>
+                                <Ionicons name="business" size={10} color="#1D4ED8" />
+                                <Text style={styles.dealerBadgeText}>DEALER</Text>
                               </View>
                             ) : cust.isRepeat ? (
                               <View style={styles.repeatBadge}>
                                 <Ionicons name="repeat" size={10} color="#1D4ED8" />
-                                <Text style={styles.repeatBadgeText}>REPEAT</Text>
+                                <Text style={styles.repeatBadgeText}>REPEATED</Text>
                               </View>
                             ) : null}
                           </View>
                           <Text style={styles.cardCustomerPhone}>
-                            {cust.mobileNumber ? `📞 ${cust.mobileNumber}` : '👤 Walk-in Customer'}
+                            {isDealer ? (
+                              <Text style={{ color: '#2563EB', fontWeight: '800' }}>
+                                🏢 Commercial Dealer{cust.mobileNumber ? ` • 📞 ${cust.mobileNumber}` : ''}
+                              </Text>
+                            ) : cust.mobileNumber ? (
+                              `📞 ${cust.mobileNumber}`
+                            ) : (
+                              '👤 Walk-in Customer'
+                            )}
                           </Text>
                         </View>
                       </View>
 
                       {/* Total Visits Pill */}
-                      <View style={styles.visitsBadge}>
+                      <View style={[styles.visitsBadge, isDealer && { backgroundColor: '#1E3A8A' }]}>
                         <Text style={styles.visitsBadgeCount}>{cust.totalVisits}</Text>
                         <Text style={styles.visitsBadgeLabel}>
                           {cust.totalVisits === 1 ? 'wash' : 'washes'}
@@ -823,8 +976,10 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     {/* Spend & Frequency Metrics */}
                     <View style={styles.cardMetricsRow}>
                       <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>TOTAL SPENT</Text>
-                        <Text style={styles.metricValuePrimary}>{formatCurrency(cust.totalSpend)}</Text>
+                        <Text style={styles.metricLabel}>{isDealer ? 'CREDIT SPENT' : 'TOTAL SPENT'}</Text>
+                        <Text style={[styles.metricValuePrimary, isDealer && { color: '#2563EB' }]}>
+                          {formatCurrency(cust.totalSpend)}
+                        </Text>
                       </View>
                       <View style={styles.metricDivider} />
                       <View style={styles.metricItem}>
@@ -840,7 +995,9 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
                     {/* Vehicle Plates Associated */}
                     <View style={styles.vehicleSection}>
-                      <Text style={styles.sectionMiniLabel}>REGISTERED VEHICLES ({cust.vehicles.length})</Text>
+                      <Text style={styles.sectionMiniLabel}>
+                        {isDealer ? 'FLEET VEHICLES' : 'REGISTERED VEHICLES'} ({cust.vehicles.length})
+                      </Text>
                       <View style={styles.plateBadgeList}>
                         {cust.vehicles.map((v, i) => (
                           <View key={i} style={styles.custPlateBadge}>
@@ -862,12 +1019,14 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                       </View>
 
                       <TouchableOpacity
-                        style={styles.openHistoryBtn}
+                        style={[styles.openHistoryBtn, isDealer && { backgroundColor: '#1D4ED8' }]}
                         onPress={() => handleOpenCustomerModal(cust)}
                         activeOpacity={0.8}
                       >
                         <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-                        <Text style={styles.openHistoryBtnText}>Wash History ›</Text>
+                        <Text style={styles.openHistoryBtnText}>
+                          {isDealer ? 'Dealer History ›' : 'Wash History ›'}
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -878,7 +1037,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
         </ScrollView>
       )}
 
-      {/* ================= MODAL 1: CUSTOMER COMPLETE HISTORY MODAL ================= */}
+      {/* ================= MODAL 1: CUSTOMER / DEALER COMPLETE HISTORY MODAL ================= */}
       <Modal
         visible={customerModalVisible}
         transparent
@@ -895,38 +1054,53 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     <View
                       style={[
                         styles.modalAvatarBox,
-                        {
-                          backgroundColor: getAvatarStyle(selectedCustomer.customerName).bg,
-                          borderColor: getAvatarStyle(selectedCustomer.customerName).border,
-                        },
+                        selectedCustomer.isDealer
+                          ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
+                          : {
+                              backgroundColor: getAvatarStyle(selectedCustomer.customerName).bg,
+                              borderColor: getAvatarStyle(selectedCustomer.customerName).border,
+                            },
                       ]}
                     >
                       <Text
                         style={[
                           styles.modalAvatarText,
-                          { color: getAvatarStyle(selectedCustomer.customerName).text },
+                          selectedCustomer.isDealer
+                            ? { color: '#2563EB' }
+                            : { color: getAvatarStyle(selectedCustomer.customerName).text },
                         ]}
                       >
                         {getInitials(selectedCustomer.customerName)}
                       </Text>
                     </View>
                     <View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <Text style={styles.modalCustomerTitle}>
                           {selectedCustomer.customerName}
                         </Text>
-                        {selectedCustomer.isVIP && (
-                          <View style={styles.vipBadge}>
-                            <Ionicons name="star" size={10} color="#B45309" />
-                            <Text style={styles.vipBadgeText}>VIP CUSTOMER</Text>
+                        {selectedCustomer.isDealer ? (
+                          <View style={styles.dealerBadge}>
+                            <Ionicons name="business" size={10} color="#1D4ED8" />
+                            <Text style={styles.dealerBadgeText}>DEALER ACCOUNT</Text>
+                          </View>
+                        ) : selectedCustomer.isRepeat ? (
+                          <View style={styles.repeatBadge}>
+                            <Ionicons name="repeat" size={10} color="#1D4ED8" />
+                            <Text style={styles.repeatBadgeText}>REPEAT CUSTOMER</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.customerTypeBadge}>
+                            <Ionicons name="person" size={10} color="#475569" />
+                            <Text style={styles.customerTypeBadgeText}>RETAIL CUSTOMER</Text>
                           </View>
                         )}
                       </View>
                       <Text style={styles.modalCustomerSubtitle}>
-                        {selectedCustomer.mobileNumber
-                          ? `Phone: ${selectedCustomer.mobileNumber}`
-                          : 'Walk-in Customer'}{' '}
-                        • Total {selectedCustomer.totalVisits} Wash Visits
+                        {selectedCustomer.isDealer
+                          ? `Commercial Fleet Account • ${selectedCustomerLifetimeOrders.length} Lifetime Wash Visits`
+                          : (selectedCustomer.mobileNumber
+                              ? `Phone: ${selectedCustomer.mobileNumber}`
+                              : 'Walk-in Customer') + ` • Total ${selectedCustomerLifetimeOrders.length} Lifetime Visits`}
                       </Text>
                     </View>
                   </View>
@@ -939,31 +1113,31 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {/* Customer Summary Highlight Bar */}
+                {/* Customer / Dealer Summary Highlight Bar */}
                 <View style={styles.customerSummaryBar}>
                   <View style={styles.customerStatBox}>
                     <Text style={styles.custStatLabel}>TOTAL WASHES</Text>
-                    <Text style={styles.custStatValue}>{selectedCustomer.totalVisits}</Text>
+                    <Text style={styles.custStatValue}>{selectedCustomerLifetimeOrders.length}</Text>
                   </View>
                   <View style={styles.custStatDivider} />
                   <View style={styles.customerStatBox}>
                     <Text style={styles.custStatLabel}>TOTAL SPENT</Text>
-                    <Text style={[styles.custStatValue, { color: '#ED0712' }]}>
-                      {formatCurrency(selectedCustomer.totalSpend)}
+                    <Text style={[styles.custStatValue, { color: selectedCustomer.isDealer ? '#2563EB' : '#ED0712' }]}>
+                      {formatCurrency(modalTotalSpend)}
                     </Text>
                   </View>
                   <View style={styles.custStatDivider} />
                   <View style={styles.customerStatBox}>
                     <Text style={styles.custStatLabel}>AVG CHECK (AOV)</Text>
                     <Text style={styles.custStatValue}>
-                      {formatCurrency(selectedCustomer.averageSpend)}
+                      {formatCurrency(modalAov)}
                     </Text>
                   </View>
                   <View style={styles.custStatDivider} />
                   <View style={styles.customerStatBox}>
-                    <Text style={styles.custStatLabel}>PREFERRED PAY</Text>
+                    <Text style={styles.custStatLabel}>PAYMENT METHOD</Text>
                     <Text style={styles.custStatValue}>
-                      {selectedCustomer.preferredPayMode}
+                      {selectedCustomer.isDealer ? 'CREDIT' : selectedCustomer.preferredPayMode}
                     </Text>
                   </View>
                 </View>
@@ -973,7 +1147,9 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Ionicons name="calendar-outline" size={16} color="#ED0712" />
                     <Text style={styles.timelineTitle}>
-                      Chronological Car Wash History ({selectedCustomer.orders.length} orders)
+                      {selectedCustomer.isDealer
+                        ? `Chronological Dealer Fleet Wash History (${selectedCustomerLifetimeOrders.length} orders)`
+                        : `Chronological Car Wash History (${selectedCustomerLifetimeOrders.length} orders)`}
                     </Text>
                   </View>
                   <Text style={styles.timelineSub}>Sorted from newest to oldest</Text>
@@ -981,7 +1157,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
                 {/* Orders Timeline List */}
                 <ScrollView style={styles.timelineScrollView} showsVerticalScrollIndicator>
-                  {selectedCustomer.orders.map((order, idx) => {
+                  {selectedCustomerLifetimeOrders.map((order, idx) => {
                     const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus);
                     const payStyle = getPayModeStyle(order.payMode);
 
@@ -989,10 +1165,10 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                       <View key={order.orderId || idx} style={styles.timelineEntry}>
                         {/* Left Track & Icon */}
                         <View style={styles.timelineLeftTrack}>
-                          <View style={styles.timelineNodeDot}>
+                          <View style={[styles.timelineNodeDot, selectedCustomer.isDealer && { backgroundColor: '#2563EB' }]}>
                             <Ionicons name="car-outline" size={12} color="#FFFFFF" />
                           </View>
-                          {idx < selectedCustomer.orders.length - 1 && (
+                          {idx < selectedCustomerLifetimeOrders.length - 1 && (
                             <View style={styles.timelineConnectingLine} />
                           )}
                         </View>
@@ -1492,7 +1668,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
   },
   periodPillActive: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: '#ED0712',
   },
   periodPillText: {
     fontSize: 11,
@@ -1500,7 +1676,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   periodPillTextActive: {
-    color: '#ED0712',
+    color: '#FFFFFF',
     fontWeight: '800',
   },
 
@@ -1639,6 +1815,44 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
     color: '#1E40AF',
+    letterSpacing: 0.3,
+  },
+  dealerCardBorder: {
+    borderColor: '#BFDBFE',
+    backgroundColor: '#FFFFFF',
+  },
+  dealerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  dealerBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#1D4ED8',
+    letterSpacing: 0.4,
+  },
+  customerTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  customerTypeBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#475569',
     letterSpacing: 0.3,
   },
   visitsBadge: {
@@ -1787,6 +2001,51 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any)
       : { elevation: 1 }),
+  },
+  tableFilterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tableFilterTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.4,
+  },
+  tableFilterPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  tableFilterPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  tableFilterPillActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  tableFilterPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  tableFilterPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   tableHeaderRow: {
     flexDirection: 'row',

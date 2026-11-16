@@ -10,14 +10,17 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
-import { VehicleOption } from '../types/kiosk.types';
+import { VehicleOption, DealerOption } from '../types/kiosk.types';
 import { fetchVehicleTypes } from '../../../services/vehicleApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 
 interface Page2VehicleScreenProps {
   initialVehicle?: VehicleOption;
-  onContinue: (vehicle: VehicleOption, vehicleTypeId?: number) => void;
+  isDealer?: boolean;
+  dealer?: DealerOption;
+  initialVehicleNumber?: string;
+  onContinue: (vehicle: VehicleOption, vehicleTypeId?: number, vehicleDetails?: { vehicleNumber: string; remarks?: string }) => void;
   onBack: () => void;
   onExitToPos?: () => void;
 }
@@ -127,6 +130,9 @@ function getVehicleMeta(name: string): VehicleMeta {
 
 export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
   initialVehicle,
+  isDealer = false,
+  dealer,
+  initialVehicleNumber = '',
   onContinue,
   onBack,
   onExitToPos,
@@ -155,6 +161,9 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
           setSelectedVehicle(found);
           setSelectedVehicleTypeId(found.vehicleTypeId);
         }
+      } else if (isDealer && data.length > 0) {
+        setSelectedVehicle(data[0]);
+        setSelectedVehicleTypeId(data[0].vehicleTypeId);
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to load vehicle types from server.');
@@ -170,11 +179,12 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
   const [isNavigating, setIsNavigating] = useState(false);
 
   const handleSelect = (vehicle: VehicleOption) => {
-    if (isNavigating) return;
-    setIsNavigating(true);
     setSelectedVehicle(vehicle);
     setSelectedVehicleTypeId(vehicle.vehicleTypeId);
-    // Single-Click Auto Navigation: proceed immediately to next screen
+
+    if (isNavigating) return;
+    setIsNavigating(true);
+    // Single-Click Auto Navigation: proceed directly to package selection for both customer and dealer
     onContinue(vehicle, vehicle.vehicleTypeId);
   };
 
@@ -182,7 +192,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
     <View style={styles.container}>
       {/* Top Center Logo & Header */}
       <KioskTopHeader
-        subtitle="STEP 1 OF 5: VEHICLE TYPE"
+        subtitle={isDealer ? "DEALER STEP 1: VEHICLE TYPE" : "STEP 1 OF 5: VEHICLE TYPE"}
         screenName="VehicleSelectionScreen.tsx"
         onExitToPos={onExitToPos}
         onBack={onBack}
@@ -191,9 +201,11 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
 
       {/* Main Title & Prompt Header */}
       <View style={styles.promptHeader}>
-        <Text style={styles.mainTitle}>Select Your Vehicle Type</Text>
+        <Text style={styles.mainTitle}>{isDealer ? "Select Vehicle Type" : "Select Your Vehicle Type"}</Text>
         <Text style={styles.subtitle}>
-          Choose the category matching your vehicle. Pricing is tailored accordingly.
+          {isDealer 
+            ? "Choose the vehicle category for commercial account billing."
+            : "Choose the category matching your vehicle. Pricing is tailored accordingly."}
         </Text>
       </View>
 
@@ -464,5 +476,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 15,
     paddingHorizontal: 4,
+  },
+  dealerBannerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginBottom: 8,
+    gap: 6,
+  },
+  dealerBannerText: {
+    fontSize: 12,
+    color: '#92400E',
+  },
+  dealerBannerBold: {
+    fontWeight: '800',
+    color: '#78350F',
+  },
+  dealerCreditTermText: {
+    color: '#B45309',
+    fontWeight: '700',
   },
 });

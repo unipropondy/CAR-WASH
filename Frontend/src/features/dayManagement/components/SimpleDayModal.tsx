@@ -126,7 +126,7 @@ export const SimpleDayModal: React.FC<SimpleDayModalProps> = ({ onViewHistory })
               <View style={[styles.statusBadge, isOpen ? styles.badgeOpen : styles.badgeClosed]}>
                 <View style={[styles.statusDot, isOpen ? styles.dotOpen : styles.dotClosed]} />
                 <Text style={[styles.statusBadgeText, isOpen ? styles.badgeTextOpen : styles.badgeTextClosed]}>
-                  {isOpen ? `DAY #${activeDayId || 1} ACTIVE` : 'DAY CLOSED'}
+                  {isOpen ? 'DAY ACTIVE' : 'DAY CLOSED'}
                 </Text>
               </View>
               <Text style={styles.headerTitle}>

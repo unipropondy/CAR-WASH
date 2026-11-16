@@ -9,8 +9,10 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Circle } from 'react-native-svg';
 import { PosOrder } from '../../../types/pos.types';
 import { BayMasterRecord } from '../../../services/carwashOrderApi';
 import { IconMenu, IconClock } from '../../../components/common/AppIcons';
@@ -33,6 +35,11 @@ interface PosReportsViewProps {
   cashierName?: string;
   onBackToOrders?: () => void;
   onToggleSidebar?: () => void;
+  refreshTrigger?: number;
+  isFilterOpen?: boolean;
+  onCloseFilter?: () => void;
+  isDownloadModalOpen?: boolean;
+  onCloseDownloadModal?: () => void;
 }
 
 // Monthly chart data matching reference design
@@ -119,6 +126,17 @@ interface PeriodRangeInfo {
   arrowLabel?: string;
 }
 
+const formatISOToDDMMYYYY = (isoStr: string): string => {
+  if (!isoStr) return '';
+  const clean = isoStr.split('T')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+  return clean;
+};
+
 const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeInfo => {
   const pad = (n: number) => String(n).padStart(2, '0');
   const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -131,8 +149,12 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     });
   };
 
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
   if (tab === 'DAILY') {
-    const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+    const rawD = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+    const d = rawD > todayMidnight ? todayMidnight : rawD;
     const iso = toISO(d);
     return {
       startISO: iso,
@@ -146,7 +168,9 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     const dayOfWeek = anchor.getDay(); // 0 = Sun, 1 = Mon...
     const diffToMonday = anchor.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
     const start = new Date(anchor.getFullYear(), anchor.getMonth(), diffToMonday);
-    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const rawEnd = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    // Never exceed today/present date
+    const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
     return {
       startISO: toISO(start),
       endISO: toISO(end),
@@ -158,7 +182,9 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
 
   if (tab === 'MONTHLY') {
     const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    const rawEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    // Never exceed today/present date for current month
+    const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
     return {
       startISO: toISO(start),
       endISO: toISO(end),
@@ -169,13 +195,89 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
 
   // YEARLY
   const start = new Date(anchor.getFullYear(), 0, 1);
-  const end = new Date(anchor.getFullYear(), 11, 31);
+  const rawEnd = new Date(anchor.getFullYear(), 11, 31);
+  // Never exceed today/present date for current year
+  const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
   return {
     startISO: toISO(start),
     endISO: toISO(end),
     mainDateText: `Year ${anchor.getFullYear()}`,
-    subDateText: `01 Jan – 31 Dec ${anchor.getFullYear()}`,
+    subDateText: `${formatFriendly(start)} – ${formatFriendly(end)}`,
   };
+};
+
+export type DownloadPeriodType = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | 'CUSTOM';
+
+export const getDownloadPeriodRange = (
+  period: DownloadPeriodType,
+  customStart?: string,
+  customEnd?: string
+): { startISO: string; endISO: string; displayLabel: string } => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date();
+  const todayISOStr = toISO(today);
+
+  if (period === 'CUSTOM') {
+    const s = customStart || todayISOStr;
+    const e = customEnd || todayISOStr;
+    return {
+      startISO: s,
+      endISO: e,
+      displayLabel: `${formatISOToDDMMYYYY(s)} – ${formatISOToDDMMYYYY(e)}`,
+    };
+  }
+
+  if (period === 'DAILY') {
+    return {
+      startISO: todayISOStr,
+      endISO: todayISOStr,
+      displayLabel: `Daily (${formatISOToDDMMYYYY(todayISOStr)})`,
+    };
+  }
+
+  if (period === 'WEEKLY') {
+    const dayOfWeek = today.getDay();
+    const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const start = new Date(today.getFullYear(), today.getMonth(), diffToMonday);
+    const s = toISO(start);
+    return {
+      startISO: s,
+      endISO: todayISOStr,
+      displayLabel: `Weekly (${formatISOToDDMMYYYY(s)} – ${formatISOToDDMMYYYY(todayISOStr)})`,
+    };
+  }
+
+  if (period === 'MONTHLY') {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const s = toISO(start);
+    return {
+      startISO: s,
+      endISO: todayISOStr,
+      displayLabel: `Monthly (${today.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}: ${formatISOToDDMMYYYY(s)} – ${formatISOToDDMMYYYY(todayISOStr)})`,
+    };
+  }
+
+  // YEARLY
+  const start = new Date(today.getFullYear(), 0, 1);
+  const s = toISO(start);
+  return {
+    startISO: s,
+    endISO: todayISOStr,
+    displayLabel: `Yearly (${today.getFullYear()}: ${formatISOToDDMMYYYY(s)} – ${formatISOToDDMMYYYY(todayISOStr)})`,
+  };
+};
+
+const webCustomDateInputStyle: any = {
+  border: 'none',
+  outline: 'none',
+  backgroundColor: 'transparent',
+  fontSize: '13px',
+  fontWeight: '700',
+  color: '#0F172A',
+  width: '100%',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
 };
 
 export const PosReportsView: React.FC<PosReportsViewProps> = ({
@@ -184,18 +286,99 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   cashierName = 'Ferra Alexandra',
   onBackToOrders,
   onToggleSidebar,
+  refreshTrigger,
+  isFilterOpen = false,
+  onCloseFilter,
+  isDownloadModalOpen = false,
+  onCloseDownloadModal,
 }) => {
-  const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('MONTHLY');
+  const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('YEARLY');
   const [anchorDate, setAnchorDate] = useState<Date>(new Date());
+  const [customStartDate, setCustomStartDate] = useState<string | null>(null);
+  const [customEndDate, setCustomEndDate] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<FullDashboardPayload | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTrendIdx, setActiveTrendIdx] = useState<number>(0);
 
+  // Easy Filter States
+  const [filterSortBy, setFilterSortBy] = useState<'NEWEST' | 'HIGHEST_AMOUNT'>('NEWEST');
+  const [filterPaymentMode, setFilterPaymentMode] = useState<string>('ALL');
+  const [filterShowCancelled, setFilterShowCancelled] = useState<boolean>(true);
+
+  // Staged Filter States for Modal
+  const [stagedSortBy, setStagedSortBy] = useState<'NEWEST' | 'HIGHEST_AMOUNT'>('NEWEST');
+  const [stagedPaymentMode, setStagedPaymentMode] = useState<string>('ALL');
+  const [stagedShowCancelled, setStagedShowCancelled] = useState<boolean>(true);
+
+  // Download Modal States
+  const [downloadPeriod, setDownloadPeriod] = useState<DownloadPeriodType>('DAILY');
+  const [customDownloadStart, setCustomDownloadStart] = useState<string>('');
+  const [customDownloadEnd, setCustomDownloadEnd] = useState<string>('');
+  const [isExporting, setIsExporting] = useState<'PDF' | 'EXCEL' | null>(null);
+
+  useEffect(() => {
+    if (isFilterOpen) {
+      setStagedSortBy(filterSortBy);
+      setStagedPaymentMode(filterPaymentMode);
+      setStagedShowCancelled(filterShowCancelled);
+    }
+  }, [isFilterOpen, filterSortBy, filterPaymentMode, filterShowCancelled]);
+
   const dateRange = useMemo(() => {
     return calculatePeriodRange(selectedPeriodTab, anchorDate);
   }, [selectedPeriodTab, anchorDate]);
+
+  const effectiveStartISO = customStartDate || dateRange.startISO;
+  const effectiveEndISO = customEndDate || dateRange.endISO;
+
+  useEffect(() => {
+    if (isDownloadModalOpen) {
+      setDownloadPeriod((selectedPeriodTab as DownloadPeriodType) || 'DAILY');
+      setCustomDownloadStart(effectiveStartISO);
+      setCustomDownloadEnd(effectiveEndISO);
+    }
+  }, [isDownloadModalOpen, selectedPeriodTab, effectiveStartISO, effectiveEndISO]);
+
+  const downloadRange = useMemo(() => {
+    return getDownloadPeriodRange(downloadPeriod, customDownloadStart, customDownloadEnd);
+  }, [downloadPeriod, customDownloadStart, customDownloadEnd]);
+
+  const todayISO = useMemo(() => {
+    const today = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  }, []);
+
+  const isAtPresent = useMemo(() => {
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (selectedPeriodTab === 'DAILY') {
+      const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
+      return anchorMidnight >= todayMidnight;
+    }
+    if (selectedPeriodTab === 'WEEKLY') {
+      const dayOfWeek = anchorDate.getDay();
+      const diffToMonday = anchorDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+      const start = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), diffToMonday);
+      return start >= todayMidnight || anchorDate >= todayMidnight;
+    }
+    if (selectedPeriodTab === 'MONTHLY') {
+      return (
+        anchorDate.getFullYear() > today.getFullYear() ||
+        (anchorDate.getFullYear() === today.getFullYear() && anchorDate.getMonth() >= today.getMonth())
+      );
+    }
+    // YEARLY
+    return anchorDate.getFullYear() >= today.getFullYear();
+  }, [selectedPeriodTab, anchorDate]);
+
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      loadDashboard(selectedPeriodTab, true);
+    }
+  }, [refreshTrigger]);
 
   const isCurrentDate = useMemo(() => {
     const today = new Date();
@@ -207,6 +390,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   }, [anchorDate]);
 
   const handlePrevious = () => {
+    setCustomStartDate(null);
+    setCustomEndDate(null);
     setAnchorDate((prev) => {
       const next = new Date(prev);
       if (selectedPeriodTab === 'DAILY') {
@@ -223,7 +408,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   };
 
   const handleNext = () => {
+    if (isAtPresent) return;
+    setCustomStartDate(null);
+    setCustomEndDate(null);
     setAnchorDate((prev) => {
+      const today = new Date();
+      const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       const next = new Date(prev);
       if (selectedPeriodTab === 'DAILY') {
         next.setDate(next.getDate() + 1);
@@ -234,11 +424,13 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       } else if (selectedPeriodTab === 'YEARLY') {
         next.setFullYear(next.getFullYear() + 1);
       }
-      return next;
+      return next > todayMidnight ? todayMidnight : next;
     });
   };
 
   const handleResetToCurrent = () => {
+    setCustomStartDate(null);
+    setCustomEndDate(null);
     setAnchorDate(new Date());
   };
 
@@ -256,8 +448,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       }
       setLoadError(null);
       try {
-        const start = customStart || dateRange.startISO;
-        const end = customEnd || dateRange.endISO;
+        const start = customStart || effectiveStartISO;
+        const end = customEnd || effectiveEndISO;
         const data = await fetchFullSalesDashboard(tab, start, end);
         setDashboardData(data);
         if (data.washTrend && data.washTrend.length > 0) {
@@ -271,12 +463,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         setIsRefreshing(false);
       }
     },
-    [dateRange.startISO, dateRange.endISO]
+    [effectiveStartISO, effectiveEndISO]
   );
 
   useEffect(() => {
-    loadDashboard(selectedPeriodTab, false, dateRange.startISO, dateRange.endISO);
-  }, [selectedPeriodTab, dateRange.startISO, dateRange.endISO, loadDashboard]);
+    loadDashboard(selectedPeriodTab, false, effectiveStartISO, effectiveEndISO);
+  }, [selectedPeriodTab, effectiveStartISO, effectiveEndISO, loadDashboard]);
 
   // Live SQL Server metrics extracted from dashboard payload
   const summary = dashboardData?.summary || {
@@ -334,6 +526,526 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     ? dashboardData.recentTransactions
     : [];
 
+  // Filtered & Sorted Lists based on Easy Filter modal selections
+  const filteredRecentWashes = useMemo(() => {
+    let list = [...recentWashesList];
+
+    // Visibility filter (cancelled orders)
+    if (!filterShowCancelled) {
+      list = list.filter((w) => {
+        const s = (w.statusName || '').toUpperCase();
+        return !s.includes('CANCEL');
+      });
+    }
+
+    // Payment mode filter
+    if (filterPaymentMode !== 'ALL') {
+      list = list.filter((w) => {
+        const matchingTx = recentTransactionsList.find((t) => t.orderId === w.orderId || t.orderNo === w.orderNo);
+        const mode = (matchingTx?.payMode || matchingTx?.payModeDescription || '').toUpperCase();
+        return mode.includes(filterPaymentMode);
+      });
+    }
+
+    // Sort by
+    if (filterSortBy === 'HIGHEST_AMOUNT') {
+      list.sort((a, b) => (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0));
+    } else {
+      // NEWEST
+      list.sort((a, b) => {
+        const timeA = new Date(a.completedDate || a.startedDate || a.createdDate || 0).getTime();
+        const timeB = new Date(b.completedDate || b.startedDate || b.createdDate || 0).getTime();
+        return timeB - timeA;
+      });
+    }
+
+    return list;
+  }, [recentWashesList, recentTransactionsList, filterShowCancelled, filterPaymentMode, filterSortBy]);
+
+  const filteredRecentTransactions = useMemo(() => {
+    let list = [...recentTransactionsList];
+
+    // Payment mode filter
+    if (filterPaymentMode !== 'ALL') {
+      list = list.filter((t) => {
+        const mode = (t.payMode || t.payModeDescription || '').toUpperCase();
+        return mode.includes(filterPaymentMode);
+      });
+    }
+
+    // Sort by
+    if (filterSortBy === 'HIGHEST_AMOUNT') {
+      list.sort((a, b) => (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0));
+    } else {
+      // NEWEST
+      list.sort((a, b) => {
+        const timeA = new Date(a.paidDate || a.createdDate || 0).getTime();
+        const timeB = new Date(b.paidDate || b.createdDate || 0).getTime();
+        return timeB - timeA;
+      });
+    }
+
+    return list;
+  }, [recentTransactionsList, filterPaymentMode, filterSortBy]);
+
+  const getDownloadPayload = async (
+    period: DownloadPeriodType,
+    startISO: string,
+    endISO: string
+  ): Promise<FullDashboardPayload> => {
+    if (
+      dashboardData &&
+      period !== 'CUSTOM' &&
+      period === selectedPeriodTab &&
+      effectiveStartISO === startISO &&
+      effectiveEndISO === endISO
+    ) {
+      return dashboardData;
+    }
+
+    try {
+      const tabParam: ReportPeriodTab = period === 'CUSTOM' ? 'MONTHLY' : (period as ReportPeriodTab);
+      const res = await fetchFullSalesDashboard(tabParam, startISO, endISO);
+      return res;
+    } catch (e) {
+      console.warn('Fallback to current dashboard data for export:', e);
+      return (
+        dashboardData || {
+          success: true,
+          period: { startDate: startISO, endDate: endISO },
+          summary,
+          serviceDistribution: serviceDistributionList,
+          bayUtilization: bayUtilList,
+          paymentChannelMix: payMixList,
+          washTrend: washTrendList,
+          recentWashes: recentWashesList,
+          recentTransactions: recentTransactionsList,
+        }
+      );
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    setIsExporting('EXCEL');
+    try {
+      const payload = await getDownloadPayload(
+        downloadPeriod,
+        downloadRange.startISO,
+        downloadRange.endISO
+      );
+
+      const sum = payload.summary || summary;
+      const washes = payload.recentWashes || recentWashesList || [];
+      const channels = payload.paymentChannelMix || payMixList || [];
+      const services = payload.serviceDistribution || serviceDistributionList || [];
+
+      const lines: string[] = [];
+      lines.push(`CAR WASH - SALES ANALYTICS & REVENUE REPORT`);
+      lines.push(`Period:,${downloadPeriod}`);
+      lines.push(`Date Range:,${formatISOToDDMMYYYY(downloadRange.startISO)} to ${formatISOToDDMMYYYY(downloadRange.endISO)}`);
+      lines.push(`Generated By:,${cashierName || 'Admin'}`);
+      lines.push(`Generated At:,${new Date().toLocaleString('en-GB')}`);
+      lines.push(``);
+
+      lines.push(`--- SUMMARY KPI METRICS ---`);
+      lines.push(`Metric,Value`);
+      lines.push(`Total Revenue,$${Number(sum.totalRevenue || 0).toFixed(2)}`);
+      lines.push(`Net Sales,$${Number(sum.totalNetRevenue || 0).toFixed(2)}`);
+      lines.push(`GST Collected,$${Number(sum.totalGSTAmount || 0).toFixed(2)}`);
+      lines.push(`Total Washes Booked,${sum.totalBookings || sum.totalWashes || washes.length}`);
+      lines.push(`Completed Washes,${sum.totalCompletedWashes || washes.length}`);
+      lines.push(`Closed Washes,${sum.totalClosedWashes || 0}`);
+      lines.push(`Average Order Value,$${Number(sum.averageOrderValue || 0).toFixed(2)}`);
+      lines.push(`Unique Customers,${sum.totalUniqueCustomers || 0}`);
+      lines.push(`Unique Vehicles,${sum.totalUniqueVehicles || 0}`);
+      lines.push(``);
+
+      if (channels.length > 0) {
+        lines.push(`--- PAYMENT CHANNEL MIX ---`);
+        lines.push(`Payment Method,Transactions,Volume %,Net Sales ($),GST ($),Total Revenue ($),Revenue %`);
+        channels.forEach((ch) => {
+          lines.push(
+            `"${ch.paymentChannelName || ch.paymentChannel}",${ch.transactionCount || 0},${(ch.volumePercentage || 0).toFixed(1)}%,$${Number(ch.netSales || 0).toFixed(2)},$${Number(ch.gstAmount || 0).toFixed(2)},$${Number(ch.totalAmount || 0).toFixed(2)},${(ch.revenuePercentage || 0).toFixed(1)}%`
+          );
+        });
+        lines.push(``);
+      }
+
+      if (services.length > 0) {
+        lines.push(`--- SERVICE PACKAGE DISTRIBUTION ---`);
+        lines.push(`Category,Package Name,Total Washes,Share %,Net Sales ($),GST ($),Gross Revenue ($)`);
+        services.forEach((sv) => {
+          lines.push(
+            `"${sv.serviceCategoryName || ''}","${sv.packageName || ''}",${sv.totalWashes || 0},${(sv.washSharePercentage || 0).toFixed(1)}%,$${Number(sv.netSales || 0).toFixed(2)},$${Number(sv.gstSales || 0).toFixed(2)},$${Number(sv.grossRevenue || 0).toFixed(2)}`
+          );
+        });
+        lines.push(``);
+      }
+
+      lines.push(`--- COMPLETED WASHES & TRANSACTIONS ---`);
+      lines.push(`Order ID,Order No,Vehicle Plate,Customer Name,Package,Total Amount ($),Status,Date & Time`);
+      washes.forEach((w: any) => {
+        lines.push(
+          `"${w.orderId || ''}","${w.orderNo || ''}","${w.vehicleNumber || w.plateNumber || ''}","${(w.customerName || '').replace(/"/g, '""')}","${(w.packageName || w.serviceName || '').replace(/"/g, '""')}",$${Number(w.totalAmount || w.amount || 0).toFixed(2)},"${w.statusName || w.status || ''}","${w.createdDate || w.completedDate || w.startedDate || ''}"`
+        );
+      });
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const csvContent = '\uFEFF' + lines.join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `CarWash_SalesReport_${downloadPeriod}_${downloadRange.startISO}_to_${downloadRange.endISO}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error('Error generating Excel report:', err);
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    setIsExporting('PDF');
+    try {
+      const payload = await getDownloadPayload(
+        downloadPeriod,
+        downloadRange.startISO,
+        downloadRange.endISO
+      );
+
+      const sum = payload.summary || summary;
+      const washes = payload.recentWashes || recentWashesList || [];
+      const channels = payload.paymentChannelMix || payMixList || [];
+
+      const rowsHtml = washes
+        .slice(0, 100)
+        .map(
+          (w: any) => `
+          <tr>
+            <td><strong>#${w.orderNo || w.orderId}</strong></td>
+            <td><span class="plate-badge">${w.vehicleNumber || w.plateNumber || '—'}</span></td>
+            <td>${w.customerName || 'Walk-in Customer'}</td>
+            <td>${w.packageName || w.serviceName || 'Standard Wash'}</td>
+            <td style="text-align: right; font-weight: 700; color: #0F172A;">$${Number(w.totalAmount || w.amount || 0).toFixed(2)}</td>
+            <td><span class="status-badge status-done">${w.statusName || w.status || 'Completed'}</span></td>
+            <td style="color: #64748B; font-size: 11px;">${w.createdDate ? new Date(w.createdDate).toLocaleDateString('en-GB') : '—'}</td>
+          </tr>
+        `
+        )
+        .join('');
+
+      const channelRowsHtml = channels
+        .map(
+          (c) => `
+          <tr>
+            <td><strong>${c.paymentChannelName || c.paymentChannel}</strong></td>
+            <td style="text-align: center;">${c.transactionCount}</td>
+            <td style="text-align: right; font-weight: 700;">$${Number(c.totalAmount || 0).toFixed(2)}</td>
+            <td style="text-align: right; color: #E60012; font-weight: 600;">${(c.revenuePercentage || 0).toFixed(1)}%</td>
+          </tr>
+        `
+        )
+        .join('');
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Car Wash Sales Report - ${downloadPeriod}</title>
+            <style>
+              @page { size: A4; margin: 12mm; }
+              * { box-sizing: border-box; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                color: #0F172A;
+                background: #FFFFFF;
+                margin: 0;
+                padding: 24px;
+                font-size: 12px;
+                line-height: 1.4;
+              }
+              .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                border-bottom: 2px solid #E60012;
+                padding-bottom: 16px;
+                margin-bottom: 20px;
+              }
+              .brand-col h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 900;
+                color: #E60012;
+                letter-spacing: -0.5px;
+              }
+              .brand-col p {
+                margin: 4px 0 0;
+                font-size: 13px;
+                color: #64748B;
+                font-weight: 500;
+              }
+              .meta-col {
+                text-align: right;
+                font-size: 11px;
+                color: #475569;
+              }
+              .meta-pill {
+                display: inline-block;
+                background: #FEF2F2;
+                border: 1px solid #FECACA;
+                color: #E60012;
+                padding: 4px 10px;
+                border-radius: 9999px;
+                font-weight: 700;
+                font-size: 11px;
+                margin-bottom: 6px;
+              }
+              .kpi-row {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                margin-bottom: 24px;
+              }
+              .kpi-box {
+                background: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+                padding: 12px 14px;
+              }
+              .kpi-box.highlight {
+                background: #FEF2F2;
+                border-color: #FECACA;
+              }
+              .kpi-label {
+                font-size: 10px;
+                font-weight: 800;
+                text-transform: uppercase;
+                color: #64748B;
+                letter-spacing: 0.5px;
+                margin-bottom: 4px;
+              }
+              .kpi-box.highlight .kpi-label {
+                color: #E60012;
+              }
+              .kpi-val {
+                font-size: 22px;
+                font-weight: 900;
+                color: #0F172A;
+              }
+              .kpi-box.highlight .kpi-val {
+                color: #E60012;
+              }
+              .section-heading {
+                font-size: 13px;
+                font-weight: 800;
+                color: #0F172A;
+                margin: 20px 0 10px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              }
+              .section-heading::before {
+                content: '';
+                width: 4px;
+                height: 16px;
+                background: #E60012;
+                border-radius: 2px;
+                display: inline-block;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 16px;
+                font-size: 11px;
+              }
+              th {
+                background: #F1F5F9;
+                color: #475569;
+                font-weight: 700;
+                text-align: left;
+                padding: 8px 10px;
+                border-top: 1px solid #E2E8F0;
+                border-bottom: 2px solid #CBD5E1;
+                text-transform: uppercase;
+                font-size: 10px;
+                letter-spacing: 0.4px;
+              }
+              td {
+                padding: 8px 10px;
+                border-bottom: 1px solid #F1F5F9;
+              }
+              tr:nth-child(even) td {
+                background: #FBFCFD;
+              }
+              .plate-badge {
+                display: inline-block;
+                background: #0F172A;
+                color: #FFFFFF;
+                font-weight: 700;
+                padding: 2px 7px;
+                border-radius: 4px;
+                font-size: 10px;
+                letter-spacing: 0.5px;
+              }
+              .status-badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 9999px;
+                font-size: 10px;
+                font-weight: 700;
+              }
+              .status-done {
+                background: #DCFCE7;
+                color: #166534;
+              }
+              .footer {
+                margin-top: 24px;
+                padding-top: 12px;
+                border-top: 1px solid #E2E8F0;
+                display: flex;
+                justify-content: space-between;
+                color: #94A3B8;
+                font-size: 10px;
+              }
+              @media print {
+                body { padding: 0; }
+                .no-print { display: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="brand-col">
+                <h1>CAR WASH SALES REPORT</h1>
+                <p>Official Sales & Revenue Analytics Statement</p>
+              </div>
+              <div class="meta-col">
+                <div class="meta-pill">${downloadPeriod} REPORT</div>
+                <div><strong>Date Range:</strong> ${formatISOToDDMMYYYY(downloadRange.startISO)} – ${formatISOToDDMMYYYY(downloadRange.endISO)}</div>
+                <div><strong>Generated:</strong> ${new Date().toLocaleString('en-GB')}</div>
+                <div><strong>Cashier / Staff:</strong> ${cashierName || 'Admin'}</div>
+              </div>
+            </div>
+
+            <div class="kpi-row">
+              <div class="kpi-box highlight">
+                <div class="kpi-label">Gross Revenue</div>
+                <div class="kpi-val">$${Number(sum.totalRevenue || 0).toFixed(2)}</div>
+              </div>
+              <div class="kpi-box">
+                <div class="kpi-label">Net Sales</div>
+                <div class="kpi-val">$${Number(sum.totalNetRevenue || 0).toFixed(2)}</div>
+              </div>
+              <div class="kpi-box">
+                <div class="kpi-label">Completed Washes</div>
+                <div class="kpi-val">${sum.totalCompletedWashes || washes.length}</div>
+              </div>
+              <div class="kpi-box">
+                <div class="kpi-label">Avg Order Value</div>
+                <div class="kpi-val">$${Number(sum.averageOrderValue || 0).toFixed(2)}</div>
+              </div>
+            </div>
+
+            ${
+              channels.length > 0
+                ? `
+              <div class="section-heading">Payment Channel Breakdown</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Payment Channel</th>
+                    <th style="text-align: center;">Transactions</th>
+                    <th style="text-align: right;">Total Amount</th>
+                    <th style="text-align: right;">Revenue Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${channelRowsHtml}
+                </tbody>
+              </table>
+            `
+                : ''
+            }
+
+            <div class="section-heading">Completed Wash Orders (${washes.length})</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Order #</th>
+                  <th>Vehicle Plate</th>
+                  <th>Customer</th>
+                  <th>Service Package</th>
+                  <th style="text-align: right;">Amount</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml || '<tr><td colspan="7" style="text-align: center; color: #94A3B8; padding: 20px;">No completed orders recorded for this period</td></tr>'}
+              </tbody>
+            </table>
+
+            <div class="footer">
+              <div>Unipro Car Wash Management System • Confidential</div>
+              <div>Generated via Antigravity POS</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+          doc.open();
+          doc.write(htmlContent);
+          doc.close();
+          iframe.contentWindow?.focus();
+          setTimeout(() => {
+            iframe.contentWindow?.print();
+            setTimeout(() => {
+              if (document.body.contains(iframe)) {
+                document.body.removeChild(iframe);
+              }
+            }, 2000);
+          }, 500);
+        }
+      }
+    } catch (err) {
+      console.error('Error generating PDF report:', err);
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__exportReportsCsv = handleDownloadExcel;
+      (window as any).__exportReportsPdf = handleDownloadPdf;
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__exportReportsCsv;
+        delete (window as any).__exportReportsPdf;
+      }
+    };
+  }, [handleDownloadExcel, handleDownloadPdf]);
+
   // Bay stats calculations
   const totalBaysCount = bayUtilList.length > 0 
     ? bayUtilList.length 
@@ -363,6 +1075,21 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     ? [...serviceDistributionList].sort((a, b) => (b.totalWashes || 0) - (a.totalWashes || 0))[0] 
     : null;
   const totalDistWashes = serviceDistributionList.reduce((acc, s) => acc + (s.totalWashes || 0), 0) || 1;
+
+  // Ranked Top Using Packages List
+  const topPackagesList = useMemo(() => {
+    return [...serviceDistributionList].sort(
+      (a, b) => (b.totalWashes || 0) - (a.totalWashes || 0) || (b.grossRevenue || 0) - (a.grossRevenue || 0)
+    );
+  }, [serviceDistributionList]);
+
+  const totalPackageRevenue = useMemo(() => {
+    return topPackagesList.reduce((acc, p) => acc + (p.grossRevenue || 0), 0);
+  }, [topPackagesList]);
+
+  const totalPackageWashes = useMemo(() => {
+    return topPackagesList.reduce((acc, p) => acc + (p.totalWashes || 0), 0);
+  }, [topPackagesList]);
 
   const maxTrendWashes = Math.max(10, ...washTrendList.map(w => w.completedWashes || 0));
   const maxTrendRevenue = Math.max(100, ...washTrendList.map(w => w.dailyRevenue || 0));
@@ -456,84 +1183,67 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     PAYNOW: '#10B981',
   };
 
+  const PACKAGE_THEMES = [
+    {
+      rank: '#1',
+      rankBg: '#FEF2F2',
+      rankBorder: '#FECACA',
+      rankText: '#DC2626',
+      stroke: '#ED0712',
+      cardBg: '#FFFBFB',
+      cardBorder: '#FEE2E2',
+      pillBg: '#FEF2F2',
+      pillText: '#DC2626',
+      pillBorder: '#FECACA',
+      isLeader: true,
+    },
+    {
+      rank: '#2',
+      rankBg: '#EFF6FF',
+      rankBorder: '#BFDBFE',
+      rankText: '#2563EB',
+      stroke: '#2563EB',
+      cardBg: '#FFFFFF',
+      cardBorder: '#E2E8F0',
+      pillBg: '#EFF6FF',
+      pillText: '#2563EB',
+      pillBorder: '#BFDBFE',
+      isLeader: false,
+    },
+    {
+      rank: '#3',
+      rankBg: '#F0FDF4',
+      rankBorder: '#BBF7D0',
+      rankText: '#16A34A',
+      stroke: '#16A34A',
+      cardBg: '#FFFFFF',
+      cardBorder: '#E2E8F0',
+      pillBg: '#F0FDF4',
+      pillText: '#16A34A',
+      pillBorder: '#BBF7D0',
+      isLeader: false,
+    },
+    {
+      rank: '#4',
+      rankBg: '#FFFBEB',
+      rankBorder: '#FDE68A',
+      rankText: '#D97706',
+      stroke: '#D97706',
+      cardBg: '#FFFFFF',
+      cardBorder: '#E2E8F0',
+      pillBg: '#FFFBEB',
+      pillText: '#D97706',
+      pillBorder: '#FDE68A',
+      isLeader: false,
+    },
+  ];
+
+  const { width } = useWindowDimensions();
+  const isMobile = width < 680;
+  const isTablet = width >= 680 && width < 1024;
+
   return (
     <View style={styles.container}>
-      {/* ============================================================== */}
-      {/* 1. TOP HEADER SECTION */}
-      {/* ============================================================== */}
-      <View style={styles.topHeader}>
-        {/* Left: Menu button, Logo & Sales Analytics Title */}
-        <View style={styles.brandTitleGroup}>
-          {onToggleSidebar && (
-            <>
-              <TouchableOpacity
-                style={styles.menuBtn}
-                onPress={onToggleSidebar}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Toggle side menu"
-              >
-                <IconMenu size={18} color="#FFFFFF" strokeWidth={2.4} />
-              </TouchableOpacity>
-              <View style={styles.headerVerticalDivider} />
-            </>
-          )}
-
-          {/* Custom Reports Icon */}
-          <Image
-            source={require('../../../../assets/images/reports_icon.png')}
-            style={styles.headerIconImage}
-            resizeMode="contain"
-          />
-
-          {/* Title & Subtitle */}
-          <View style={styles.titleTextCol}>
-            <View style={styles.titleRow}>
-              <Text style={styles.salesAnalyticsTitle}>Sales Analytics</Text>
-              <ScreenNameBadge name="PosReportsView.tsx" variant="header" style={{ marginLeft: 8 }} />
-              <View style={styles.liveStatusChip}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveStatusText}>Live SQL Server</Text>
-              </View>
-            </View>
-            <Text style={styles.salesSubtitle}>Real-time performance, revenue trends and bay metrics</Text>
-          </View>
-        </View>
-
-        {/* Right Controls: Refresh & Profile */}
-        <View style={styles.topRightControls}>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={() => loadDashboard(selectedPeriodTab, true)}
-            activeOpacity={0.8}
-            accessibilityLabel="Refresh reports"
-          >
-            {isRefreshing ? (
-              <ActivityIndicator size="small" color="#ED0712" />
-            ) : (
-              <>
-                <Text style={styles.refreshBtnIcon}>🔄</Text>
-                <Text style={styles.refreshBtnText}>SYNC DATA</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* User Profile Pill */}
-          <View style={styles.userProfilePill}>
-            <View style={styles.userAvatarCircle}>
-              <Text style={styles.userAvatarText}>FA</Text>
-            </View>
-            <View>
-              <Text style={styles.userNameText}>{cashierName}</Text>
-              <View style={styles.roleChevronRow}>
-                <Text style={styles.userRoleText}>Admin</Text>
-                {renderSvg(10, '0 0 24 24', [{ d: 'M6 9l6 6 6-6', stroke: '#64748B', strokeWidth: 2 }])}
-              </View>
-            </View>
-          </View>
-        </View>
-      </View>
-
       {/* Optional Error Banner */}
       {loadError && (
         <View style={{ backgroundColor: '#FEF2F2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -554,7 +1264,11 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <TouchableOpacity
               key={tab}
               style={[styles.periodTabItem, isActive && styles.periodTabItemActive]}
-              onPress={() => setSelectedPeriodTab(tab)}
+              onPress={() => {
+                setSelectedPeriodTab(tab);
+                setCustomStartDate(null);
+                setCustomEndDate(null);
+              }}
               activeOpacity={0.85}
             >
               <Text style={[styles.periodTabText, isActive && styles.periodTabTextActive]}>
@@ -566,62 +1280,145 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       </View>
 
       {/* ============================================================== */}
-      {/* 2.1 SLEEK COMPACT DATE NAVIGATION BAR */}
+      {/* 2.1 SLEEK DATE SELECTOR BAR */}
       {/* ============================================================== */}
-      <View style={styles.compactDateBar}>
+      <View style={styles.dateSelectorBar}>
+        {/* Previous Button */}
         <TouchableOpacity
-          style={styles.compactNavBtn}
+          style={styles.navSquareBtn}
           onPress={handlePrevious}
           activeOpacity={0.7}
           accessibilityLabel="Previous date"
         >
-          <Ionicons name="chevron-back" size={15} color="#334155" />
+          <Ionicons name="chevron-back" size={20} color="#0F172A" />
         </TouchableOpacity>
 
-        <View style={styles.compactDateCenter}>
-          <View style={styles.calendarIconCircle}>
-            <Ionicons name="calendar-outline" size={13} color="#E60012" />
+        {selectedPeriodTab === 'DAILY' ? (
+          /* SINGLE DATE CARD FOR DAILY VIEW */
+          <View style={styles.singleDateCard}>
+            <View style={styles.singleDateCenter}>
+              <View style={styles.dateIconCircleSmall}>
+                <Ionicons name="calendar-outline" size={16} color="#E60012" />
+              </View>
+              <Text style={styles.singleDateValue}>
+                {formatISOToDDMMYYYY(effectiveStartISO)}
+              </Text>
+            </View>
+
+            {Platform.OS === 'web' && (
+              <input
+                type="date"
+                value={effectiveStartISO}
+                max={todayISO}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const val = e.target.value > todayISO ? todayISO : e.target.value;
+                    setCustomStartDate(val);
+                    setCustomEndDate(val);
+                  }
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: 'pointer',
+                } as any}
+              />
+            )}
           </View>
-
-          {dateRange.weekdayLabel ? (
-            <View style={styles.weekdayBadge}>
-              <Text style={styles.weekdayBadgeText}>{dateRange.weekdayLabel.toUpperCase()}</Text>
+        ) : (
+          /* RANGE CARDS FOR WEEKLY, MONTHLY, YEARLY */
+          <>
+            {/* FROM DATE Card */}
+            <View style={styles.dateCard}>
+              <View style={styles.dateCardInner}>
+                <View style={styles.dateIconCircleSmall}>
+                  <Ionicons name="calendar-outline" size={15} color="#E60012" />
+                </View>
+                <View style={styles.dateCardTextCol}>
+                  <Text style={styles.dateCardLabel}>FROM DATE</Text>
+                  <Text style={styles.dateCardValue}>{formatISOToDDMMYYYY(effectiveStartISO)}</Text>
+                </View>
+              </View>
+              {Platform.OS === 'web' && (
+                <input
+                  type="date"
+                  value={effectiveStartISO}
+                  max={todayISO}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const val = e.target.value > todayISO ? todayISO : e.target.value;
+                      setCustomStartDate(val);
+                    }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    opacity: 0,
+                    cursor: 'pointer',
+                  } as any}
+                />
+              )}
             </View>
-          ) : null}
 
-          <Text style={styles.compactDateText}>{dateRange.mainDateText}</Text>
-
-          {dateRange.arrowLabel ? (
-            <Text style={styles.compactArrowText}>➔</Text>
-          ) : null}
-
-          {dateRange.subDateText ? (
-            <View style={styles.subRangeBadge}>
-              <Text style={styles.subRangeText}>{dateRange.subDateText}</Text>
+            {/* Range Separator Arrow */}
+            <View style={styles.rangeArrowBox}>
+              <Text style={styles.rangeArrowText}>➔</Text>
             </View>
-          ) : null}
-        </View>
 
-        <View style={styles.compactNavRight}>
-          {!isCurrentDate && (
-            <TouchableOpacity
-              style={styles.compactTodayPill}
-              onPress={handleResetToCurrent}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.compactTodayPillText}>Today</Text>
-            </TouchableOpacity>
-          )}
+            {/* TO DATE Card */}
+            <View style={styles.dateCard}>
+              <View style={styles.dateCardInner}>
+                <View style={styles.dateIconCircleSmall}>
+                  <Ionicons name="calendar-outline" size={15} color="#E60012" />
+                </View>
+                <View style={styles.dateCardTextCol}>
+                  <Text style={styles.dateCardLabel}>TO DATE</Text>
+                  <Text style={styles.dateCardValue}>{formatISOToDDMMYYYY(effectiveEndISO)}</Text>
+                </View>
+              </View>
+              {Platform.OS === 'web' && (
+                <input
+                  type="date"
+                  value={effectiveEndISO}
+                  max={todayISO}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const val = e.target.value > todayISO ? todayISO : e.target.value;
+                      setCustomEndDate(val);
+                    }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    opacity: 0,
+                    cursor: 'pointer',
+                  } as any}
+                />
+              )}
+            </View>
+          </>
+        )}
 
-          <TouchableOpacity
-            style={styles.compactNavBtn}
-            onPress={handleNext}
-            activeOpacity={0.7}
-            accessibilityLabel="Next date"
-          >
-            <Ionicons name="chevron-forward" size={15} color="#334155" />
-          </TouchableOpacity>
-        </View>
+        {/* Next Button */}
+        <TouchableOpacity
+          style={[styles.navSquareBtn, isAtPresent && { opacity: 0.35 }]}
+          onPress={handleNext}
+          disabled={isAtPresent}
+          activeOpacity={isAtPresent ? 1 : 0.7}
+          accessibilityLabel="Next date"
+        >
+          <Ionicons name="chevron-forward" size={20} color="#0F172A" />
+        </TouchableOpacity>
       </View>
 
       {/* ============================================================== */}
@@ -632,12 +1429,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         <View style={styles.kpiCardRedGradient}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleWhite}>
-              {renderSvg(22, '0 0 24 24', [
-                { d: 'M5 11l2-4h10l2 4', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M7 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                { d: 'M17 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-              ])}
+              <Ionicons name="car-sport" size={20} color="#ED0712" />
             </View>
             <View style={styles.pillGreenOnDark}>
               <Text style={styles.pillGreenTextOnDark}>{washesBadgeText}</Text>
@@ -654,12 +1446,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         <View style={styles.kpiCardWhite}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
-              {renderSvg(22, '0 0 24 24', [
-                { d: 'M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', stroke: '#ED0712', strokeWidth: 2 },
-              ])}
+              <Ionicons name="cash-outline" size={20} color="#ED0712" />
             </View>
             <View style={styles.pillGreenLight}>
-              <Text style={styles.pillGreenText}>SGD Gross</Text>
+              <Text style={styles.pillGreenText}>Gross</Text>
             </View>
           </View>
           <Text style={styles.kpiLabel}>Total Revenue</Text>
@@ -671,12 +1461,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         <View style={styles.kpiCardWhite}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
-              {renderSvg(20, '0 0 24 24', [
-                { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M23 21v-2a4 4 0 0 0-3-3.87', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M16 3.13a4 4 0 0 1 0 7.75', stroke: '#ED0712', strokeWidth: 2 },
-              ])}
+              <Ionicons name="people-outline" size={20} color="#ED0712" />
             </View>
             <View style={styles.pillRedLight}>
               <Text style={styles.pillRedText}>Active</Text>
@@ -691,12 +1476,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         <View style={styles.kpiCardWhite}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
-              {renderSvg(20, '0 0 24 24', [
-                { d: 'M5 11l2-4h10l2 4', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#ED0712', strokeWidth: 2 },
-                { d: 'M7 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-                { d: 'M17 16a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', stroke: '#ED0712', strokeWidth: 1.5, fill: '#ED0712' },
-              ])}
+              <Ionicons name="car-outline" size={20} color="#ED0712" />
             </View>
             <View style={styles.pillGreenLight}>
               <Text style={styles.pillGreenText}>Serviced</Text>
@@ -727,23 +1507,22 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <View style={styles.verticalDiagramCardContent}>
             {/* Centered Donut Gauge */}
             <View style={styles.centeredDonutBox}>
-              {Platform.OS === 'web' ? (
-                <svg width="120" height="120" viewBox="0 0 120 120" style={{ display: 'block', margin: '0 auto' }}>
-                  <circle cx="60" cy="60" r="48" fill="none" stroke="#FEE2E2" strokeWidth="12" />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="48"
-                    fill="none"
-                    stroke="#EF4444"
-                    strokeWidth="12"
-                    strokeLinecap="round"
-                    strokeDasharray="301.6"
-                    strokeDashoffset={301.6 * (1 - Math.min(100, Math.max(0, calculatedUtilizationPct)) / 100)}
-                    transform="rotate(-90 60 60)"
-                  />
-                </svg>
-              ) : null}
+              <Svg width={120} height={120} viewBox="0 0 120 120">
+                <Circle cx="60" cy="60" r="48" fill="none" stroke="#FEE2E2" strokeWidth="12" />
+                <Circle
+                  cx="60"
+                  cy="60"
+                  r="48"
+                  fill="none"
+                  stroke="#EF4444"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  strokeDasharray="301.6"
+                  strokeDashoffset={301.6 * (1 - Math.min(100, Math.max(0, calculatedUtilizationPct)) / 100)}
+                  rotation="-90"
+                  origin="60, 60"
+                />
+              </Svg>
 
               <View style={styles.donutCenterLabel}>
                 <Text style={styles.donutPctText}>{calculatedUtilizationPct}%</Text>
@@ -755,10 +1534,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <View style={styles.breakdownListUnder}>
               <View style={styles.underItemRow}>
                 <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [
-                    { d: 'M5 11l2-4h10l2 4', stroke: '#EF4444', strokeWidth: 2 },
-                    { d: 'M3 11h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z', stroke: '#EF4444', strokeWidth: 2 },
-                  ])}
+                  <Ionicons name="car-sport-outline" size={15} color="#EF4444" />
                   <Text style={styles.bayStatLabel}>Total Bays</Text>
                 </View>
                 <Text style={styles.bayStatVal}>{totalBaysCount}</Text>
@@ -766,7 +1542,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
               <View style={styles.underItemRow}>
                 <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [{ d: 'M5 3l14 9-14 9V3z', stroke: '#22C55E', strokeWidth: 2, fill: '#22C55E' }])}
+                  <Ionicons name="radio-button-on" size={15} color="#22C55E" />
                   <Text style={styles.bayStatLabel}>Bays in Use</Text>
                 </View>
                 <Text style={styles.bayStatVal}>{inUseBaysCount}</Text>
@@ -774,7 +1550,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
               <View style={styles.underItemRow}>
                 <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [{ d: 'M6 4h4v16H6zM14 4h4v16h-4z', stroke: '#F59E0B', strokeWidth: 2, fill: '#F59E0B' }])}
+                  <Ionicons name="pause-circle-outline" size={15} color="#F59E0B" />
                   <Text style={styles.bayStatLabel}>Bays Idle</Text>
                 </View>
                 <Text style={styles.bayStatVal}>{idleBaysCount}</Text>
@@ -784,10 +1560,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
               <View style={styles.underItemRow}>
                 <View style={styles.bayStatLeft}>
-                  {renderSvg(16, '0 0 24 24', [
-                    { d: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z', stroke: '#0F172A', strokeWidth: 2 },
-                    { d: 'M12 6v6l4 2', stroke: '#0F172A', strokeWidth: 2 },
-                  ])}
+                  <Ionicons name="time-outline" size={15} color="#0F172A" />
                   <Text style={styles.bayStatLabel}>Avg. Service Time</Text>
                 </View>
                 <Text style={styles.bayStatValBold}>{averageBayServiceMinutes} min</Text>
@@ -822,14 +1595,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
               <View style={styles.legendItem}>
                 <View style={[styles.legendPillDot, { backgroundColor: '#FDA4AF' }]} />
-                <Text style={styles.legendText}>Revenue (SGD)</Text>
+                <Text style={styles.legendText}>Revenue ($)</Text>
               </View>
             </View>
             {activeTrendItem && (
               <View style={styles.activeDayPill}>
                 <View style={styles.activeDayDot} />
                 <Text style={styles.activeDayText}>
-                  {activeTrendItem.dayName || 'Day'}: {(activeTrendItem.completedWashes || 0)}w · ${(activeTrendItem.dailyRevenue || 0).toFixed(0)}
+                  {activeTrendItem.dayName ? activeTrendItem.dayName.slice(0, 3) : 'Day'}: {(activeTrendItem.completedWashes || 0)}w · ${(activeTrendItem.dailyRevenue || 0).toFixed(0)}
                 </Text>
               </View>
             )}
@@ -855,28 +1628,48 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               ))}
 
               {/* Active Tooltip over current item */}
-              {activeTrendItem && washTrendList.length > 0 && (
-                <View
-                  style={[
-                    styles.activeTooltipCard,
-                    {
-                      left: `${((activeTrendIdx + 0.5) / washTrendList.length) * 100}%`,
-                      transform: [{ translateX: -70 }],
-                    },
-                  ]}
-                >
-                  <Text style={styles.tooltipTitle}>{activeTrendItem.dayName || 'Selected Day'}</Text>
-                  <View style={styles.tooltipRow}>
-                    <View style={[styles.tooltipDot, { backgroundColor: '#ED0712' }]} />
-                    <Text style={styles.tooltipTextWhite}>{(activeTrendItem.completedWashes || 0).toLocaleString()} Washes</Text>
+              {activeTrendItem && washTrendList.length > 0 && (() => {
+                const totalItems = washTrendList.length;
+                const isNearRight = activeTrendIdx >= totalItems - 2;
+                const isNearLeft = activeTrendIdx <= 1;
+                return (
+                  <View
+                    style={[
+                      styles.activeTooltipCard,
+                      isNearRight
+                        ? { right: 8, left: undefined }
+                        : isNearLeft
+                        ? { left: 8 }
+                        : {
+                            left: `${((activeTrendIdx + 0.5) / totalItems) * 100}%`,
+                            transform: [{ translateX: -70 }],
+                          },
+                    ]}
+                  >
+                    <Text style={styles.tooltipTitle} numberOfLines={1}>
+                      {activeTrendItem.dayName || 'Selected Day'}
+                    </Text>
+                    <View style={styles.tooltipRow}>
+                      <View style={[styles.tooltipDot, { backgroundColor: '#ED0712' }]} />
+                      <Text style={styles.tooltipTextWhite}>{(activeTrendItem.completedWashes || 0).toLocaleString()} Washes</Text>
+                    </View>
+                    <View style={styles.tooltipRow}>
+                      <View style={[styles.tooltipDot, { backgroundColor: '#FDA4AF' }]} />
+                      <Text style={styles.tooltipTextPink}>${(activeTrendItem.dailyRevenue || 0).toFixed(2)} Revenue</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.tooltipArrow,
+                        isNearRight
+                          ? { right: activeTrendIdx === totalItems - 1 ? 16 : 46, left: undefined }
+                          : isNearLeft
+                          ? { left: activeTrendIdx === 0 ? 16 : 46 }
+                          : { left: '50%', marginLeft: -5 },
+                      ]}
+                    />
                   </View>
-                  <View style={styles.tooltipRow}>
-                    <View style={[styles.tooltipDot, { backgroundColor: '#FDA4AF' }]} />
-                    <Text style={styles.tooltipTextPink}>${(activeTrendItem.dailyRevenue || 0).toFixed(2)} Revenue</Text>
-                  </View>
-                  <View style={styles.tooltipArrow} />
-                </View>
-              )}
+                );
+              })()}
 
               {/* Bars Row */}
               <View style={styles.barsContainer}>
@@ -885,7 +1678,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     const isActive = activeTrendIdx === idx;
                     const washesHeightPct = Math.min(100, Math.max(8, ((item.completedWashes || 0) / maxTrendWashes) * 100));
                     const revHeightPct = Math.min(100, Math.max(6, ((item.dailyRevenue || 0) / maxTrendRevenue) * 100));
-                    const dayLabel = item.dayName || (item.orderDate ? item.orderDate.slice(5) : `D${idx+1}`);
+                    const dayLabel = item.dayName ? item.dayName.slice(0, 3) : (item.orderDate ? item.orderDate.slice(5) : `D${idx+1}`);
+                    const barWidth = washTrendList.length > 6 ? 8 : 11;
 
                     return (
                       <TouchableOpacity
@@ -896,8 +1690,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                       >
                         <View style={[styles.slotTrack, isActive && styles.slotTrackActive]}>
                           <View style={styles.pairedBarsRow}>
-                            <View style={[styles.barRedPrimary, { height: `${washesHeightPct}%` }]} />
-                            <View style={[styles.barPinkSecondary, { height: `${revHeightPct}%` }]} />
+                            <View style={[styles.barRedPrimary, { height: `${washesHeightPct}%`, width: barWidth }]} />
+                            <View style={[styles.barPinkSecondary, { height: `${revHeightPct}%`, width: barWidth }]} />
                           </View>
                         </View>
 
@@ -961,50 +1755,43 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
           {/* Interactive Segmented Donut SVG Chart */}
           <View style={styles.serviceDonutWrap}>
-            {Platform.OS === 'web' ? (
-              <svg width="150" height="150" viewBox="0 0 150 150" style={{ display: 'block', margin: '0 auto' }}>
-                {/* Background Track */}
-                <circle cx="75" cy="75" r="54" fill="none" stroke="#F1F5F9" strokeWidth="14" />
-                {(() => {
-                  let accumulatedPct = 0;
-                  const C = 2 * Math.PI * 54;
-                  const gap = serviceDistributionList.length > 1 ? 4 : 0;
-                  return serviceDistributionList.slice(0, 5).map((item, idx) => {
-                    const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
-                    const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
-                    const sliceLen = Math.max(0, (pct / 100) * C - gap);
-                    const dashArray = `${sliceLen.toFixed(1)} ${(C - sliceLen).toFixed(1)}`;
-                    const dashOffset = (-(accumulatedPct / 100) * C).toFixed(1);
-                    accumulatedPct += pct;
-                    const isSliceActive = activeServiceIdx === idx;
+            <Svg width={150} height={150} viewBox="0 0 150 150">
+              {/* Background Track */}
+              <Circle cx="75" cy="75" r="54" fill="none" stroke="#F1F5F9" strokeWidth={14} />
+              {(() => {
+                let accumulatedPct = 0;
+                const C = 2 * Math.PI * 54;
+                const gap = serviceDistributionList.length > 1 ? 4 : 0;
+                return serviceDistributionList.slice(0, 5).map((item, idx) => {
+                  const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
+                  const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
+                  const sliceLen = Math.max(0, (pct / 100) * C - gap);
+                  const dashArray = `${sliceLen.toFixed(1)}, ${(C - sliceLen).toFixed(1)}`;
+                  const dashOffset = (-(accumulatedPct / 100) * C);
+                  accumulatedPct += pct;
+                  const isSliceActive = activeServiceIdx === idx;
 
-                    return (
-                      <circle
-                        key={item.packageId || idx}
-                        cx="75"
-                        cy="75"
-                        r="54"
-                        fill="none"
-                        stroke={theme.stroke}
-                        strokeWidth={isSliceActive ? 18 : 14}
-                        strokeDasharray={dashArray}
-                        strokeDashoffset={dashOffset}
-                        strokeLinecap="butt"
-                        transform="rotate(-90 75 75)"
-                        style={{
-                          cursor: 'pointer',
-                          transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
-                          opacity: activeServiceIdx !== null && !isSliceActive ? 0.45 : 1,
-                        }}
-                        onMouseEnter={() => setActiveServiceIdx(idx)}
-                        onMouseLeave={() => setActiveServiceIdx(null)}
-                        onClick={() => setActiveServiceIdx(activeServiceIdx === idx ? null : idx)}
-                      />
-                    );
-                  });
-                })()}
-              </svg>
-            ) : null}
+                  return (
+                    <Circle
+                      key={item.packageId || idx}
+                      cx="75"
+                      cy="75"
+                      r="54"
+                      fill="none"
+                      stroke={theme.stroke}
+                      strokeWidth={isSliceActive ? 18 : 14}
+                      strokeDasharray={dashArray}
+                      strokeDashoffset={dashOffset}
+                      strokeLinecap="butt"
+                      rotation="-90"
+                      origin="75, 75"
+                      opacity={activeServiceIdx !== null && !isSliceActive ? 0.45 : 1}
+                      onPress={() => setActiveServiceIdx(activeServiceIdx === idx ? null : idx)}
+                    />
+                  );
+                });
+              })()}
+            </Svg>
 
             {/* Center Content Overlay */}
             <View style={styles.donutCenterLabel}>
@@ -1021,7 +1808,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                           </Text>
                         </View>
                         <Text style={styles.donutValText}>{activeServiceItem.totalWashes}</Text>
-                        <Text style={styles.serviceDonutSubText} numberOfLines={1}>
+                        <Text style={styles.serviceDonutSubText} numberOfLines={2}>
                           {activeServiceItem.packageName}
                         </Text>
                       </>
@@ -1038,6 +1825,27 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </>
               )}
             </View>
+          </View>
+
+          {/* Proportional Multi-Segment Progress Bar */}
+          <View style={styles.proportionalBarContainer}>
+            {serviceDistributionList.map((item, idx) => {
+              const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
+              const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
+              if (pct <= 0) return null;
+              return (
+                <View
+                  key={item.packageId || idx}
+                  style={[
+                    styles.proportionalBarSegment,
+                    {
+                      flex: Math.max(1, Math.round(pct)),
+                      backgroundColor: theme.stroke,
+                    },
+                  ]}
+                />
+              );
+            })}
           </View>
 
           {/* Breakdown List of Cards */}
@@ -1142,10 +1950,6 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <View>
               <Text style={styles.cardTitle}>Payment Channel Mix</Text>
               <Text style={styles.cardSubtitle}>Revenue distribution by mode</Text>
-            </View>
-            <View style={styles.metricLiveChip}>
-              <View style={styles.metricLiveDot} />
-              <Text style={styles.metricLiveText}>LIVE SQL</Text>
             </View>
           </View>
 
@@ -1670,6 +2474,30 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
             ) : null}
 
+            {/* Proportional Segmented Payment Channel Mix Bar (Active on Native & Mobile) */}
+            {payMixList.length > 0 && (
+              <View style={styles.payMixProportionalBar}>
+                {payMixList.map((c) => {
+                  const colorMap: Record<string, string> = {
+                    PAYNOW: '#FF2A7A',
+                    MEMBER: '#FF9900',
+                    CASH: '#7C3AED',
+                    CREDIT: '#C026D3',
+                    CARD: '#2563EB',
+                    ONLINE: '#4F46E5',
+                  };
+                  const color = colorMap[c.paymentChannel] || '#7C3AED';
+                  const pct = Math.max(1, Math.round(c.revenuePercentage || 1));
+                  return (
+                    <View
+                      key={c.paymentChannel}
+                      style={[styles.payMixSegment, { flex: pct, backgroundColor: color }]}
+                    />
+                  );
+                })}
+              </View>
+            )}
+
             {/* Breakdown Cards underneath (3 Columns Grid - 3 Rows Per Card) */}
             <View style={styles.channelInfographicGridWrap}>
               {payMixList.length > 0 ? (
@@ -1684,7 +2512,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   };
                   const color = colorMap[c.paymentChannel] || '#7C3AED';
                   return (
-                    <View key={c.paymentChannel} style={[styles.channelInfographicCard, { borderTopColor: color }]}>
+                    <View key={c.paymentChannel} style={[styles.channelInfographicCard, isMobile && { width: '48%' }, { borderTopColor: color }]}>
                       {/* Row 1: Mode Dot + Full Payment Name */}
                       <View style={styles.channelCardRow1}>
                         <View style={[styles.channelDot, { backgroundColor: color }]} />
@@ -1726,10 +2554,6 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 <Text style={styles.cardTitle}>Key Metrics</Text>
                 <Text style={styles.cardSubtitle}>Performance & efficiency KPIs</Text>
               </View>
-            </View>
-            <View style={styles.metricLiveChip}>
-              <View style={styles.metricLiveDot} />
-              <Text style={styles.metricLiveText}>LIVE</Text>
             </View>
           </View>
 
@@ -1812,150 +2636,122 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
 
-        {/* Card 3: Payment Breakdown (Redesigned with Distribution Bar & Method Cards) */}
+        {/* Card 3: Top Using Packages List (Executive Edition) */}
         <View style={styles.rowThreeCardWide}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F0FDF4' }]}>
-                <Ionicons name="card" size={17} color="#16A34A" />
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0', borderWidth: 1 }]}>
+                <Ionicons name="sparkles" size={17} color="#0F172A" />
               </View>
               <View>
-                <Text style={styles.cardTitle}>Payment Breakdown</Text>
-                <Text style={styles.cardSubtitle}>Reconciled by settlement channel</Text>
+                <Text style={styles.cardTitle}>Top Packages</Text>
+                <Text style={styles.cardSubtitle}>Volume & revenue performance</Text>
               </View>
             </View>
-            <View style={styles.paymentTotalBadge}>
-              <Text style={styles.paymentTotalBadgeLabel}>Total</Text>
-              <Text style={styles.paymentTotalBadgeVal}>${summary.totalRevenue.toFixed(2)}</Text>
+            <View style={styles.darkTotalBadge}>
+              <Text style={styles.darkTotalBadgeLabel}>Total</Text>
+              <Text style={styles.darkTotalBadgeVal}>
+                ${totalPackageRevenue > 0 ? totalPackageRevenue.toFixed(2) : summary.totalRevenue.toFixed(2)}
+              </Text>
             </View>
           </View>
 
-          {/* Multi-segment distribution progress bar */}
-          {payMixList.length > 0 && (
-            <View style={styles.paymentDistBarContainer}>
-              <View style={styles.paymentDistBar}>
-                {payMixList.map((p, idx) => {
-                  const chUpper = (p.paymentChannel || '').toUpperCase();
-                  let segColor = '#7C3AED';
-                  if (chUpper.includes('PAYNOW')) segColor = '#FF2A7A';
-                  else if (chUpper.includes('MEMBER')) segColor = '#FF9900';
-                  else if (chUpper.includes('CASH')) segColor = '#7C3AED';
-                  else if (chUpper.includes('CREDIT')) segColor = '#C026D3';
-                  else if (chUpper.includes('CARD')) segColor = '#2563EB';
-
-                  const pct = Math.max(3, p.revenuePercentage || 0);
-                  return (
-                    <View
-                      key={p.paymentChannel || idx}
-                      style={{
-                        width: `${pct}%`,
-                        height: '100%',
-                        backgroundColor: segColor,
-                      }}
-                    />
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {/* Payment Method Cards List */}
-          <View style={styles.paymentCardsListNew}>
-            {payMixList.length > 0 ? (
-              payMixList.map((p, idx) => {
-                const chUpper = (p.paymentChannel || '').toUpperCase();
-                let iconName = 'card';
-                let themeColor = '#2563EB';
-                let themeBg = '#EFF6FF';
-
-                if (chUpper.includes('PAYNOW')) {
-                  iconName = 'qr-code';
-                  themeColor = '#FF2A7A';
-                  themeBg = '#FFF1F5';
-                } else if (chUpper.includes('MEMBER')) {
-                  iconName = 'person-circle';
-                  themeColor = '#FF9900';
-                  themeBg = '#FFFBEB';
-                } else if (chUpper.includes('CASH')) {
-                  iconName = 'cash';
-                  themeColor = '#7C3AED';
-                  themeBg = '#F5F3FF';
-                } else if (chUpper.includes('CREDIT')) {
-                  iconName = 'card';
-                  themeColor = '#C026D3';
-                  themeBg = '#FDF4FF';
-                } else if (chUpper.includes('CARD')) {
-                  iconName = 'card';
-                  themeColor = '#2563EB';
-                  themeBg = '#EFF6FF';
-                }
+          {/* Top Packages Cards List */}
+          <View style={styles.topPkgCardsList}>
+            {topPackagesList.length > 0 ? (
+              topPackagesList.map((p, idx) => {
+                const theme = PACKAGE_THEMES[idx % PACKAGE_THEMES.length];
+                const pct = totalPackageWashes > 0
+                  ? (((p.totalWashes || 0) / totalPackageWashes) * 100).toFixed(1)
+                  : String(p.washSharePercentage || 0);
 
                 return (
                   <View
-                    key={p.paymentChannel || idx}
-                    style={styles.paymentMethodCardNew}
+                    key={p.packageId || idx}
+                    style={[
+                      styles.topPkgItemCard,
+                      {
+                        backgroundColor: theme.cardBg,
+                        borderColor: theme.cardBorder,
+                      },
+                      theme.isLeader && styles.topPkgItemCardLeader,
+                    ]}
                   >
-                    <View style={[styles.paymentMethodIconBox, { backgroundColor: themeBg }]}>
-                      <Ionicons name={iconName as any} size={18} color={themeColor} />
+                    {/* Top Row: Rank pill + Full Package Name + Revenue */}
+                    <View style={styles.topPkgItemHeader}>
+                      <View style={styles.topPkgItemTitleCol}>
+                        <View style={[styles.topPkgRankBadge, { backgroundColor: theme.rankBg, borderColor: theme.rankBorder }]}>
+                          <Text style={[styles.topPkgRankText, { color: theme.rankText }]}>{theme.rank}</Text>
+                        </View>
+                        <Text style={styles.topPkgItemTitle} numberOfLines={2}>
+                          {p.packageName}
+                        </Text>
+                      </View>
+                      <Text style={styles.topPkgItemAmount}>
+                        ${Number(p.grossRevenue || 0).toFixed(2)}
+                      </Text>
                     </View>
 
-                    <View style={styles.paymentMethodInfoCol}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={styles.paymentMethodTitle}>
-                            {p.paymentChannelName || p.paymentChannel}
-                          </Text>
-                          <View style={[styles.paymentSharePill, { backgroundColor: themeBg }]}>
-                            <Text style={[styles.paymentShareText, { color: themeColor }]}>
-                              {p.revenuePercentage}%
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={styles.paymentMethodAmount}>${p.totalAmount.toFixed(2)}</Text>
-                      </View>
+                    {/* Progress Bar Track */}
+                    <View style={styles.topPkgItemProgressTrack}>
+                      <View
+                        style={[
+                          styles.topPkgItemProgressFill,
+                          {
+                            width: `${Math.min(100, Math.max(4, parseFloat(pct)))}%`,
+                            backgroundColor: theme.stroke,
+                          },
+                        ]}
+                      />
+                    </View>
 
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
-                        <Text style={styles.paymentMethodSub}>
-                          {p.transactionCount} {p.transactionCount === 1 ? 'order' : 'orders'} • Avg ${(p.totalAmount / (p.transactionCount || 1)).toFixed(2)}
+                    {/* Bottom Row: Wash Count + Average Check + Share Pill */}
+                    <View style={styles.topPkgItemMetaRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="car-sport-outline" size={13} color="#64748B" />
+                        <Text style={styles.topPkgItemMetaText}>
+                          {p.totalWashes} {p.totalWashes === 1 ? 'wash' : 'washes'} • Avg ${(Number(p.grossRevenue || 0) / (p.totalWashes || 1)).toFixed(2)}
                         </Text>
-                        <Text style={styles.paymentMethodTxnCount}>{p.transactionCount} txns</Text>
                       </View>
 
-                      {/* Mini Channel Progress Bar */}
-                      <View style={styles.paymentMiniTrack}>
-                        <View
-                          style={[
-                            styles.paymentMiniFill,
-                            { width: `${Math.min(100, Math.max(3, p.revenuePercentage))}%`, backgroundColor: themeColor },
-                          ]}
-                        />
+                      <View
+                        style={[
+                          styles.topPkgShareBadge,
+                          {
+                            backgroundColor: theme.pillBg,
+                            borderColor: theme.pillBorder,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.topPkgShareBadgeText, { color: theme.pillText }]}>
+                          {pct}%
+                        </Text>
                       </View>
                     </View>
                   </View>
                 );
               })
             ) : (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: '#94A3B8', fontSize: 12 }}>No transaction breakdown recorded</Text>
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>
+                  No wash packages recorded for this period
+                </Text>
               </View>
             )}
           </View>
 
-          {/* Bottom Reconciliation Summary */}
-          <View style={styles.paymentReconciliationFooter}>
-            <View style={styles.reconcileItem}>
-              <Ionicons name="shield-checkmark" size={15} color="#059669" />
-              <Text style={styles.reconcileText}>100% Reconciled</Text>
+          {/* Bottom Summary Footer */}
+          <View style={styles.topPkgFooter}>
+            <View style={styles.topPkgFooterLeft}>
+              <Ionicons name="trophy" size={14} color="#D97706" />
+              <Text style={styles.topPkgFooterLeader} numberOfLines={1}>
+                Leader: <Text style={styles.topPkgFooterLeaderBold}>{topPackagesList[0]?.packageName || '-'}</Text>
+              </Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={styles.reconcileItem}>
-                <Text style={styles.reconcileLabel}>Net:</Text>
-                <Text style={styles.reconcileVal}>${summary.totalNetRevenue.toFixed(2)}</Text>
-              </View>
-              <View style={styles.reconcileItem}>
-                <Text style={styles.reconcileLabel}>GST:</Text>
-                <Text style={styles.reconcileVal}>${summary.totalGSTAmount.toFixed(2)}</Text>
-              </View>
+            <View style={styles.topPkgFooterRightPill}>
+              <Text style={styles.topPkgFooterRightText}>
+                {totalPackageWashes} washes • {topPackagesList.length} Tiers
+              </Text>
             </View>
           </View>
         </View>
@@ -1996,7 +2792,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <View style={styles.countBadgePill}>
               <View style={styles.countBadgeDot} />
               <Text style={styles.countBadgeText}>
-                {recentWashesList.length} Orders
+                {filteredRecentWashes.length} Orders
               </Text>
             </View>
           </View>
@@ -2014,8 +2810,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </View>
 
                 {/* Table Rows */}
-                {recentWashesList.length > 0 ? (
-                  recentWashesList.map((row, i) => {
+                {filteredRecentWashes.length > 0 ? (
+                  filteredRecentWashes.map((row, i) => {
                     const avatarGradients = [
                       { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' },
                       { bg: '#F0FDFA', text: '#0D9488', border: '#99F6E4' },
@@ -2161,8 +2957,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             contentContainerStyle={styles.txFeedContent} 
             showsVerticalScrollIndicator={false}
           >
-            {recentTransactionsList.length > 0 ? (
-              recentTransactionsList.map((tx, i) => {
+            {filteredRecentTransactions.length > 0 ? (
+              filteredRecentTransactions.map((tx, i) => {
                 const modeUpper = (tx.payMode || '').toUpperCase();
                 let badge = {
                   bg: '#EFF6FF',
@@ -2418,6 +3214,384 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
         </View>
       </Modal>
+
+      {/* ============================================================== */}
+      {/* 11. EASY FILTER MODAL / POPOVER */}
+      {/* ============================================================== */}
+      <Modal
+        visible={isFilterOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={onCloseFilter}
+      >
+        <View style={styles.filterModalOverlay}>
+          <TouchableOpacity
+            style={styles.filterBackdrop}
+            activeOpacity={1}
+            onPress={onCloseFilter}
+          />
+          <View style={styles.filterCard}>
+            {/* Header */}
+            <View style={styles.filterHeaderRow}>
+              <View style={styles.filterTitleRow}>
+                <Ionicons name="options-outline" size={18} color="#E60012" />
+                <Text style={styles.filterMainTitle}>Easy Filter</Text>
+              </View>
+              <TouchableOpacity onPress={onCloseFilter} style={styles.filterCloseBtn} activeOpacity={0.7}>
+                <Ionicons name="close" size={18} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={true} style={styles.filterScrollView}>
+              {/* SORT BY */}
+              <Text style={styles.filterSectionTitle}>SORT BY</Text>
+              <View style={styles.filterOptionsGroup}>
+                <TouchableOpacity
+                  style={[
+                    styles.filterOptionBtn,
+                    stagedSortBy === 'NEWEST' && styles.filterOptionBtnActive,
+                  ]}
+                  onPress={() => setStagedSortBy('NEWEST')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="time-outline"
+                    size={18}
+                    color={stagedSortBy === 'NEWEST' ? '#E60012' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      stagedSortBy === 'NEWEST' && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    Newest First
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.filterOptionBtn,
+                    stagedSortBy === 'HIGHEST_AMOUNT' && styles.filterOptionBtnActive,
+                  ]}
+                  onPress={() => setStagedSortBy('HIGHEST_AMOUNT')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="trending-up-outline"
+                    size={18}
+                    color={stagedSortBy === 'HIGHEST_AMOUNT' ? '#E60012' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      stagedSortBy === 'HIGHEST_AMOUNT' && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    Highest Amount
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* PAYMENT MODES */}
+              <Text style={styles.filterSectionTitle}>PAYMENT MODES</Text>
+              <View style={styles.filterOptionsGroup}>
+                {[
+                  { id: 'ALL', label: 'All Payment Modes', icon: 'wallet-outline' },
+                  { id: 'CASH', label: 'Cash', icon: 'cash-outline' },
+                  { id: 'CARD', label: 'Card / Terminal', icon: 'card-outline' },
+                  { id: 'PAYNOW', label: 'PayNow / QR', icon: 'qr-code-outline' },
+                  { id: 'NETS', label: 'NETS', icon: 'flash-outline' },
+                ].map((pm) => {
+                  const isSelected = stagedPaymentMode === pm.id;
+                  return (
+                    <TouchableOpacity
+                      key={pm.id}
+                      style={[
+                        styles.filterOptionBtn,
+                        isSelected && styles.filterOptionBtnActive,
+                      ]}
+                      onPress={() => setStagedPaymentMode(pm.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={pm.icon as any}
+                        size={18}
+                        color={isSelected ? '#E60012' : '#64748B'}
+                      />
+                      <Text
+                        style={[
+                          styles.filterOptionText,
+                          isSelected && styles.filterOptionTextActive,
+                        ]}
+                      >
+                        {pm.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* VISIBILITY */}
+              <Text style={styles.filterSectionTitle}>VISIBILITY</Text>
+              <View style={styles.filterOptionsGroup}>
+                <TouchableOpacity
+                  style={[
+                    styles.filterOptionBtn,
+                    stagedShowCancelled && styles.filterOptionBtnActive,
+                  ]}
+                  onPress={() => setStagedShowCancelled((prev) => !prev)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={stagedShowCancelled ? 'eye-outline' : 'eye-off-outline'}
+                    size={18}
+                    color={stagedShowCancelled ? '#E60012' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      stagedShowCancelled && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    {stagedShowCancelled ? 'Showing Cancelled Orders' : 'Hide Cancelled Orders'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+
+            {/* Footer */}
+            <View style={styles.filterFooter}>
+              <TouchableOpacity
+                style={styles.filterResetBtn}
+                onPress={() => {
+                  setStagedSortBy('NEWEST');
+                  setStagedPaymentMode('ALL');
+                  setStagedShowCancelled(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.filterResetText}>RESET ALL</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.filterApplyBtn}
+                onPress={() => {
+                  setFilterSortBy(stagedSortBy);
+                  setFilterPaymentMode(stagedPaymentMode);
+                  setFilterShowCancelled(stagedShowCancelled);
+                  if (onCloseFilter) onCloseFilter();
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.filterApplyText}>APPLY</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ============================================================== */}
+      {/* 12. SALES REPORT DOWNLOAD MODAL (EXCEL & PDF) */}
+      {/* ============================================================== */}
+      <Modal
+        visible={isDownloadModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={onCloseDownloadModal}
+      >
+        <View style={styles.downloadModalOverlay}>
+          <TouchableOpacity
+            style={styles.downloadModalBackdrop}
+            activeOpacity={1}
+            onPress={onCloseDownloadModal}
+          />
+
+          <View style={styles.downloadModalCard}>
+            {/* Header: Sales Report & Close Button */}
+            <View style={styles.downloadModalHeader}>
+              <View style={styles.downloadModalTitleCol}>
+                <Text style={styles.downloadModalTitle}>Sales Report</Text>
+                <Text style={styles.downloadModalSubtitle}>
+                  Select period and download format
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={onCloseDownloadModal}
+                style={styles.downloadModalCloseBtn}
+                activeOpacity={0.7}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={20} color="#0F172A" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Section 1: SELECT TIME PERIOD */}
+            <View style={styles.downloadPeriodSection}>
+              <Text style={styles.downloadSectionLabel}>SELECT TIME PERIOD</Text>
+
+              <View style={styles.downloadPeriodCardsRow}>
+                {[
+                  { id: 'DAILY', label: 'Daily', icon: 'calendar-outline' },
+                  { id: 'WEEKLY', label: 'Weekly', icon: 'calendar-outline' },
+                  { id: 'MONTHLY', label: 'Monthly', icon: 'grid-outline' },
+                  { id: 'YEARLY', label: 'Yearly', icon: 'star-outline' },
+                  { id: 'CUSTOM', label: 'Custom', icon: 'options-outline' },
+                ].map((item) => {
+                  const isActive = downloadPeriod === item.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[
+                        styles.downloadPeriodCard,
+                        isActive && styles.downloadPeriodCardActive,
+                      ]}
+                      onPress={() => setDownloadPeriod(item.id as any)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={item.icon as any}
+                        size={22}
+                        color={isActive ? '#FFFFFF' : '#64748B'}
+                      />
+                      <Text
+                        style={[
+                          styles.downloadPeriodCardText,
+                          isActive && styles.downloadPeriodCardTextActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* If Custom is selected, show From & To date pickers */}
+              {downloadPeriod === 'CUSTOM' && (
+                <View style={styles.downloadCustomPickersRow}>
+                  <View style={styles.downloadCustomPickerCol}>
+                    <Text style={styles.downloadPickerLabel}>FROM DATE</Text>
+                    <View style={styles.downloadInputBox}>
+                      <Ionicons name="calendar-outline" size={15} color="#E60012" style={{ marginRight: 6 }} />
+                      {Platform.OS === 'web' ? (
+                        <input
+                          type="date"
+                          max={todayISO}
+                          value={customDownloadStart || todayISO}
+                          onChange={(e) => setCustomDownloadStart(e.target.value)}
+                          style={webCustomDateInputStyle}
+                        />
+                      ) : (
+                        <Text style={styles.downloadPickerValue}>{formatISOToDDMMYYYY(customDownloadStart)}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={styles.downloadArrowCircle}>
+                    <Ionicons name="arrow-forward" size={14} color="#64748B" />
+                  </View>
+
+                  <View style={styles.downloadCustomPickerCol}>
+                    <Text style={styles.downloadPickerLabel}>TO DATE</Text>
+                    <View style={styles.downloadInputBox}>
+                      <Ionicons name="calendar-outline" size={15} color="#E60012" style={{ marginRight: 6 }} />
+                      {Platform.OS === 'web' ? (
+                        <input
+                          type="date"
+                          max={todayISO}
+                          value={customDownloadEnd || todayISO}
+                          onChange={(e) => setCustomDownloadEnd(e.target.value)}
+                          style={webCustomDateInputStyle}
+                        />
+                      ) : (
+                        <Text style={styles.downloadPickerValue}>{formatISOToDDMMYYYY(customDownloadEnd)}</Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Selected Period Range Preview */}
+              <View style={styles.downloadRangeBanner}>
+                <Ionicons name="calendar" size={13} color="#E60012" />
+                <Text style={styles.downloadRangeBannerText}>
+                  Active Range: <Text style={styles.downloadRangeBannerBold}>{downloadRange.displayLabel}</Text>
+                </Text>
+              </View>
+            </View>
+
+            {/* Section 2: Direct Download Container */}
+            <View style={styles.downloadDirectSection}>
+              <View style={styles.downloadDirectHeaderRow}>
+                <View style={styles.downloadDirectIconBox}>
+                  <Ionicons name="document-text" size={24} color="#E60012" />
+                </View>
+                <View style={styles.downloadDirectTitleCol}>
+                  <Text style={styles.downloadDirectTitle}>Direct Download</Text>
+                  <Text style={styles.downloadDirectSubtitle}>
+                    Generate PDF or Excel and save to device
+                  </Text>
+                </View>
+              </View>
+
+              {/* Action Buttons: PDF & Excel */}
+              <View style={styles.downloadActionButtonsCol}>
+                {/* Download PDF Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.downloadPdfBtn,
+                    isExporting !== null && { opacity: 0.7 },
+                  ]}
+                  onPress={handleDownloadPdf}
+                  disabled={isExporting !== null}
+                  activeOpacity={0.85}
+                >
+                  {isExporting === 'PDF' ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  ) : (
+                    <Ionicons
+                      name="cloud-download-outline"
+                      size={22}
+                      color="#FFFFFF"
+                      style={{ marginRight: 8 }}
+                    />
+                  )}
+                  <Text style={styles.downloadPdfBtnText}>
+                    {isExporting === 'PDF' ? 'Generating PDF...' : 'Download PDF'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Download Excel Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.downloadExcelBtn,
+                    isExporting !== null && { opacity: 0.7 },
+                  ]}
+                  onPress={handleDownloadExcel}
+                  disabled={isExporting !== null}
+                  activeOpacity={0.85}
+                >
+                  {isExporting === 'EXCEL' ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  ) : (
+                    <Ionicons
+                      name="download-outline"
+                      size={21}
+                      color="#FFFFFF"
+                      style={{ marginRight: 8 }}
+                    />
+                  )}
+                  <Text style={styles.downloadExcelBtnText}>
+                    {isExporting === 'EXCEL' ? 'Generating Excel...' : 'Download Excel'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -2600,8 +3774,8 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   periodTabItemActive: {
-    backgroundColor: '#ED0712',
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 4px 12px rgba(237, 7, 18, 0.3)' } as any) : {}),
+    backgroundColor: '#E60012',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 4px 14px rgba(230, 0, 18, 0.35)' } as any) : {}),
   },
   periodTabText: {
     fontSize: 13,
@@ -2614,30 +3788,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
-  /* 2.1 SLEEK COMPACT DATE BAR */
-  compactDateBar: {
+  /* 2.1 SLEEK DATE SELECTOR BAR */
+  dateSelectorBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    gap: 12,
     width: '100%',
     marginVertical: 4,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
   },
-  compactNavBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFC',
+  navSquareBtn: {
+    width: 48,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
@@ -2645,27 +3808,65 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
           transition: 'all 0.15s ease',
-          userSelect: 'none',
         } as any)
-      : {}),
+      : { elevation: 1 }),
   },
-  compactNavArrow: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#334155',
-    lineHeight: 20,
-    marginTop: -2,
+  singleDateCard: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+        } as any)
+      : { elevation: 1 }),
   },
-  compactDateCenter: {
+  singleDateCenter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
   },
-  calendarIconCircle: {
-    width: 28,
-    height: 28,
+  singleDateValue: {
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  dateCard: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    position: 'relative',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+        } as any)
+      : { elevation: 1 }),
+  },
+  dateCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dateIconCircleSmall: {
+    width: 34,
+    height: 34,
     borderRadius: 8,
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
@@ -2673,66 +3874,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  weekdayBadge: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  dateCardTextCol: {
+    justifyContent: 'center',
   },
-  weekdayBadgeText: {
-    fontSize: 11,
+  dateCardLabel: {
+    fontSize: 10,
     fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.5,
+    color: '#64748B',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 1,
   },
-  compactDateText: {
-    fontSize: 14.5,
-    fontWeight: '800',
+  dateCardValue: {
+    fontSize: 15.5,
+    fontWeight: '900',
     color: '#0F172A',
     letterSpacing: -0.2,
   },
-  compactArrowText: {
-    fontSize: 12,
-    color: '#ED0712',
-    fontWeight: '800',
-    marginHorizontal: 3,
-  },
-  subRangeBadge: {
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginLeft: 4,
-  },
-  subRangeText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  compactCalendarIcon: {
-    fontSize: 15,
-  },
-  compactNavRight: {
-    flexDirection: 'row',
+  rangeArrowBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  compactTodayPill: {
-    backgroundColor: '#0F172A',
-    paddingVertical: 4.5,
-    paddingHorizontal: 11,
-    borderRadius: 14,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  compactTodayPillText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
+  rangeArrowText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#E60012',
   },
 
   /* 3. ROW 1: 4 KPI CARDS */
@@ -2877,7 +4047,7 @@ const styles = StyleSheet.create({
   },
   rowThreeCard: {
     flex: 1,
-    minWidth: 310,
+    minWidth: 280,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
@@ -2889,7 +4059,7 @@ const styles = StyleSheet.create({
   },
   rowThreeCardWide: {
     flex: 1.15,
-    minWidth: 330,
+    minWidth: 280,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
@@ -2901,7 +4071,7 @@ const styles = StyleSheet.create({
   },
   cardFlexOne: {
     flex: 1,
-    minWidth: 320,
+    minWidth: 280,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
@@ -2910,14 +4080,101 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   cardFlexOnePointTwo: {
-    flex: 1.35,
-    minWidth: 360,
+    flex: 1.4,
+    minWidth: 300,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
     borderColor: '#EDF2F7',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
+  },
+  nativeGaugeOuter: {
+    width: 120,
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginVertical: 4,
+  },
+  nativeGaugeTrackRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 10,
+    borderColor: '#FEE2E2',
+    position: 'absolute',
+  },
+  gaugeRadialTick: {
+    width: 5,
+    height: 12,
+    borderRadius: 2.5,
+    position: 'absolute',
+    top: 54,
+    left: 57.5,
+  },
+  nativeGaugeRing: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 12,
+    borderColor: '#FEE2E2',
+  },
+  nativeDonutContainer: {
+    width: 150,
+    height: 150,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginVertical: 4,
+  },
+  nativeDonutTrackRing: {
+    width: 122,
+    height: 122,
+    borderRadius: 61,
+    borderWidth: 12,
+    borderColor: '#F1F5F9',
+    position: 'absolute',
+  },
+  donutRadialTick: {
+    width: 5,
+    height: 15,
+    borderRadius: 2.5,
+    position: 'absolute',
+    top: 67.5,
+    left: 72.5,
+  },
+  nativeDonutRing: {
+    width: 136,
+    height: 136,
+    borderRadius: 68,
+    borderWidth: 14,
+    borderColor: '#F1F5F9',
+  },
+  proportionalBarContainer: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    marginHorizontal: 8,
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  proportionalBarSegment: {
+    height: '100%',
+  },
+  payMixProportionalBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    marginBottom: 12,
+    width: '100%',
+  },
+  payMixSegment: {
+    height: '100%',
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -2995,10 +4252,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   serviceDonutSubText: {
-    fontSize: 10,
+    fontSize: 9.5,
+    lineHeight: 12,
     fontWeight: '700',
     color: '#64748B',
-    maxWidth: 90,
+    maxWidth: 86,
     textAlign: 'center',
   },
   serviceBreakdownList: {
@@ -3293,21 +4551,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     alignItems: 'flex-end',
     paddingBottom: 22,
+    paddingHorizontal: 8,
   },
   monthColGroup: {
+    flex: 1,
     alignItems: 'center',
     height: '100%',
     justifyContent: 'flex-end',
     position: 'relative',
-    paddingHorizontal: 3,
+    maxWidth: 40,
+    minWidth: 0,
+    paddingHorizontal: 1,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   monthColGroupActive: {
     transform: [{ scale: 1.02 }],
   },
   slotTrack: {
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 2,
+    paddingVertical: 3,
     borderRadius: 8,
     backgroundColor: 'transparent',
     alignItems: 'center',
@@ -3321,17 +4583,17 @@ const styles = StyleSheet.create({
   pairedBarsRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 3,
     height: 145,
   },
   barRedPrimary: {
-    width: 12,
+    width: 10,
     backgroundColor: '#ED0712',
     borderRadius: 4,
     minHeight: 8,
   },
   barPinkSecondary: {
-    width: 12,
+    width: 10,
     backgroundColor: '#FDA4AF',
     borderRadius: 4,
     minHeight: 8,
@@ -3339,8 +4601,10 @@ const styles = StyleSheet.create({
   dayLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    justifyContent: 'center',
+    gap: 2,
     marginTop: 6,
+    width: '100%',
   },
   activeDayIndicatorDot: {
     width: 4,
@@ -3349,9 +4613,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#ED0712',
   },
   monthLabelText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#64748B',
+    textAlign: 'center',
   },
   monthLabelTextActive: {
     color: '#0F172A',
@@ -4028,6 +5293,171 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+  },
+  /* Executive Top Packages Component Styles */
+  darkTotalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  darkTotalBadgeLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+  },
+  darkTotalBadgeVal: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  topPkgDistBarTrack: {
+    flexDirection: 'row',
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    marginTop: 14,
+    marginBottom: 12,
+    gap: 2,
+  },
+  topPkgCardsList: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'space-evenly',
+    marginVertical: 12,
+    gap: 10,
+  },
+  topPkgItemCard: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 6px rgba(15, 23, 42, 0.03)' } as any)
+      : { elevation: 1 }),
+  },
+  topPkgItemCardLeader: {
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 4px 14px rgba(237, 7, 18, 0.07)' } as any)
+      : { elevation: 2 }),
+  },
+  topPkgItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  topPkgItemTitleCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    paddingRight: 8,
+  },
+  topPkgRankBadge: {
+    width: 25,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topPkgRankText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  topPkgItemTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    flex: 1,
+    lineHeight: 18,
+  },
+  topPkgItemAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginLeft: 6,
+    textAlign: 'right',
+  },
+  topPkgItemProgressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#F1F5F9',
+    marginTop: 8,
+    marginBottom: 7,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  topPkgItemProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  topPkgItemMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  topPkgItemMetaText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  topPkgShareBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  topPkgShareBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  topPkgFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
+  },
+  topPkgFooterLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+  topPkgFooterLeader: {
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '600',
+    flex: 1,
+  },
+  topPkgFooterLeaderBold: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  topPkgFooterRightPill: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  topPkgFooterRightText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#475569',
   },
   reconcileItem: {
     flexDirection: 'row',
@@ -4711,5 +6141,398 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: '800',
     fontSize: 13,
+  },
+
+  /* EASY FILTER MODAL */
+  filterModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 68,
+    paddingRight: 24,
+    zIndex: 9999,
+  },
+  filterBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  filterCard: {
+    width: 320,
+    maxHeight: 560,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 18,
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 16px 40px rgba(15, 23, 42, 0.18)',
+        } as any)
+      : { elevation: 8 }),
+    zIndex: 10,
+  },
+  filterHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  filterTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterMainTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  filterCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  filterScrollView: {
+    maxHeight: 380,
+    marginVertical: 4,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  filterOptionsGroup: {
+    gap: 7,
+  },
+  filterOptionBtn: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 10,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', transition: 'all 0.15s ease' } as any) : {}),
+  },
+  filterOptionBtnActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#E60012',
+  },
+  filterOptionText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  filterOptionTextActive: {
+    color: '#E60012',
+    fontWeight: '800',
+  },
+  filterFooter: {
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  filterResetBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  filterResetText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+  },
+  filterApplyBtn: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#E60012',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(230, 0, 18, 0.35)',
+        } as any)
+      : { elevation: 2 }),
+  },
+  filterApplyText: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  /* ============================================================== */
+  /* SALES REPORT DOWNLOAD MODAL STYLES */
+  /* ============================================================== */
+  downloadModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(4px)' } as any) : {}),
+  },
+  downloadModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  downloadModalCard: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 24px 60px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(0,0,0,0.06)',
+        } as any)
+      : { elevation: 12 }),
+  },
+  downloadModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  downloadModalTitleCol: {
+    flex: 1,
+  },
+  downloadModalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  downloadModalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 3,
+  },
+  downloadModalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', transition: 'all 0.15s ease' } as any) : {}),
+  },
+  downloadPeriodSection: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: '#F8FAFC',
+    marginBottom: 16,
+  },
+  downloadSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  downloadPeriodCardsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  downloadPeriodCard: {
+    flex: 1,
+    minHeight: 74,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', transition: 'all 0.15s ease' } as any) : {}),
+  },
+  downloadPeriodCardActive: {
+    backgroundColor: '#E60012',
+    borderColor: '#E60012',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 4px 12px rgba(230, 0, 18, 0.24)',
+        } as any)
+      : { elevation: 3 }),
+  },
+  downloadPeriodCardText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    marginTop: 6,
+  },
+  downloadPeriodCardTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  downloadCustomPickersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    gap: 8,
+  },
+  downloadCustomPickerCol: {
+    flex: 1,
+  },
+  downloadPickerLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    marginBottom: 5,
+  },
+  downloadInputBox: {
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    ...(Platform.OS === 'web' ? ({ transition: 'border-color 0.15s ease' } as any) : {}),
+  },
+  downloadArrowCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+    marginHorizontal: 4,
+  },
+  downloadPickerValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  downloadRangeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  downloadRangeBannerText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  downloadRangeBannerBold: {
+    fontSize: 12,
+    color: '#E60012',
+    fontWeight: '800',
+  },
+  downloadDirectSection: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 18,
+    padding: 18,
+    backgroundColor: '#F8FAFC',
+  },
+  downloadDirectHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  downloadDirectIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  downloadDirectTitleCol: {
+    flex: 1,
+  },
+  downloadDirectTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  downloadDirectSubtitle: {
+    fontSize: 12.5,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  downloadActionButtonsCol: {
+    gap: 10,
+  },
+  downloadPdfBtn: {
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#E60012',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(230, 0, 18, 0.25)',
+        } as any)
+      : { elevation: 3 }),
+  },
+  downloadPdfBtnText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  downloadExcelBtn: {
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#16A34A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(22, 163, 74, 0.22)',
+        } as any)
+      : { elevation: 3 }),
+  },
+  downloadExcelBtnText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

@@ -21,6 +21,7 @@ import {
   KioskOrder 
 } from '../types/kiosk.types';
 import { createCarWashOrder, updateOrderPayment } from '../../../services/carwashOrderApi';
+import { broadcastNewKioskOrder } from '../../../services/kioskOrderNotificationService';
 import { 
   saveKioskSession, 
   loadKioskSession, 
@@ -124,9 +125,12 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
   useEffect(() => {
     if (initialUserType && initialUserType !== userType) {
+      if (userType === 'DEALER' && initialUserType === 'CUSTOMER' && !['/customer-login', '/kiosk'].includes(currentRoute || '')) {
+        return;
+      }
       setUserType(initialUserType);
     }
-  }, [initialUserType]);
+  }, [initialUserType, currentRoute, userType]);
 
   const navigateToPage = (page: KioskPage, route: string) => {
     setCurrentPage(page);
@@ -135,7 +139,9 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
   // Safe fallback if direct URL access lacks required prerequisites
   useEffect(() => {
-    if (currentPage === 'PAGE_5_PAYMENT' && (!selectedVehicle || !selectedCategory || !selectedPackage || !customerDetails)) {
+    if (currentPage === 'PAGE_5_PAYMENT' && userType === 'DEALER') {
+      navigateToPage('PAGE_4_DETAILS', '/details');
+    } else if (currentPage === 'PAGE_5_PAYMENT' && (!selectedVehicle || !selectedCategory || !selectedPackage || !customerDetails)) {
       navigateToPage('PAGE_2_VEHICLE', '/new-wash');
     } else if (currentPage === 'PAGE_4_DETAILS' && (!selectedVehicle || !selectedCategory || !selectedPackage)) {
       navigateToPage('PAGE_2_VEHICLE', '/new-wash');
@@ -185,10 +191,21 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   };
 
   // ================= 4. COMMON: VEHICLE SELECTION =================
-  const handleContinueVehicle = (vehicle: VehicleOption, vehicleTypeId?: number) => {
+  const handleContinueVehicle = (
+    vehicle: VehicleOption, 
+    vehicleTypeId?: number,
+    vehicleDetails?: { vehicleNumber: string; remarks?: string }
+  ) => {
     setSelectedVehicle(vehicle);
     setSelectedVehicleTypeId(vehicleTypeId || vehicle.vehicleTypeId);
     setSelectedVehicleTypeCode(vehicle.vehicleTypeCode);
+    if (vehicleDetails) {
+      setCustomerDetails({
+        vehicleNumber: vehicleDetails.vehicleNumber,
+        customerName: selectedDealer?.name || 'Authorized Dealer',
+        mobileNumber: selectedDealer?.phone || '-',
+      });
+    }
     navigateToPage('PAGE_3_SERVICE_CAT', '/services');
   };
 
@@ -201,10 +218,12 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   };
 
   // ================= 5. COMMON: SERVICE & PACKAGE SELECTION =================
-  const handleContinueServices = (
+  const handleContinueServices = async (
     category: ServiceCategory,
     pkg: ServicePackage,
-    serviceCategoryId?: number
+    serviceCategoryId?: number,
+    additionalServices?: string,
+    additionalAmount?: number
   ) => {
     setSelectedCategory(category);
     setSelectedServiceCategoryId(serviceCategoryId || category.serviceCategoryId);
@@ -212,6 +231,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     setSelectedPackage(pkg);
     setSelectedPackageId(pkg.packageId);
     setSelectedPackageCode(pkg.packageCode);
+
+    // Both Customer and Dealer navigate to Details screen (all fields optional for dealer)
     navigateToPage('PAGE_4_DETAILS', '/details');
   };
 
@@ -223,23 +244,100 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
       const vTypeId = selectedVehicleTypeId || selectedVehicle?.vehicleTypeId || 1;
       const catId = selectedServiceCategoryId || selectedCategory?.serviceCategoryId || 1;
       const pkgId = selectedPackageId || selectedPackage?.packageId || 1;
+      const isDealerFlow = userType === 'DEALER' || Boolean(selectedDealer) ||
+        Boolean(details.vehicleNumber && (details.vehicleNumber.includes('DLR-') || details.vehicleNumber.includes('FLEET'))) ||
+        Boolean(details.customerName && details.customerName.toUpperCase() === 'UNIPRO');
+      const dId = (isDealerFlow && selectedDealer?.id) 
+        ? parseInt(String(selectedDealer.id), 10) 
+        : (isDealerFlow ? 1 : undefined);
 
-      // Save customer booking in dbo.CarWashOrder before proceeding to payment
-      const saved = await createCarWashOrder({
-        customerName: details.customerName?.trim() || (userType === 'DEALER' ? (selectedDealer?.name || 'Authorized Dealer') : 'Walk-in Customer'),
-        vehicleNumber: details.vehicleNumber?.trim() ? details.vehicleNumber.trim().toUpperCase() : 'WALK-IN',
-        mobileNumber: details.mobileNumber?.trim() || '-',
-        vehicleTypeId: vTypeId,
-        serviceCategoryId: catId,
-        packageId: pkgId,
-      });
+      const vNum = details.vehicleNumber?.trim()
+        ? details.vehicleNumber.trim().toUpperCase()
+        : (isDealerFlow && selectedDealer ? `${selectedDealer.code} FLEET` : 'WALK-IN');
+      const cName = details.customerName?.trim()
+        ? details.customerName.trim()
+        : (isDealerFlow && selectedDealer ? selectedDealer.name : 'Walk-in Customer');
+      const mNum = details.mobileNumber?.trim() && details.mobileNumber !== '-'
+        ? details.mobileNumber.trim()
+        : (isDealerFlow && selectedDealer?.phone ? selectedDealer.phone : '-');
 
-      setActiveOrderId(saved.orderId);
-      setActiveOrderNo(saved.orderNo);
+      if (isDealerFlow) {
+        // Dealer Flow: create CREDIT order directly, NEVER show paymodes to dealer
+        const totalAmt = selectedPackage?.price || 0;
+        const gstPercent = selectedPackage?.gstPercent || 9;
+        const gstAmt = Number(((totalAmt * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
 
-      if (userType === 'DEALER') {
-        navigateToPage('DEALER_CREDIT_CONFIRM', '/dealer-confirm');
+        const saved = await createCarWashOrder({
+          customerName: cName,
+          vehicleNumber: vNum,
+          mobileNumber: mNum,
+          vehicleTypeId: vTypeId,
+          serviceCategoryId: catId,
+          packageId: pkgId,
+          dealerId: dId,
+          payMode: 'CREDIT',
+        });
+
+        const orderNo = saved.orderNo || `RB${String(billCounter).padStart(6, '0')}`;
+        setActiveOrderId(saved.orderId);
+        setActiveOrderNo(orderNo);
+
+        const newDealerOrder: KioskOrder = {
+          orderId: saved.orderId,
+          orderNo: orderNo,
+          billNumber: orderNo,
+          userType: 'DEALER',
+          selectedDealer: selectedDealer,
+          vehicle: selectedVehicle || { id: '1', name: 'Sedan', description: '' },
+          serviceCategory: selectedCategory!,
+          selectedPackage: selectedPackage!,
+          customerDetails: {
+            vehicleNumber: vNum,
+            customerName: cName,
+            mobileNumber: mNum,
+          },
+          paymentMode: 'CREDIT',
+          paymentStatus: 'PAID',
+          totalAmount: totalAmt,
+          gstAmount: gstAmt,
+          outstandingAmount: totalAmt,
+          createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        };
+
+        setPaymentMode('CREDIT');
+        setCompletedOrder(newDealerOrder);
+        setBillCounter((prev) => prev + 1);
+
+        // Broadcast to POS with popup & chime alert
+        broadcastNewKioskOrder({
+          orderId: saved.orderId,
+          orderNo: orderNo,
+          customerName: cName,
+          vehiclePlate: vNum,
+          vehicleType: selectedVehicle?.name || 'Vehicle',
+          packageName: selectedPackage?.name || 'Package',
+          amount: totalAmt,
+          payMode: 'CREDIT',
+          payStatus: 'PAID',
+          isDealer: true,
+          dealerName: selectedDealer?.name || 'Dealer',
+          timestamp: new Date().toISOString(),
+        });
+
+        navigateToPage('PAGE_6_SUCCESS', '/success');
       } else {
+        // Customer Flow: save booking and proceed to payment selection
+        const saved = await createCarWashOrder({
+          customerName: cName,
+          vehicleNumber: vNum,
+          mobileNumber: mNum,
+          vehicleTypeId: vTypeId,
+          serviceCategoryId: catId,
+          packageId: pkgId,
+        });
+
+        setActiveOrderId(saved.orderId);
+        setActiveOrderNo(saved.orderNo);
         navigateToPage('PAGE_5_PAYMENT', '/checkout');
       }
     } catch (err: any) {
@@ -263,21 +361,34 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     const gstPercent = selectedPackage.gstPercent || 9;
     const gstAmount = Number(((totalAmount * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
 
-    // Update payment mode in SQL Server dbo.CarWashOrder
+    // Broadcast customer order to POS with popup & chime alert IMMEDIATELY (0ms latency)
+    broadcastNewKioskOrder({
+      orderId: activeOrderId,
+      orderNo: orderNo,
+      customerName: customerDetails.customerName,
+      vehiclePlate: customerDetails.vehicleNumber,
+      vehicleType: selectedVehicle.name,
+      packageName: selectedPackage.name,
+      amount: totalAmount,
+      payMode: String(mode),
+      payStatus: String(mode).toUpperCase() === 'CASH' ? 'PENDING' : 'PAID',
+      isDealer: false,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Update payment mode in SQL Server dbo.CarWashOrder (async background update)
     if (activeOrderId) {
-      try {
-        const isCash = String(mode).toUpperCase() === 'CASH';
-        await updateOrderPayment(activeOrderId, {
-          payMode: String(mode),
-          confirmPaid: !isCash,
-          changedBy: 'KIOSK',
-          remarks: !isCash
-            ? `Payment completed via ${mode} at Kiosk`
-            : 'Cash payment selected at Kiosk - pay at counter',
-        });
-      } catch (err: any) {
+      const isCash = String(mode).toUpperCase() === 'CASH';
+      updateOrderPayment(activeOrderId, {
+        payMode: String(mode),
+        confirmPaid: !isCash,
+        changedBy: 'KIOSK',
+        remarks: !isCash
+          ? `Payment completed via ${mode} at Kiosk`
+          : 'Cash payment selected at Kiosk - pay at counter',
+      }).catch((err: any) => {
         console.warn('Payment update warning:', err?.message);
-      }
+      });
     }
 
     const newOrder: KioskOrder = {
@@ -345,6 +456,23 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     setPaymentMode('CREDIT');
     setCompletedOrder(newDealerOrder);
     setBillCounter((prev) => prev + 1);
+
+    // Broadcast dealer credit order to POS with popup & chime alert
+    broadcastNewKioskOrder({
+      orderId: activeOrderId,
+      orderNo: orderNo,
+      customerName: customerDetails.customerName,
+      vehiclePlate: customerDetails.vehicleNumber,
+      vehicleType: selectedVehicle.name,
+      packageName: selectedPackage.name,
+      amount: totalAmount,
+      payMode: 'CREDIT',
+      payStatus: 'PAID',
+      isDealer: true,
+      dealerName: selectedDealer.name,
+      timestamp: new Date().toISOString(),
+    });
+
     navigateToPage('PAGE_6_SUCCESS', '/success');
   };
 
@@ -407,6 +535,9 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         {currentPage === 'PAGE_2_VEHICLE' && (
           <Page2VehicleScreen
             initialVehicle={selectedVehicle}
+            isDealer={userType === 'DEALER'}
+            dealer={selectedDealer}
+            initialVehicleNumber={customerDetails?.vehicleNumber}
             onContinue={handleContinueVehicle}
             onBack={handleBackFromVehicle}
             onExitToPos={onExitToPos}
@@ -418,6 +549,10 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           <Page3ServiceScreen
             initialCategory={selectedCategory}
             initialPackage={selectedPackage}
+            isDealer={userType === 'DEALER'}
+            dealer={selectedDealer}
+            vehicleNumber={customerDetails?.vehicleNumber}
+            vehicle={selectedVehicle}
             onContinue={handleContinueServices}
             onBack={() => navigateToPage('PAGE_2_VEHICLE', '/new-wash')}
             onExitToPos={onExitToPos}

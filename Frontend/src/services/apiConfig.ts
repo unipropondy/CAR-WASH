@@ -96,7 +96,15 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(customApiBaseUrl);
   }
 
-  // 2. Environment variable (configured for production builds)
+  // 2. In local development on localhost (Web browser at localhost:8081 / 127.0.0.1): use local backend
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+    }
+  }
+
+  // 3. Environment variable (configured for production builds)
   const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
   if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
     const envUrl = envApiUrl.trim();
@@ -109,7 +117,7 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 3. Extra configuration in app.json (production public HTTPS URL)
+  // 4. Extra configuration in app.json (production public HTTPS URL)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (
     extraUrl &&
@@ -118,16 +126,6 @@ export function getApiBaseUrl(): string {
     !extraUrl.includes('railway.internal')
   ) {
     return normalizeApiUrl(extraUrl);
-  }
-
-  // 4. In development mode on localhost ONLY: allow local dev server
-  if (process.env.NODE_ENV !== 'production' && Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.location) {
-      const { hostname } = window.location;
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return `http://localhost:${DEFAULT_BACKEND_PORT}`;
-      }
-    }
   }
 
   // 5. Final safe production fallback — Railway Public HTTPS

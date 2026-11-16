@@ -7,6 +7,7 @@ import { useKioskLanguageStore } from '../store/kioskLanguageStore';
 import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+import { RedBayAlertModal } from '../../../components/common/RedBayAlertModal';
 
 interface KioskTopHeaderProps {
   subtitle?: string;
@@ -28,15 +29,13 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
   const { language } = useKioskLanguageStore();
   const t = KIOSK_TRANSLATIONS[language] || KIOSK_TRANSLATIONS.EN;
   const [isHelpRequested, setIsHelpRequested] = useState<boolean>(false);
+  const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
   const handleRequestHelp = async () => {
     setIsHelpRequested(true);
+    setShowHelpModal(true);
     try {
       await sendKioskHelpRequest(subtitle || 'Kiosk Screen', 'Station #01');
-      Alert.alert(
-        'Staff Alerted',
-        'Assistance requested! A staff member has been notified on the POS screen and is on their way.'
-      );
     } catch (err) {
       console.warn('Help request error:', err);
     }
@@ -115,6 +114,16 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Red Bay Branded Staff Alert Modal */}
+      <RedBayAlertModal
+        visible={showHelpModal}
+        title="Staff Alerted"
+        message="Assistance requested! A staff member has been notified on the POS screen and is on their way."
+        type="alert"
+        buttonText="OK, Understood"
+        onClose={() => setShowHelpModal(false)}
+      />
     </View>
   );
 };
