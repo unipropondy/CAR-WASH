@@ -25,12 +25,21 @@ import {
   DealerPaymentRecord,
   SettleDealerCreditResult,
 } from '../../../services/dealerApi';
+import { formatSgDateTime } from '../../../services/timeService';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 
 type SubView = 'SETTLE' | 'HISTORY';
 
-export const DealerCreditSettlementView: React.FC = () => {
+export interface DealerCreditSettlementViewProps {
+  theme?: 'dark' | 'light';
+}
+
+export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProps> = ({
+  theme = 'dark',
+}) => {
+  const isLight = theme === 'light';
+  const styles = useMemo(() => getStyles(isLight), [isLight]);
   const { width } = useWindowDimensions();
   const isStacked = width < 980;
 
@@ -275,18 +284,7 @@ export const DealerCreditSettlementView: React.FC = () => {
 
   const formatDateTime = (dtStr?: string) => {
     if (!dtStr) return '-';
-    try {
-      const d = new Date(dtStr);
-      return d.toLocaleDateString('en-SG', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dtStr;
-    }
+    return formatSgDateTime(dtStr);
   };
 
   return (
@@ -294,7 +292,7 @@ export const DealerCreditSettlementView: React.FC = () => {
       {/* ── TOP DEALER SELECTOR ── */}
       <View style={styles.topSelectorCard}>
         <View style={styles.topSelectorHeader}>
-          <Ionicons name="business" size={17} color="#D97706" />
+          <Ionicons name="business" size={17} color={isLight ? '#ED0712' : '#D97706'} />
           <Text style={styles.topSelectorLabel}>SELECT DEALER FOR SETTLEMENT</Text>
         </View>
 
@@ -332,7 +330,11 @@ export const DealerCreditSettlementView: React.FC = () => {
           style={[styles.subTabBtn, currentView === 'SETTLE' && styles.subTabBtnActive]}
           onPress={() => setCurrentView('SETTLE')}
         >
-          <Ionicons name="card-outline" size={16} color={currentView === 'SETTLE' ? '#FFFFFF' : '#94A3B8'} />
+          <Ionicons
+            name="card-outline"
+            size={16}
+            color={currentView === 'SETTLE' ? '#FFFFFF' : (isLight ? '#64748B' : '#94A3B8')}
+          />
           <Text style={[styles.subTabBtnText, currentView === 'SETTLE' && styles.subTabBtnTextActive]}>
             Settle Outstanding Bills ({bills.length})
           </Text>
@@ -342,7 +344,11 @@ export const DealerCreditSettlementView: React.FC = () => {
           style={[styles.subTabBtn, currentView === 'HISTORY' && styles.subTabBtnActive]}
           onPress={() => setCurrentView('HISTORY')}
         >
-          <Ionicons name="receipt-outline" size={16} color={currentView === 'HISTORY' ? '#FFFFFF' : '#94A3B8'} />
+          <Ionicons
+            name="receipt-outline"
+            size={16}
+            color={currentView === 'HISTORY' ? '#FFFFFF' : (isLight ? '#64748B' : '#94A3B8')}
+          />
           <Text style={[styles.subTabBtnText, currentView === 'HISTORY' && styles.subTabBtnTextActive]}>
             Payment Receipts & History
           </Text>
@@ -456,11 +462,11 @@ export const DealerCreditSettlementView: React.FC = () => {
               {/* Card Header */}
               <View style={styles.paymentCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="wallet-outline" size={18} color="#22C55E" />
+                  <Ionicons name="wallet-outline" size={18} color={isLight ? '#059669' : '#22C55E'} />
                   <Text style={styles.paymentCardTitle}>Payment Settlement Entry</Text>
                 </View>
                 {loadingPaymodes && (
-                  <ActivityIndicator size="small" color="#22C55E" />
+                  <ActivityIndicator size="small" color={isLight ? '#059669' : '#22C55E'} />
                 )}
               </View>
 
@@ -494,7 +500,7 @@ export const DealerCreditSettlementView: React.FC = () => {
                         onPress={() => setPaymentAmountStr(selectedTotalOutstanding.toFixed(2))}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="sparkles" size={11} color="#22C55E" />
+                        <Ionicons name="sparkles" size={11} color={isLight ? '#059669' : '#22C55E'} />
                         <Text style={styles.payFullChipText}>Pay Full (${selectedTotalOutstanding.toFixed(2)})</Text>
                       </TouchableOpacity>
                     )}
@@ -504,7 +510,7 @@ export const DealerCreditSettlementView: React.FC = () => {
                     <TextInput
                       style={styles.amountInput}
                       placeholder="0.00"
-                      placeholderTextColor="#64748B"
+                      placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
                       value={paymentAmountStr}
                       onChangeText={setPaymentAmountStr}
                       keyboardType="numeric"
@@ -530,13 +536,13 @@ export const DealerCreditSettlementView: React.FC = () => {
                           <Ionicons
                             name={m.icon as any}
                             size={14}
-                            color={isM ? '#22C55E' : '#94A3B8'}
+                            color={isM ? (isLight ? '#059669' : '#22C55E') : (isLight ? '#64748B' : '#94A3B8')}
                           />
                           <Text style={[styles.modeBtnText, isM && styles.modeBtnTextActive]}>
                             {m.label}
                           </Text>
                           {isM && (
-                            <Ionicons name="checkmark-circle" size={13} color="#22C55E" style={{ marginLeft: 2 }} />
+                            <Ionicons name="checkmark-circle" size={13} color={isLight ? '#059669' : '#22C55E'} style={{ marginLeft: 2 }} />
                           )}
                         </TouchableOpacity>
                       );
@@ -550,7 +556,7 @@ export const DealerCreditSettlementView: React.FC = () => {
                   <TextInput
                     style={styles.textInputBox}
                     placeholder="e.g. UEN PayNow Ref / Auth Code / Cheque #"
-                    placeholderTextColor="#64748B"
+                    placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
                     value={referenceNo}
                     onChangeText={setReferenceNo}
                   />
@@ -561,7 +567,7 @@ export const DealerCreditSettlementView: React.FC = () => {
                   <TextInput
                     style={styles.textInputBox}
                     placeholder="e.g. November monthly commercial settlement"
-                    placeholderTextColor="#64748B"
+                    placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
                     value={remarks}
                     onChangeText={setRemarks}
                   />
@@ -628,7 +634,7 @@ export const DealerCreditSettlementView: React.FC = () => {
               style={styles.refreshBtn}
               onPress={() => selectedDealerId && loadPaymentHistoryData(selectedDealerId)}
             >
-              <Ionicons name="refresh" size={15} color="#FFFFFF" />
+              <Ionicons name="refresh" size={15} color={isLight ? '#0F172A' : '#FFFFFF'} />
             </TouchableOpacity>
           </View>
 
@@ -767,19 +773,24 @@ export const DealerCreditSettlementView: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (isLight: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     padding: 12,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: isLight ? 'transparent' : '#0A0A0A',
   },
   topSelectorCard: {
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    padding: 10,
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
+    padding: isLight ? 12 : 10,
     marginBottom: 10,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   topSelectorHeader: {
     flexDirection: 'row',
@@ -790,7 +801,7 @@ const styles = StyleSheet.create({
   topSelectorLabel: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: '#D97706',
+    color: isLight ? '#0F172A' : '#D97706',
     letterSpacing: 0.5,
   },
   dealerListScroll: {
@@ -799,14 +810,14 @@ const styles = StyleSheet.create({
   },
   dealerOptionCard: {
     width: 210,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.03)',
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     padding: 10,
   },
   dealerOptionCardSelected: {
-    backgroundColor: 'rgba(255,26,26,0.12)',
+    backgroundColor: isLight ? '#FEF2F2' : 'rgba(255,26,26,0.12)',
     borderColor: RED_BAY_COLORS.primary,
   },
   dealerOptionTop: {
@@ -818,31 +829,33 @@ const styles = StyleSheet.create({
   dealerOptionName: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     flex: 1,
   },
   dealerOptionNameSelected: {
-    color: '#FFFFFF',
+    color: isLight ? '#ED0712' : '#FFFFFF',
   },
   codeTag: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(255,255,255,0.08)',
     paddingHorizontal: 6,
     paddingVertical: 1.5,
     borderRadius: 4,
+    borderWidth: isLight ? 1 : 0,
+    borderColor: isLight ? '#BFDBFE' : 'transparent',
   },
   codeTagText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
   },
   dealerOptionTerms: {
     fontSize: 10.5,
-    color: '#94A3B8',
+    color: '#64748B',
     marginTop: 1,
   },
   dealerOptionContact: {
     fontSize: 10,
-    color: '#64748B',
+    color: isLight ? '#94A3B8' : '#64748B',
     marginTop: 2,
   },
   subTabsBar: {
@@ -857,18 +870,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
   },
   subTabBtnActive: {
-    backgroundColor: 'rgba(255,26,26,0.18)',
-    borderColor: RED_BAY_COLORS.primary,
+    backgroundColor: isLight ? '#0F172A' : 'rgba(255,26,26,0.18)',
+    borderColor: isLight ? '#0F172A' : RED_BAY_COLORS.primary,
   },
   subTabBtnText: {
     fontSize: 11.5,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
   },
   subTabBtnTextActive: {
     color: '#FFFFFF',
@@ -886,14 +899,19 @@ const styles = StyleSheet.create({
   },
   leftBillsSection: {
     flex: 1.15,
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     padding: 12,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   leftBillsSectionStacked: {
     flex: undefined,
@@ -906,12 +924,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.06)',
   },
   sectionTitle: {
     fontSize: 13.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   sectionSub: {
     fontSize: 10.5,
@@ -925,27 +943,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.05)',
+    borderWidth: isLight ? 1 : 0,
+    borderColor: isLight ? '#CBD5E1' : 'transparent',
   },
   selectAllBtnText: {
     fontSize: 10.5,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   billsListScroll: {
     flex: 1,
   },
   billItemCard: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.02)',
     borderRadius: 9,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     padding: 10,
     marginBottom: 8,
   },
   billItemCardSelected: {
-    borderColor: 'rgba(56,189,248,0.5)',
-    backgroundColor: 'rgba(56,189,248,0.06)',
+    borderColor: isLight ? '#2563EB' : 'rgba(56,189,248,0.5)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(56,189,248,0.06)',
   },
   billItemCheckRow: {
     flexDirection: 'row',
@@ -957,13 +977,14 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 4,
     borderWidth: 1.5,
-    borderColor: '#64748B',
+    borderColor: isLight ? '#94A3B8' : '#64748B',
+    backgroundColor: isLight ? '#FFFFFF' : 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxBoxSelected: {
-    backgroundColor: '#38BDF8',
-    borderColor: '#38BDF8',
+    backgroundColor: isLight ? '#2563EB' : '#38BDF8',
+    borderColor: isLight ? '#2563EB' : '#38BDF8',
   },
   billItemTopLine: {
     flexDirection: 'row',
@@ -973,7 +994,7 @@ const styles = StyleSheet.create({
   billItemNumber: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   billItemDate: {
     fontSize: 10.5,
@@ -1013,7 +1034,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 6,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.04)',
+    borderTopColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.04)',
   },
   billDetailCol: {
     flex: 1,
@@ -1025,17 +1046,19 @@ const styles = StyleSheet.create({
   },
   billDetailVal: {
     fontSize: 11,
-    color: '#E2E8F0',
+    color: isLight ? '#0F172A' : '#E2E8F0',
     marginTop: 2,
   },
   billDetailValBold: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#F59E0B',
+    color: isLight ? '#D97706' : '#F59E0B',
     marginTop: 2,
   },
   plateMini: {
-    backgroundColor: '#0F172A',
+    backgroundColor: isLight ? '#F1F5F9' : '#0F172A',
+    borderWidth: isLight ? 1 : 0,
+    borderColor: isLight ? '#CBD5E1' : 'transparent',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
@@ -1045,7 +1068,7 @@ const styles = StyleSheet.create({
   plateMiniText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#F8FAFC',
+    color: isLight ? '#0F172A' : '#F8FAFC',
   },
   rightPaymentSection: {
     flex: 1,
@@ -1059,14 +1082,19 @@ const styles = StyleSheet.create({
   },
   paymentCard: {
     flex: 1,
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
     minHeight: 0,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   paymentCardHeader: {
     flexDirection: 'row',
@@ -1075,13 +1103,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: '#161616',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.06)',
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
   },
   paymentCardTitle: {
     fontSize: 13.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   paymentCardBodyScroll: {
     flex: 1,
@@ -1091,11 +1119,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   paymentSummaryBox: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.03)',
     borderRadius: 8,
     padding: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
   },
   summaryRow: {
     flexDirection: 'row',
@@ -1104,17 +1132,17 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
   },
   summaryVal: {
     fontSize: 11.5,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   summaryValBold: {
     fontSize: 13.5,
     fontWeight: '900',
-    color: '#F59E0B',
+    color: isLight ? '#D97706' : '#F59E0B',
   },
   inputGroup: {
     marginBottom: 2,
@@ -1128,7 +1156,7 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 10.5,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: isLight ? '#334155' : '#94A3B8',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -1136,9 +1164,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: isLight ? '#ECFDF5' : 'rgba(34,197,94,0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.3)',
+    borderColor: isLight ? '#A7F3D0' : 'rgba(34,197,94,0.3)',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 4,
@@ -1146,7 +1174,7 @@ const styles = StyleSheet.create({
   payFullChipText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
   },
   paymodeDbBadge: {
     flexDirection: 'row',
@@ -1167,9 +1195,9 @@ const styles = StyleSheet.create({
   amountInputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.04)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: isLight ? '#CBD5E1' : 'rgba(255,255,255,0.15)',
     borderRadius: 7,
     paddingHorizontal: 10,
     height: 40,
@@ -1177,14 +1205,14 @@ const styles = StyleSheet.create({
   currencySymbol: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
     marginRight: 6,
   },
   amountInput: {
     flex: 1,
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   modesRow: {
     flexDirection: 'row',
@@ -1199,44 +1227,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.04)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
   },
   modeBtnActive: {
-    backgroundColor: 'rgba(34,197,94,0.14)',
-    borderColor: '#22C55E',
+    backgroundColor: isLight ? '#ECFDF5' : 'rgba(34,197,94,0.14)',
+    borderColor: isLight ? '#10B981' : '#22C55E',
   },
   modeBtnText: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
     fontWeight: '600',
   },
   modeBtnTextActive: {
-    color: '#22C55E',
+    color: isLight ? '#047857' : '#22C55E',
     fontWeight: '800',
   },
   textInputBox: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: isLight ? '#CBD5E1' : 'rgba(255,255,255,0.1)',
     borderRadius: 7,
     paddingHorizontal: 9,
     height: 36,
     fontSize: 11.5,
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   allocationBox: {
-    backgroundColor: 'rgba(56,189,248,0.06)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(56,189,248,0.06)',
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(56,189,248,0.2)',
+    borderColor: isLight ? '#BFDBFE' : 'rgba(56,189,248,0.2)',
     padding: 8,
   },
   allocationTitle: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
@@ -1252,12 +1280,12 @@ const styles = StyleSheet.create({
   simBill: {
     fontSize: 10.5,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   simAlloc: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
   },
   simStatus: {
     fontSize: 10,
@@ -1266,21 +1294,21 @@ const styles = StyleSheet.create({
   paymentCardFooter: {
     padding: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: 'rgba(22,22,22,0.98)',
+    borderTopColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(22,22,22,0.98)',
   },
   settleSubmitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22C55E',
+    backgroundColor: isLight ? '#ED0712' : '#22C55E',
     borderRadius: 8,
     paddingVertical: 10,
     gap: 8,
-    ...makeShadow('#22C55E', { width: 0, height: 3 }, 0.25, 6, 2),
+    ...makeShadow(isLight ? '#ED0712' : '#22C55E', { width: 0, height: 3 }, 0.25, 6, 2),
   },
   settleSubmitBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.08)',
     opacity: 0.5,
   },
   settleSubmitBtnText: {
@@ -1290,11 +1318,16 @@ const styles = StyleSheet.create({
   },
   historyTableCard: {
     flex: 1,
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     padding: 14,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   historyHeader: {
     flexDirection: 'row',
@@ -1303,18 +1336,20 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.06)',
   },
   refreshBtn: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.08)',
+    borderWidth: isLight ? 1 : 0,
+    borderColor: isLight ? '#CBD5E1' : 'transparent',
     padding: 8,
     borderRadius: 6,
   },
   receiptCard: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     padding: 12,
     marginBottom: 10,
   },
@@ -1328,7 +1363,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(56,189,248,0.1)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(56,189,248,0.1)',
+    borderWidth: isLight ? 1 : 0,
+    borderColor: isLight ? '#BFDBFE' : 'transparent',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 5,
@@ -1336,12 +1373,12 @@ const styles = StyleSheet.create({
   receiptBadgeText: {
     fontSize: 11.5,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
   },
   receiptModeTag: {
     fontSize: 11,
-    color: '#94A3B8',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    color: isLight ? '#334155' : '#94A3B8',
+    backgroundColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 4,
@@ -1350,7 +1387,7 @@ const styles = StyleSheet.create({
   receiptAmount: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
   },
   receiptMetaRow: {
     flexDirection: 'row',
@@ -1365,7 +1402,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.04)',
+    borderTopColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.04)',
   },
   receiptBillsTitle: {
     fontSize: 9.5,
@@ -1380,12 +1417,12 @@ const styles = StyleSheet.create({
   },
   receiptBillNo: {
     fontSize: 11,
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     fontWeight: '600',
   },
   receiptBillAlloc: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: isLight ? '#475569' : '#94A3B8',
   },
   receiptBillStatus: {
     fontSize: 11,
@@ -1404,7 +1441,7 @@ const styles = StyleSheet.create({
   allClearTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     marginTop: 8,
   },
   allClearSub: {
@@ -1414,7 +1451,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     marginTop: 8,
   },
   emptySub: {
@@ -1423,7 +1460,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
@@ -1431,23 +1468,28 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 500,
-    backgroundColor: '#161616',
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 8px 30px rgba(15, 23, 42, 0.12)' } as any)
+      : isLight
+      ? { elevation: 6 }
+      : {}),
   },
   successModalHeader: {
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.06)',
   },
   successModalIcon: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: isLight ? '#ECFDF5' : 'rgba(34,197,94,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -1455,11 +1497,11 @@ const styles = StyleSheet.create({
   successModalTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   successModalSub: {
     fontSize: 12.5,
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
     fontWeight: '700',
     marginTop: 2,
   },
@@ -1468,11 +1510,11 @@ const styles = StyleSheet.create({
     maxHeight: 380,
   },
   successSummaryBox: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.03)',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     marginBottom: 14,
   },
   successRow: {
@@ -1482,16 +1524,16 @@ const styles = StyleSheet.create({
   },
   successLabel: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
   },
   successVal: {
     fontSize: 12,
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   successValBold: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   successBillsHeading: {
     fontSize: 10,
@@ -1501,22 +1543,22 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   successBillItem: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.02)',
     borderRadius: 8,
     padding: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.04)',
   },
   successBillNo: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   successBillAlloc: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
   },
   successBillOut: {
     fontSize: 11,
@@ -1525,10 +1567,10 @@ const styles = StyleSheet.create({
   successModalFooter: {
     padding: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.06)',
   },
   successDoneBtn: {
-    backgroundColor: '#22C55E',
+    backgroundColor: isLight ? '#ED0712' : '#22C55E',
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',

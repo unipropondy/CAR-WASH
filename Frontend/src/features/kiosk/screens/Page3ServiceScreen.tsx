@@ -12,13 +12,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
 import { ServiceCategory, ServicePackage, DealerOption, VehicleOption } from '../types/kiosk.types';
-import { fetchServiceCategories } from '../../../services/categoryApi';
-import { fetchPackagesByCategory } from '../../../services/packageApi';
+import { fetchServiceCategories, getCachedServiceCategories } from '../../../services/categoryApi';
+import { fetchPackagesByCategory, getCachedPackages } from '../../../services/packageApi';
 import { useKioskLanguageStore } from '../store/kioskLanguageStore';
 import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { getCategoryVisualMeta } from '../data/kioskCategoryAssets';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 export interface DealerAddonOption {
   id: string;
@@ -38,6 +39,7 @@ export const DEALER_ADDONS: DealerAddonOption[] = [
 interface Page3ServiceScreenProps {
   initialCategory?: ServiceCategory;
   initialPackage?: ServicePackage;
+  initialStep?: 'CATEGORIES' | 'PACKAGES';
   isDealer?: boolean;
   dealer?: DealerOption;
   vehicleNumber?: string;
@@ -98,6 +100,7 @@ function getPackageFeatures(pkg: ServicePackage): string[] {
 export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   initialCategory,
   initialPackage,
+  initialStep,
   isDealer = false,
   dealer,
   vehicleNumber = '',
@@ -108,24 +111,83 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 }) => {
   const { language } = useKioskLanguageStore();
   const t = KIOSK_TRANSLATIONS[language] || KIOSK_TRANSLATIONS.EN;
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    isLandscapeShort, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    categoryCols, 
+    packageCols, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
 
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState<boolean>(true);
+  const isVeryNarrow = width < 480;
+  const categoryCardWidth = categoryCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
+  const packageCardWidth = packageCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
+  const addonCardWidth = isVeryNarrow ? '47.5%' : (isLandscape && width >= 1000 ? '31.5%' : '48.5%');
+
+  const dynamicCategoryImgHeight = scaleSize(125, 95, 175);
+  const dynamicPackageMinHeight = scaleSize(260, 210, 420);
+
+  const initialCategoriesList = getCachedServiceCategories();
+  const [categories, setCategories] = useState<ServiceCategory[]>(initialCategoriesList);
+  const [loadingCategories, setLoadingCategories] = useState<boolean>(initialCategoriesList.length === 0);
   const [categoryError, setCategoryError] = useState<string>('');
 
-  const [packages, setPackages] = useState<ServicePackage[]>([]);
+  const targetInitialCatId = initialCategory?.serviceCategoryId || (isDealer && initialCategoriesList.length > 0 ? initialCategoriesList[0].serviceCategoryId : 1);
+  const initialPackagesList = getCachedPackages(targetInitialCatId);
+  const [packages, setPackages] = useState<ServicePackage[]>(initialPackagesList);
   const [loadingPackages, setLoadingPackages] = useState<boolean>(false);
   const [packageError, setPackageError] = useState<string>('');
 
-  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | undefined>(initialCategory);
-  const [selectedServiceCategoryId, setSelectedServiceCategoryId] = useState<number | undefined>(
-    initialCategory?.serviceCategoryId
-  );
+  const use3ColCategories = categoryCols === 3;
+  const use3ColPackages = packageCols === 3;
+
+  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | undefined>(() => {
+    if (initialCategory) return initialCategory;
+    if (isDealer && initialCategoriesList.length > 0) return initialCategoriesList[0];
+    return undefined;
+  });
+  const [selectedServiceCategoryId, setSelectedServiceCategoryId] = useState<number | undefined>(() => {
+    if (initialCategory?.serviceCategoryId) return initialCategory.serviceCategoryId;
+    if (isDealer && initialCategoriesList.length > 0) return initialCategoriesList[0].serviceCategoryId;
+    return undefined;
+  });
   const [selectedPackage, setSelectedPackage] = useState<ServicePackage | undefined>(initialPackage);
 
+  // Default viewStep:
+  // For Dealer: always goes directly to PACKAGES
+  // For Customer: ALWAYS defaults to CATEGORIES unless specifically asked for PACKAGES with a valid category
   const [viewStep, setViewStep] = useState<'CATEGORIES' | 'PACKAGES'>(
-    initialCategory ? 'PACKAGES' : 'CATEGORIES'
+    isDealer ? 'PACKAGES' : (initialStep === 'PACKAGES' && initialCategory ? 'PACKAGES' : 'CATEGORIES')
   );
+
+  // Synchronize viewStep when initialStep prop changes (e.g. navigation from KioskMainScreen)
+  useEffect(() => {
+    if (isDealer) {
+      setViewStep('PACKAGES');
+    } else if (initialStep === 'PACKAGES' && initialCategory) {
+      setViewStep('PACKAGES');
+    } else {
+      setViewStep('CATEGORIES');
+    }
+  }, [initialStep, isDealer, initialCategory]);
+
+  // Synchronize category selection state from parent
+  useEffect(() => {
+    setSelectedCategory(initialCategory);
+    setSelectedServiceCategoryId(initialCategory?.serviceCategoryId);
+  }, [initialCategory]);
+
+  // Synchronize package selection state from parent
+  useEffect(() => {
+    setSelectedPackage(initialPackage);
+  }, [initialPackage]);
 
   // Dealer Additional Services selection state
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
@@ -138,30 +200,36 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   const loadCategories = async () => {
     try {
-      setLoadingCategories(true);
+      if (categories.length === 0) {
+        setLoadingCategories(true);
+      }
       setCategoryError('');
       const data = await fetchServiceCategories();
-      setCategories(data);
+      if (data && data.length > 0) {
+        setCategories(data);
 
-      if (initialCategory) {
-        const found = data.find(
-          (c) => c.serviceCategoryId === initialCategory.serviceCategoryId || c.id === initialCategory.id
-        );
-        if (found) {
-          setSelectedCategory(found);
-          setSelectedServiceCategoryId(found.serviceCategoryId);
-          loadPackagesForCategory(found.serviceCategoryId);
+        if (initialCategory) {
+          const found = data.find(
+            (c) => c.serviceCategoryId === initialCategory.serviceCategoryId || c.id === initialCategory.id
+          );
+          if (found) {
+            setSelectedCategory(found);
+            setSelectedServiceCategoryId(found.serviceCategoryId);
+            loadPackagesForCategory(found.serviceCategoryId);
+          }
+        } else if (isDealer && data.length > 0) {
+          // For dealer, automatically choose Car Wash and view packages directly
+          const defaultCat = data[0];
+          setSelectedCategory(defaultCat);
+          setSelectedServiceCategoryId(defaultCat.serviceCategoryId);
+          setViewStep('PACKAGES');
+          loadPackagesForCategory(defaultCat.serviceCategoryId);
         }
-      } else if (isDealer && data.length > 0) {
-        // For dealer, automatically choose Car Wash and view packages directly
-        const defaultCat = data[0];
-        setSelectedCategory(defaultCat);
-        setSelectedServiceCategoryId(defaultCat.serviceCategoryId);
-        setViewStep('PACKAGES');
-        loadPackagesForCategory(defaultCat.serviceCategoryId);
       }
     } catch (err: any) {
-      setCategoryError(err?.message || 'Failed to load service categories.');
+      if (categories.length === 0) {
+        setCategoryError(err?.message || 'Failed to load service categories.');
+      }
     } finally {
       setLoadingCategories(false);
     }
@@ -170,24 +238,35 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   const loadPackagesForCategory = async (categoryId?: number) => {
     if (!categoryId) return;
     try {
-      setLoadingPackages(true);
+      // First check cache synchronously
+      const cached = getCachedPackages(categoryId);
+      if (cached && cached.length > 0) {
+        setPackages(cached);
+      } else if (packages.length === 0) {
+        setLoadingPackages(true);
+      }
+
       setPackageError('');
       const data = await fetchPackagesByCategory(categoryId);
-      setPackages(data);
+      if (data && data.length > 0) {
+        setPackages(data);
 
-      if (initialPackage) {
-        const found = data.find(
-          (p) => p.packageId === initialPackage.packageId || p.id === initialPackage.id
-        );
-        if (found) {
-          setSelectedPackage(found);
+        if (initialPackage) {
+          const found = data.find(
+            (p) => p.packageId === initialPackage.packageId || p.id === initialPackage.id
+          );
+          if (found) {
+            setSelectedPackage(found);
+          }
+        } else if (isDealer && data.length > 0 && !selectedPackage) {
+          // For dealer, auto-highlight first package
+          setSelectedPackage(data[0]);
         }
-      } else if (isDealer && data.length > 0 && !selectedPackage) {
-        // For dealer, auto-highlight first package
-        setSelectedPackage(data[0]);
       }
     } catch (err: any) {
-      setPackageError(err?.message || 'Failed to load service packages.');
+      if (packages.length === 0) {
+        setPackageError(err?.message || 'Failed to load service packages.');
+      }
     } finally {
       setLoadingPackages(false);
     }
@@ -267,21 +346,25 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
         <View style={styles.titleUnderlineAccent} />
       </View>
 
-      {/* Main Content Area - PORTRAIT OPTIMIZED */}
+      {/* Main Content Area - RESPONSIVE & BALANCED */}
       <ScrollView 
         style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && styles.scrollContentTall
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
+        <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth }]}>
           {/* ================= STEP 1: CATEGORY SELECTION ================= */}
           {viewStep === 'CATEGORIES' && (
-            loadingCategories ? (
+            loadingCategories && categories.length === 0 ? (
               <View style={styles.centerContainer}>
                 <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
                 <Text style={styles.loadingText}>Loading categories...</Text>
               </View>
-            ) : categoryError ? (
+            ) : categoryError && categories.length === 0 ? (
               <View style={styles.centerContainer}>
                 <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
                 <Text style={styles.errorText}>{categoryError}</Text>
@@ -293,16 +376,32 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
               <View style={styles.categoriesGrid}>
                 {categories.map((cat) => {
                   const meta = getCategoryVisualMeta(cat.title);
+                  const hasCatDescription = Boolean(
+                    cat.description &&
+                    cat.description.trim() !== '' &&
+                    cat.description.trim() !== '-'
+                  );
 
                   return (
                     <TouchableOpacity
                       key={cat.serviceCategoryId || cat.id}
-                      style={[styles.categoryCard, { borderColor: meta.cardBorderColor }]}
+                      style={[
+                        styles.categoryCard, 
+                        { width: categoryCardWidth },
+                        use3ColCategories && styles.categoryCard3Col,
+                        isTallKiosk && styles.categoryCardTall,
+                        { borderColor: meta.cardBorderColor }
+                      ]}
                       onPress={() => handleSelectCategory(cat)}
                       activeOpacity={0.9}
                     >
                       {/* Top Photographic Car Image Box */}
-                      <View style={styles.cardImageBox}>
+                      <View style={[
+                        styles.cardImageBox, 
+                        { height: dynamicCategoryImgHeight },
+                        isTallKiosk && styles.cardImageBoxTall, 
+                        isLandscapeShort && styles.cardImageBoxShort
+                      ]}>
                         <Image
                           source={cat.imageUrl && cat.hasImage ? { uri: cat.imageUrl } : meta.image}
                           style={styles.cardImage}
@@ -314,24 +413,32 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                       <View style={styles.cardBody}>
                         {/* Category Emblem & Title Block */}
                         <View style={styles.cardTopInfoRow}>
-                          <View style={[styles.cardEmblemBox, { backgroundColor: meta.accentColor }]}>
+                          <View style={[
+                            styles.cardEmblemBox,
+                            {
+                              backgroundColor: '#FFFFFF',
+                              borderColor: meta.accentColor,
+                            }
+                          ]}>
                             {cat.iconUrl && cat.hasIcon ? (
                               <Image
                                 source={{ uri: cat.iconUrl }}
-                                style={{ width: 28, height: 28, borderRadius: 6 }}
+                                style={styles.cardEmblemImage}
                                 resizeMode="contain"
                               />
                             ) : (
-                              <Ionicons name={meta.iconName} size={22} color="#FFFFFF" />
+                              <Ionicons name={meta.iconName} size={22} color={meta.accentColor} />
                             )}
                           </View>
-                          <View style={styles.cardTitleCol}>
+                          <View style={[styles.cardTitleCol, !hasCatDescription && styles.cardTitleColCentered]}>
                             <Text style={styles.cardTitle} numberOfLines={1}>
                               {cat.title.toUpperCase()}
                             </Text>
-                            <Text style={styles.cardSubtitle} numberOfLines={2}>
-                              {cat.description || meta.defaultSubtitle}
-                            </Text>
+                            {hasCatDescription && (
+                              <Text style={styles.cardSubtitle} numberOfLines={2}>
+                                {cat.description!.trim()}
+                              </Text>
+                            )}
                           </View>
                         </View>
 
@@ -369,15 +476,29 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                 activeOpacity={0.8}
               >
                 <View style={styles.switchCatLeft}>
-                  <View style={styles.switchCatIconBox}>
+                  <View style={[
+                    styles.switchCatIconBox,
+                    {
+                      borderColor: selectedCategory?.title 
+                        ? getCategoryVisualMeta(selectedCategory.title).accentColor 
+                        : RED_BAY_COLORS.primary,
+                      backgroundColor: '#FFFFFF',
+                    }
+                  ]}>
                     {selectedCategory?.iconUrl && selectedCategory?.hasIcon ? (
                       <Image
                         source={{ uri: selectedCategory.iconUrl }}
-                        style={{ width: 22, height: 22, borderRadius: 4 }}
+                        style={styles.switchCatImage}
                         resizeMode="contain"
                       />
                     ) : (
-                      <Ionicons name="car-sport" size={18} color={RED_BAY_COLORS.primary} />
+                      <Ionicons
+                        name="car-sport"
+                        size={20}
+                        color={selectedCategory?.title 
+                          ? getCategoryVisualMeta(selectedCategory.title).accentColor 
+                          : RED_BAY_COLORS.primary}
+                      />
                     )}
                   </View>
                   <View style={styles.switchCatTextCol}>
@@ -393,12 +514,12 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                 </View>
               </TouchableOpacity>
 
-              {loadingPackages ? (
+              {loadingPackages && packages.length === 0 ? (
                 <View style={styles.centerContainer}>
                   <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
                   <Text style={styles.loadingText}>Loading packages...</Text>
                 </View>
-              ) : packageError ? (
+              ) : packageError && packages.length === 0 ? (
                 <View style={styles.centerContainer}>
                   <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
                   <Text style={styles.errorText}>{packageError}</Text>
@@ -433,6 +554,10 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         key={pkg.packageId || pkg.id}
                         style={[
                           styles.packageCard,
+                          { width: packageCardWidth, minHeight: dynamicPackageMinHeight },
+                          use3ColPackages && styles.packageCard3Col,
+                          isTallKiosk && styles.packageCardTall,
+                          isLandscapeShort && styles.packageCardShort,
                           isSelected && styles.packageCardSelected,
                         ]}
                         onPress={() => handleSelectPackage(pkg)}
@@ -441,20 +566,6 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         accessibilityState={{ selected: isSelected }}
                       >
                         {isSelected && <View style={styles.pkgSelectedStrip} />}
-
-                        {/* Top Row: Duration */}
-                        <View style={styles.pkgTopRow}>
-                          <View style={[styles.durationBadge, isSelected && styles.durationBadgeSelected]}>
-                            <Ionicons 
-                              name="time-outline" 
-                              size={12} 
-                              color={isSelected ? RED_BAY_COLORS.primary : "#64748B"} 
-                            />
-                            <Text style={[styles.durationText, isSelected && styles.durationTextSelected]}>
-                              {pkg.durationMinutes ? `${pkg.durationMinutes} mins` : 'Express Service'}
-                            </Text>
-                          </View>
-                        </View>
 
                         {/* Package Name & Price Banner */}
                         <View style={styles.pkgHeaderBlock}>
@@ -497,6 +608,9 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
                         {/* Bottom CTA Action Button */}
                         <View style={[styles.pkgActionBtn, isSelected && styles.pkgActionBtnSelected]}>
+                          {isSelected && (
+                            <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          )}
                           <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
                             {isSelected ? 'Selected' : 'Select Package'}
                           </Text>
@@ -530,7 +644,11 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                       return (
                         <TouchableOpacity
                           key={addon.id}
-                          style={[styles.addonCard, isAdded && styles.addonCardSelected]}
+                          style={[
+                            styles.addonCard, 
+                            { width: addonCardWidth },
+                            isAdded && styles.addonCardSelected
+                          ]}
                           onPress={() => toggleAddon(addon.id)}
                           activeOpacity={0.85}
                         >
@@ -632,17 +750,17 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
   },
   promptHeader: {
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
   },
   stepBadge: {
     backgroundColor: '#E60012',
@@ -721,30 +839,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexGrow: 1,
   },
+  scrollContentTall: {
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+  },
   portraitContainer: {
     width: '100%',
-    maxWidth: 700,
     alignItems: 'center',
   },
-  /* Categories 2+1 Centered Grid Matching Reference Mockup */
+  /* Categories Centered Grid Matching Reference Mockup */
   categoriesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 16,
+    gap: 14,
+    rowGap: 16,
     width: '100%',
+    maxWidth: 960,
+    alignSelf: 'center',
     paddingVertical: 8,
   },
   categoryCard: {
     width: '48%',
-    minWidth: 290,
-    maxWidth: 335,
+    maxWidth: 380,
+    minWidth: 155,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 22,
     borderWidth: 2,
     position: 'relative',
     overflow: 'hidden',
-    ...makeShadow('#000000', { width: 0, height: 8 }, 0.08, 16, 4),
+    ...makeShadow('#000000', { width: 0, height: 6 }, 0.08, 14, 2),
+  },
+  categoryCard3Col: {
+    width: '31%',
+    maxWidth: 340,
+    minWidth: 150,
+  },
+  categoryCardTall: {
+    borderRadius: 26,
   },
   cardImageBox: {
     width: '100%',
@@ -752,6 +884,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: '#F1F5F9',
     overflow: 'hidden',
+  },
+  cardImageBoxTall: {
+    height: 190,
+  },
+  cardImageBoxShort: {
+    height: 110,
   },
   cardImage: {
     width: '100%',
@@ -775,8 +913,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   cardBody: {
-    padding: 14,
-    gap: 12,
+    padding: 12,
+    gap: 10,
     flex: 1,
     justifyContent: 'space-between',
   },
@@ -784,50 +922,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    minHeight: 44,
   },
   cardEmblemBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.1, 4, 1),
+    overflow: 'hidden',
+    padding: 3,
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.05, 4, 1),
+  },
+  cardEmblemImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
   },
   cardTitleCol: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  cardTitleColCentered: {
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16.5,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.3,
   },
   cardSubtitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
     marginTop: 2,
-    lineHeight: 15,
+    lineHeight: 14.5,
     fontWeight: '500',
   },
   cardBulletList: {
-    gap: 8,
+    gap: 6,
     marginVertical: 2,
   },
   cardBulletRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   cardBulletText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
     color: '#1E293B',
     flex: 1,
   },
   cardActionBtn: {
     width: '100%',
-    height: 44,
-    borderRadius: 14,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,
@@ -835,7 +988,7 @@ const styles = StyleSheet.create({
   },
   cardActionBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.4,
   },
@@ -860,14 +1013,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   switchCatIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: RED_BAY_COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 3,
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.05, 4, 1),
+  },
+  switchCatImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
   },
   switchCatTextCol: {
     justifyContent: 'center',
@@ -903,7 +1064,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  /* Packages 2-Column Responsive Square Grid */
+  /* Packages Responsive Grid */
   packagesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -925,6 +1086,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
+  },
+  packageCard3Col: {
+    width: '31.8%',
+  },
+  packageCardTall: {
+    padding: 22,
+    borderRadius: 26,
+    gap: 12,
+  },
+  packageCardShort: {
+    padding: 12,
+    borderRadius: 16,
+    gap: 6,
   },
   packageCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
@@ -1042,17 +1216,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: 42,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: RED_BAY_COLORS.primary,
     marginTop: 6,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 3 }, 0.22, 6, 2),
   },
   pkgActionBtnSelected: {
-    backgroundColor: RED_BAY_COLORS.primary,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 3 }, 0.3, 6, 2),
+    backgroundColor: '#0F172A',
+    ...makeShadow('#0F172A', { width: 0, height: 3 }, 0.25, 6, 2),
   },
   pkgActionBtnText: {
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '900',
-    color: '#0F172A',
+    color: '#FFFFFF',
     letterSpacing: 0.3,
   },
   pkgActionBtnTextSelected: {

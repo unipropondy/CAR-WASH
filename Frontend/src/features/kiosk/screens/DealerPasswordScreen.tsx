@@ -14,6 +14,7 @@ import { KioskTopHeader } from '../components/KioskTopHeader';
 import { DealerOption } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface DealerPasswordScreenProps {
   dealer: DealerOption;
@@ -28,10 +29,16 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
   onBack,
   onExitToPos,
 }) => {
+  const { isTallKiosk, isLandscapeShort, width, height, scale, scaleFont, scaleSize, clamp } = useKioskResponsive();
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  const dynamicContainerMaxWidth = clamp(Math.round(width * 0.88), 380, 640);
+  const dynamicKeypadBtnHeight = scaleSize(56, isLandscapeShort ? 42 : 48, 76);
+  const dynamicDigitFontSize = scaleFont(22, 18, 30);
+  const dynamicPinDotSize = scaleSize(20, 16, 28);
 
   const pinLength = Math.max(4, dealer.pin ? dealer.pin.length : 4);
   const pinSlots = Array.from({ length: pinLength }, (_, i) => i);
@@ -128,11 +135,11 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
       </View>
 
       <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+        contentContainerStyle={[styles.scrollContent, isTallKiosk && { paddingVertical: 40 }]} 
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
-          <View style={styles.cardContainer}>
+        <View style={[styles.portraitContainer, { maxWidth: dynamicContainerMaxWidth }, isTallKiosk && styles.portraitContainerTall]}>
+          <View style={[styles.cardContainer, isTallKiosk && styles.cardContainerTall]}>
             {/* Top Accent Strip */}
             <View style={styles.cardAccentStrip} />
 
@@ -183,13 +190,14 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
                       key={index}
                       style={[
                         styles.pinDot,
+                        { width: dynamicPinDotSize, height: dynamicPinDotSize, borderRadius: dynamicPinDotSize / 2 },
                         isFilled && styles.pinDotFilled,
                         isCurrent && styles.pinDotCurrent,
                         errorMessage ? styles.pinDotError : null,
                       ]}
                     >
                       {isFilled && showPin && (
-                        <Text style={styles.pinDotDigit}>{pin[index]}</Text>
+                        <Text style={[styles.pinDotDigit, { fontSize: scaleFont(11, 9, 14) }]}>{pin[index]}</Text>
                       )}
                     </View>
                   );
@@ -241,6 +249,9 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
                         key={btn.value}
                         style={[
                           styles.keypadButton, 
+                          { height: dynamicKeypadBtnHeight },
+                          isTallKiosk && styles.keypadButtonTall,
+                          isLandscapeShort && styles.keypadButtonShort,
                           isAction && styles.keypadButtonAction,
                         ]}
                         onPress={() => {
@@ -251,11 +262,11 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
                         activeOpacity={0.75}
                       >
                         {btn.value === 'BACKSPACE' ? (
-                          <Ionicons name="backspace-outline" size={24} color="#334155" />
+                          <Ionicons name="backspace-outline" size={isTallKiosk ? 28 : 24} color="#334155" />
                         ) : btn.value === 'CLEAR' ? (
-                          <Text style={styles.keypadActionText}>CLEAR</Text>
+                          <Text style={[styles.keypadActionText, isTallKiosk && { fontSize: 15 }]}>CLEAR</Text>
                         ) : (
-                          <Text style={styles.keypadDigitText}>{btn.label}</Text>
+                          <Text style={[styles.keypadDigitText, { fontSize: dynamicDigitFontSize }, isTallKiosk && styles.keypadDigitTextTall]}>{btn.label}</Text>
                         )}
                       </TouchableOpacity>
                     );
@@ -309,6 +320,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 440,
   },
+  portraitContainerTall: {
+    maxWidth: 520,
+  },
   cardContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -319,6 +333,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     gap: 16,
     ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
+  },
+  cardContainerTall: {
+    padding: 30,
+    borderRadius: 28,
+    gap: 22,
   },
   cardAccentStrip: {
     position: 'absolute',
@@ -343,14 +362,9 @@ const styles = StyleSheet.create({
   dealerLogoBox: {
     width: 52,
     height: 52,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    padding: 4,
+    backgroundColor: 'transparent',
   },
   dealerLogoImage: {
     width: '100%',
@@ -486,6 +500,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 4, 1),
   },
+  keypadButtonTall: {
+    height: 66,
+    borderRadius: 18,
+  },
+  keypadButtonShort: {
+    height: 44,
+    borderRadius: 12,
+  },
   keypadButtonAction: {
     backgroundColor: '#F1F5F9',
     borderColor: '#CBD5E1',
@@ -494,6 +516,9 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 22,
     fontWeight: '900',
+  },
+  keypadDigitTextTall: {
+    fontSize: 28,
   },
   keypadActionText: {
     color: '#475569',

@@ -152,9 +152,24 @@ export class UniversalPrinterService {
    * the job is always printed with the config that was current when it was queued.
    */
   public async printReceipt(order: any, options?: PrintOptions): Promise<PrintResult> {
+    await this.configManager.ensureLoaded();
     const company = await this.getCompanySettings();
-    const driver = this.getActiveDriver();
-    const config = this.configManager.getConfig();
+    let config = this.configManager.getConfig();
+
+    // If Kiosk has no configured LAN IP, inherit from POS config
+    if (this.context === 'KIOSK' && (config.lanIp === '192.168.1.100' || !config.lanIp)) {
+      const posCfg = posPrinterConfigManager.getConfig();
+      if (posCfg.lanIp && posCfg.lanIp !== '192.168.1.100') {
+        config = { ...config, lanIp: posCfg.lanIp, lanPort: posCfg.lanPort || 9100, paperWidth: posCfg.paperWidth };
+      }
+    } else if (this.context === 'POS' && (config.lanIp === '192.168.1.100' || !config.lanIp)) {
+      const kioskCfg = kioskPrinterConfigManager.getConfig();
+      if (kioskCfg.lanIp && kioskCfg.lanIp !== '192.168.1.100') {
+        config = { ...config, lanIp: kioskCfg.lanIp, lanPort: kioskCfg.lanPort || 9100, paperWidth: kioskCfg.paperWidth };
+      }
+    }
+
+    const driver = this.resolveDriver(config.type);
 
     return await printerQueue.enqueue(
       driver,
@@ -170,9 +185,10 @@ export class UniversalPrinterService {
    * Print a Kitchen / Wash Bay Order Ticket (KOT) — POS only.
    */
   public async printKOT(order: any, options?: PrintOptions): Promise<PrintResult> {
+    await this.configManager.ensureLoaded();
     const company = await this.getCompanySettings();
-    const driver = this.getActiveDriver();
     const config = this.configManager.getConfig();
+    const driver = this.resolveDriver(config.type);
 
     return await printerQueue.enqueue(driver, 'KOT', order, company, options, config);
   }
@@ -188,9 +204,10 @@ export class UniversalPrinterService {
    * Print a diagnostic test slip on the currently configured printer for this context.
    */
   public async testPrint(overrideConfig?: UniversalPrinterConfig): Promise<PrintResult> {
+    await this.configManager.ensureLoaded();
     const company = await this.getCompanySettings(true);
-    const driver = this.getActiveDriver();
     const config = overrideConfig || this.configManager.getConfig();
+    const driver = this.resolveDriver(config.type);
 
     return await printerQueue.enqueue(driver, 'TEST', {}, company, { autoCut: true }, config);
   }

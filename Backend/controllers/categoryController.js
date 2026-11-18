@@ -67,6 +67,17 @@ async function ensureIconColumns(pool) {
   }
 }
 
+// In-memory cache for ultra-fast kiosk response
+let categoryCache = {
+  data: null,
+  timestamp: 0,
+};
+
+function invalidateCategoryCache() {
+  categoryCache.data = null;
+  categoryCache.timestamp = 0;
+}
+
 /**
  * 1. GET /api/service-categories or /api/categories
  * Retrieve categories from ServiceCategoryMaster
@@ -77,19 +88,25 @@ async function getServiceCategories(req, res) {
     const { all, search } = req.query || {};
     const includeAll = all === 'true' || all === '1';
 
+    // Serve from cache if active kiosk query
+    if (!includeAll && !search && categoryCache.data && (Date.now() - categoryCache.timestamp < 120000)) {
+      return res.status(200).json(categoryCache.data);
+    }
+
     const pool = await getPool();
     await ensureIconColumns(pool);
     const request = pool.request();
 
+    // Fast query: NEVER fetch raw ImageData and IconData VARBINARY blobs in list queries.
     let query = `
       SELECT 
         ServiceCategoryId,
         ServiceCategoryCode,
         CategoryName,
         Description,
-        ImageData,
+        CASE WHEN ImageData IS NOT NULL AND DATALENGTH(ImageData) > 0 THEN 1 ELSE 0 END AS HasImage,
         ImageContentType,
-        IconData,
+        CASE WHEN IconData IS NOT NULL AND DATALENGTH(IconData) > 0 THEN 1 ELSE 0 END AS HasIcon,
         IconContentType,
         DisplayOrder,
         IsActive,
@@ -114,35 +131,13 @@ async function getServiceCategories(req, res) {
 
     const result = await request.query(query);
 
-    const host = req.get('host') || 'localhost:5000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
-
     const categories = result.recordset.map((row) => {
-      let imageUrl = null;
-      const hasImage = Boolean(row.ImageData && row.ImageData.length > 0);
+      const hasImage = Boolean(row.HasImage);
+      const hasIcon = Boolean(row.HasIcon);
+      const version = row.CreatedDate ? new Date(row.CreatedDate).getTime() : 1;
 
-      if (hasImage) {
-        const mime = row.ImageContentType || 'image/png';
-        const base64 = Buffer.isBuffer(row.ImageData)
-          ? row.ImageData.toString('base64')
-          : Buffer.from(row.ImageData).toString('base64');
-        imageUrl = `data:${mime};base64,${base64}`;
-      } else {
-        imageUrl = `${baseUrl}/api/service-categories/${row.ServiceCategoryId}/image`;
-      }
-
-      let iconUrl = null;
-      const hasIcon = Boolean(row.IconData && row.IconData.length > 0);
-      if (hasIcon) {
-        const iconMime = row.IconContentType || 'image/png';
-        const iconBase64 = Buffer.isBuffer(row.IconData)
-          ? row.IconData.toString('base64')
-          : Buffer.from(row.IconData).toString('base64');
-        iconUrl = `data:${iconMime};base64,${iconBase64}`;
-      } else {
-        iconUrl = `${baseUrl}/api/service-categories/${row.ServiceCategoryId}/icon`;
-      }
+      const imageUrl = `/api/service-categories/${row.ServiceCategoryId}/image?v=${version}`;
+      const iconUrl = `/api/service-categories/${row.ServiceCategoryId}/icon?v=${version}`;
 
       return {
         serviceCategoryId: row.ServiceCategoryId,
@@ -161,11 +156,18 @@ async function getServiceCategories(req, res) {
       };
     });
 
-    return res.status(200).json({
+    const responsePayload = {
       success: true,
       count: categories.length,
       data: categories,
-    });
+    };
+
+    if (!includeAll && !search) {
+      categoryCache.data = responsePayload;
+      categoryCache.timestamp = Date.now();
+    }
+
+    return res.status(200).json(responsePayload);
   } catch (err) {
     console.error('[getServiceCategories Error]', err);
     return res.status(500).json({
@@ -375,6 +377,7 @@ async function createServiceCategory(req, res) {
       );
     `);
 
+    invalidateCategoryCache();
     return res.status(201).json({
       success: true,
       message: `Category "${categoryName}" created successfully.`,
@@ -498,6 +501,7 @@ async function updateServiceCategory(req, res) {
       return res.status(404).json({ success: false, message: `Category ${categoryId} not found.` });
     }
 
+    invalidateCategoryCache();
     return res.status(200).json({
       success: true,
       message: 'Service category updated successfully.',
@@ -536,6 +540,7 @@ async function deleteServiceCategory(req, res) {
         .input('id', sql.Int, categoryId)
         .query(`UPDATE dbo.ServiceCategoryMaster SET IsActive = 0 WHERE ServiceCategoryId = @id`);
 
+      invalidateCategoryCache();
       return res.status(200).json({
         success: true,
         message: 'Category has associated packages, deactivated successfully.',
@@ -546,6 +551,7 @@ async function deleteServiceCategory(req, res) {
       .input('id', sql.Int, categoryId)
       .query(`DELETE FROM dbo.ServiceCategoryMaster WHERE ServiceCategoryId = @id`);
 
+    invalidateCategoryCache();
     return res.status(200).json({
       success: true,
       message: 'Service category deleted successfully from database.',

@@ -19,6 +19,7 @@ import { PosSettingsView } from '../components/PosSettingsView';
 import { BayMasterManagementView } from '../components/BayMasterManagementView';
 import { PosReportsView } from '../components/PosReportsView';
 import { PosCustomerHistoryView } from '../components/PosCustomerHistoryView';
+import { PosDealerManagementView } from '../components/PosDealerManagementView';
 import { BusinessDayHistoryView } from '../components/BusinessDayHistoryView';
 import { SimpleDayModal } from '../../dayManagement/components/SimpleDayModal';
 import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
@@ -46,11 +47,14 @@ import {
   getStoredPendingRequests,
   playNotificationChime,
 } from '../../../services/helpNotificationService';
+import { formatSgDate, formatSgTime, formatSgDateTime, getDbTime } from '../../../services/timeService';
 import {
   subscribeToKioskOrders,
   playOrderAlertSound,
   KioskOrderNotification,
 } from '../../../services/kioskOrderNotificationService';
+import { fetchVehicleTypes } from '../../../services/vehicleApi';
+import { VehicleOption } from '../../kiosk/types/kiosk.types';
 import { Ionicons } from '@expo/vector-icons';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
@@ -93,6 +97,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const [bays, setBays] = useState<WashingBay[]>(INITIAL_BAYS);
   const [rawBayMaster, setRawBayMaster] = useState<BayMasterRecord[]>([]);
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleOption[]>([]);
   const [loadingOrders, setLoadingOrders] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -136,7 +141,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
   // Convert ApiOrder to PosOrder
-  const mapApiOrderToPosOrder = (api: ApiOrder): PosOrder => {
+  const mapApiOrderToPosOrder = (api: ApiOrder, vTypes?: VehicleOption[]): PosOrder => {
     // Check if order belongs to a dealer / commercial credit account
     const isDealer = Boolean(
       (api.dealerId) ||
@@ -165,6 +170,14 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       status = 'CANCELLED';
     }
 
+    const vt = api.vehicleTypeId
+      ? vTypes?.find((v) => v.vehicleTypeId === api.vehicleTypeId)
+      : vTypes?.find(
+          (v) =>
+            (v.name && api.vehicleTypeName && v.name.toLowerCase() === api.vehicleTypeName.toLowerCase()) ||
+            (v.vehicleTypeCode && api.vehicleTypeCode && v.vehicleTypeCode.toLowerCase() === api.vehicleTypeCode.toLowerCase())
+        );
+
     return {
       id: String(api.orderId),
       orderId: api.orderId,
@@ -172,8 +185,12 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       customerName: api.customerName,
       customerMobile: api.mobileNumber,
       vehiclePlate: api.vehicleNumber,
-      vehicleTypeName: api.vehicleTypeName,
-      vehicleCategory: api.vehicleTypeName,
+      vehicleTypeName: api.vehicleTypeName || vt?.name,
+      vehicleTypeCode: api.vehicleTypeCode || vt?.vehicleTypeCode,
+      vehicleTypeId: api.vehicleTypeId || vt?.vehicleTypeId,
+      vehicleCategory: api.vehicleTypeName || vt?.name,
+      vehicleImageUrl: vt?.hasImage && vt?.imageUrl ? vt.imageUrl : undefined,
+      hasImage: vt?.hasImage,
       serviceCategoryName: api.serviceCategoryName,
       packageName: api.packageName,
       packagePrice: api.packagePrice,
@@ -190,7 +207,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       assignedBayName: api.bayId ? `Bay ${api.bayId}` : undefined,
       bayStatus: api.bayStatus,
       waitTime: api.waitTime,
-      createdAt: new Date(api.createdDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: formatSgTime(api.createdDate, { hour: '2-digit', minute: '2-digit' }),
       createdDate: api.createdDate,
       paidDate: api.paidDate,
       startedDate: api.startedDate,
@@ -205,7 +222,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   // Map BayMaster record from dbo.BayMaster to WashingBay
   const mapBayMasterToWashingBay = (
     bm: BayMasterRecord,
-    currentOrders: PosOrder[]
+    currentOrders: PosOrder[],
+    vTypes?: VehicleOption[]
   ): WashingBay => {
     const bayNum = bm.bayNumber;
     const activeOrder = currentOrders.find(
@@ -218,6 +236,14 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       bm.bayStatus === 'IN_SERVICE' ||
       bm.bayStatus === 'OCCUPIED' ||
       !!activeOrder;
+
+    const vt = activeOrder?.vehicleTypeId
+      ? vTypes?.find((v) => v.vehicleTypeId === activeOrder.vehicleTypeId)
+      : vTypes?.find(
+          (v) =>
+            (v.name && activeOrder?.vehicleTypeName && v.name.toLowerCase() === activeOrder.vehicleTypeName.toLowerCase()) ||
+            (v.name && activeOrder?.vehicleCategory && v.name.toLowerCase() === activeOrder.vehicleCategory.toLowerCase())
+        );
 
     return {
       id: String(bm.bayNumber),
@@ -238,6 +264,14 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         ? bm.vehicleNumber || activeOrder?.vehiclePlate
         : undefined,
       vehicleNumber: (bm.vehicleNumber || activeOrder?.vehiclePlate) ?? undefined,
+      vehicleType: isOccupied
+        ? (activeOrder?.vehicleTypeName || activeOrder?.vehicleCategory || activeOrder?.vehicleTypeCode || vt?.name)
+        : undefined,
+      vehicleTypeName: isOccupied ? (activeOrder?.vehicleTypeName || vt?.name) : undefined,
+      vehicleTypeCode: isOccupied ? (activeOrder?.vehicleTypeCode || vt?.vehicleTypeCode) : undefined,
+      vehicleTypeId: isOccupied ? (activeOrder?.vehicleTypeId || vt?.vehicleTypeId) : undefined,
+      vehicleImageUrl: isOccupied ? (activeOrder?.vehicleImageUrl || (vt?.hasImage ? vt.imageUrl : undefined) || undefined) : undefined,
+      hasImage: isOccupied ? (activeOrder?.hasImage ?? vt?.hasImage) : undefined,
       packageName: isOccupied
         ? activeOrder?.packageName || 'Washing Service'
         : 'Ready for Wash',
@@ -252,7 +286,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   };
 
   // Sync 5 Washing Bays with active database orders (Fallback if offline)
-  const syncBaysWithOrders = (currentOrders: PosOrder[]) => {
+  const syncBaysWithOrders = (currentOrders: PosOrder[], vTypes?: VehicleOption[]) => {
     setBays((prevBays) =>
       prevBays.map((bay) => {
         const bayNum = bay.bayNumber || parseInt(bay.id.replace(/\D/g, '') || '1', 10);
@@ -263,12 +297,26 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         );
 
         if (activeOrder) {
+          const vt = activeOrder?.vehicleTypeId
+            ? vTypes?.find((v) => v.vehicleTypeId === activeOrder.vehicleTypeId)
+            : vTypes?.find(
+                (v) =>
+                  (v.name && activeOrder?.vehicleTypeName && v.name.toLowerCase() === activeOrder.vehicleTypeName.toLowerCase()) ||
+                  (v.name && activeOrder?.vehicleCategory && v.name.toLowerCase() === activeOrder.vehicleCategory.toLowerCase())
+              );
+
           return {
             ...bay,
             status: 'IN_SERVICE',
             customerName: activeOrder.customerName,
             vehiclePlate: activeOrder.vehiclePlate,
             packageName: activeOrder.packageName,
+            vehicleType: activeOrder.vehicleTypeName || activeOrder.vehicleCategory || activeOrder.vehicleTypeCode || vt?.name,
+            vehicleTypeName: activeOrder.vehicleTypeName || vt?.name,
+            vehicleTypeCode: activeOrder.vehicleTypeCode || vt?.vehicleTypeCode,
+            vehicleTypeId: activeOrder.vehicleTypeId || vt?.vehicleTypeId,
+            vehicleImageUrl: activeOrder.vehicleImageUrl || (vt?.hasImage ? vt.imageUrl : undefined) || undefined,
+            hasImage: activeOrder.hasImage ?? vt?.hasImage,
             orderId: activeOrder.id,
             startTime: activeOrder.createdAt,
             duration: activeOrder.waitTime || 'In Service',
@@ -280,6 +328,12 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           status: 'AVAILABLE',
           customerName: 'No Vehicle',
           vehiclePlate: undefined,
+          vehicleType: undefined,
+          vehicleTypeName: undefined,
+          vehicleTypeCode: undefined,
+          vehicleTypeId: undefined,
+          vehicleImageUrl: undefined,
+          hasImage: false,
           packageName: 'Ready for Wash',
           orderId: undefined,
           startTime: '-',
@@ -298,7 +352,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           ? targetDayId
           : (selectedHistoryDay?.dayId || (isDayOpen && activeDayId ? activeDayId : undefined));
 
-      const [apiOrders, bayMasterList] = await Promise.all([
+      const [apiOrders, bayMasterList, vTypes] = await Promise.all([
         effectiveDayId
           ? fetchCarWashOrders('ALL', '', '', effectiveDayId)
           : fetchCarWashOrders('ALL', '', 'today'),
@@ -306,9 +360,18 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           console.warn('Failed to fetch BayMaster list:', err);
           return [] as BayMasterRecord[];
         }),
+        fetchVehicleTypes().catch((err) => {
+          console.warn('Failed to fetch vehicle types:', err);
+          return [] as VehicleOption[];
+        }),
       ]);
 
-      const mappedOrders = apiOrders.map(mapApiOrderToPosOrder);
+      const effectiveVehicleTypes = vTypes && vTypes.length > 0 ? vTypes : vehicleTypes;
+      if (vTypes && vTypes.length > 0) {
+        setVehicleTypes(vTypes);
+      }
+
+      const mappedOrders = apiOrders.map((o) => mapApiOrderToPosOrder(o, effectiveVehicleTypes));
 
       // Detect newly created orders from polling (e.g. from external Kiosk device)
       if (!isFirstLoadRef.current && knownOrderKeysRef.current.size > 0) {
@@ -347,11 +410,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
       if (bayMasterList && bayMasterList.length > 0) {
         const mappedBays = bayMasterList.map((bm) =>
-          mapBayMasterToWashingBay(bm, mappedOrders)
+          mapBayMasterToWashingBay(bm, mappedOrders, effectiveVehicleTypes)
         );
         setBays(mappedBays);
       } else {
-        syncBaysWithOrders(mappedOrders);
+        syncBaysWithOrders(mappedOrders, effectiveVehicleTypes);
       }
     } catch (err: any) {
       if (!silent) {
@@ -756,7 +819,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     )
     .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-  const formattedTodayDate = new Date().toLocaleDateString('en-GB', {
+  const formattedTodayDate = formatSgDate(getDbTime(), {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -765,18 +828,12 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
   const formatFullDate = (d?: string | Date | null) => {
     if (!d) return formattedTodayDate;
-    try {
-      const dateObj = typeof d === 'string' ? new Date(d) : d;
-      if (isNaN(dateObj.getTime())) return formattedTodayDate;
-      return dateObj.toLocaleDateString('en-GB', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-    } catch {
-      return formattedTodayDate;
-    }
+    return formatSgDate(d, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
   };
 
   return (
@@ -788,6 +845,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         screenName={
           activeTab === 'CUSTOMERS'
             ? 'PosCustomerHistoryView.tsx'
+            : activeTab === 'DEALERS'
+            ? 'PosDealerManagementView.tsx'
             : activeTab === 'BAYS'
             ? 'BayMasterManagementView.tsx'
             : activeTab === 'HISTORY'
@@ -801,6 +860,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         pageTitle={
           activeTab === 'CUSTOMERS'
             ? 'Customer History'
+            : activeTab === 'DEALERS'
+            ? 'Dealer Accounts & Credit'
             : activeTab === 'BAYS'
             ? 'Bay Management'
             : activeTab === 'HISTORY'
@@ -816,6 +877,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         pageSubtitle={
           activeTab === 'CUSTOMERS'
             ? 'Lifetime car wash records, vehicle history, customer loyalty & spend logs'
+            : activeTab === 'DEALERS'
+            ? 'Commercial fleet accounts, credit ledger history, and payment settlement flow'
             : activeTab === 'HISTORY'
             ? 'Immutable shift records, sales telemetry, and completed wash orders'
             : activeTab === 'BAYS'
@@ -1072,6 +1135,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       <ScrollView
         style={styles.mainPane}
         contentContainerStyle={[styles.mainContent, isMobile && { padding: 12, paddingBottom: 32 }]}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
       >
         {activeTab === 'SETTINGS' ? (
           <PosSettingsView
@@ -1103,6 +1168,12 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
             searchQuery={searchQuery}
             refreshTrigger={customerRefreshTrigger}
+          />
+        ) : activeTab === 'DEALERS' ? (
+          <PosDealerManagementView
+            cashierName={cashierName}
+            onBackToOrders={() => handleSelectTab('ORDERS')}
+            onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           />
         ) : activeTab === 'HISTORY' ? (
           <BusinessDayHistoryView
@@ -1194,6 +1265,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             {/* 4. Bay Overview Section: Exactly 5 Washing Bays synced with SQL Server */}
             <BayOverviewCards
               bays={bays}
+              vehicleTypes={vehicleTypes}
               onSelectBay={handleSelectBay}
               onManageBays={handleManageBays}
             />
@@ -1236,6 +1308,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 style={styles.bayOptionsScrollView}
                 contentContainerStyle={{ paddingBottom: 4 }}
                 showsVerticalScrollIndicator={false}
+                nestedScrollEnabled={true}
               >
                 <View style={styles.bayOptionsList}>
                   {availableBays.map((bay) => {
@@ -1512,7 +1585,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 <Text style={{ color: '#64748B', fontSize: 13 }}>No status history records found.</Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 360, marginVertical: 10 }}>
+              <ScrollView style={{ maxHeight: 360, marginVertical: 10 }} nestedScrollEnabled={true}>
                 {orderHistoryList.map((hist, i) => (
                   <View key={hist.historyId || i} style={styles.historyRow}>
                     <View style={styles.historyBadge}>
@@ -1521,12 +1594,31 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                       </Text>
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.historyStatusName}>{hist.newStatusName}</Text>
+                      {(() => {
+                        const isCreditStep = Boolean(
+                          (hist.newStatusName === 'PAID' || hist.newStatusCode === 30 || hist.newStatusName === 'CREDIT') && (
+                            (hist.remarks && hist.remarks.toLowerCase().includes('credit')) ||
+                            (hist.changedBy && hist.changedBy.toUpperCase().includes('DEALER'))
+                          )
+                        );
+                        return (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.historyStatusName, isCreditStep && { color: '#2563EB' }]}>
+                              {isCreditStep ? 'CREDIT' : hist.newStatusName}
+                            </Text>
+                            {isCreditStep && (
+                              <View style={{ backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                                <Text style={{ fontSize: 9, fontWeight: '800', color: '#1D4ED8' }}>DEALER ACCOUNT</Text>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })()}
                       {hist.remarks && (
                         <Text style={styles.historyRemarks}>{hist.remarks}</Text>
                       )}
                       <Text style={styles.historyMeta}>
-                        Changed by <Text style={{ fontWeight: '700' }}>{hist.changedBy}</Text> • {new Date(hist.changedDate).toLocaleString()}
+                        Changed by <Text style={{ fontWeight: '700' }}>{hist.changedBy}</Text> • {formatSgDateTime(hist.changedDate)}
                       </Text>
                     </View>
                   </View>
@@ -1558,7 +1650,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 380, marginVertical: 10 }}>
+            <ScrollView style={{ maxHeight: 380, marginVertical: 10 }} nestedScrollEnabled={true}>
               {/* Kiosk Customer Help Requests */}
               {activeHelpAlerts.length > 0 && (
                 <View style={styles.notificationCardSiren}>
@@ -1581,7 +1673,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                         </View>
                         <Text style={styles.notificationItemSub}>{alert.message}</Text>
                         <Text style={styles.notificationItemMeta}>
-                          Requested at {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          Requested at {formatSgTime(alert.timestamp, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -1657,12 +1749,19 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 </View>
               )}
 
-              <View style={styles.notificationCardDefault}>
-                <Text style={styles.notificationCardTitle}>⚙️ System Status</Text>
-                <Text style={styles.notificationItemSub}>
-                  RED BAY POS Station is connected with live database updates enabled.
-                </Text>
-              </View>
+              {activeHelpAlerts.length === 0 &&
+                orders.filter((o) => o.statusCode === 30 || (o.paymentStatus === 'PAID' && !o.assignedBayId)).length === 0 &&
+                orders.filter((o) => o.statusCode === 50 || o.status === 'IN_SERVICE').length === 0 && (
+                  <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 32 }}>
+                    <Ionicons name="notifications-off-outline" size={36} color="#94A3B8" />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#64748B', marginTop: 8 }}>
+                      No new notifications
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>
+                      All orders and service bays are up to date.
+                    </Text>
+                  </View>
+                )}
             </ScrollView>
 
             <TouchableOpacity

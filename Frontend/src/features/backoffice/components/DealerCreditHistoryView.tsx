@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -17,10 +18,19 @@ import {
   DealerCreditBillItem,
   DealerCreditSummary,
 } from '../../../services/dealerApi';
+import { formatSgDateTime } from '../../../services/timeService';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 
-export const DealerCreditHistoryView: React.FC = () => {
+export interface DealerCreditHistoryViewProps {
+  theme?: 'dark' | 'light';
+}
+
+export const DealerCreditHistoryView: React.FC<DealerCreditHistoryViewProps> = ({
+  theme = 'dark',
+}) => {
+  const isLight = theme === 'light';
+  const styles = useMemo(() => getStyles(isLight), [isLight]);
   const [dealers, setDealers] = useState<DealerRecord[]>([]);
   const [selectedDealerId, setSelectedDealerId] = useState<number | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -74,18 +84,7 @@ export const DealerCreditHistoryView: React.FC = () => {
 
   const formatDateTime = (dtStr?: string) => {
     if (!dtStr) return '-';
-    try {
-      const d = new Date(dtStr);
-      return d.toLocaleDateString('en-SG', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dtStr;
-    }
+    return formatSgDateTime(dtStr);
   };
 
   const getStatusBadge = (status?: string) => {
@@ -500,11 +499,11 @@ export const DealerCreditHistoryView: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (isLight: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     padding: 14,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: isLight ? 'transparent' : '#0A0A0A',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -518,14 +517,19 @@ const styles = StyleSheet.create({
   },
   kpiCard: {
     flex: 1,
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   kpiCardSales: {
     borderLeftWidth: 3.5,
@@ -555,7 +559,7 @@ const styles = StyleSheet.create({
   kpiValue: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     marginTop: 2,
   },
   kpiSub: {
@@ -566,13 +570,18 @@ const styles = StyleSheet.create({
 
   /* Filter Card */
   filterCard: {
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     padding: 10,
     marginBottom: 12,
     gap: 10,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   dealerFilterRow: {
     flexDirection: 'row',
@@ -588,7 +597,7 @@ const styles = StyleSheet.create({
   dealerFilterLabelText: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: '#D97706',
+    color: isLight ? '#0F172A' : '#D97706',
     letterSpacing: 0.5,
   },
   pillScroll: {
@@ -603,39 +612,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: 7,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
   },
   filterPillActive: {
-    backgroundColor: 'rgba(255,26,26,0.18)',
+    backgroundColor: isLight ? '#FEF2F2' : 'rgba(255,26,26,0.18)',
     borderColor: RED_BAY_COLORS.primary,
   },
   filterPillText: {
     fontSize: 11.5,
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
     fontWeight: '600',
   },
   filterPillTextActive: {
-    color: '#FFFFFF',
+    color: isLight ? '#ED0712' : '#FFFFFF',
     fontWeight: '800',
   },
   pillCodeTag: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(255,255,255,0.08)',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
   },
   pillCodeTagActive: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: isLight ? '#DBEAFE' : 'rgba(255,255,255,0.18)',
   },
   pillCodeText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
   },
   pillCodeTextActive: {
-    color: '#FFFFFF',
+    color: isLight ? '#1D4ED8' : '#FFFFFF',
   },
 
   /* Controls Row: Status Segment & Search */
@@ -646,15 +655,15 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
+    borderTopColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.05)',
   },
   statusSegment: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.03)',
     borderRadius: 7,
     padding: 3,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     gap: 4,
   },
   statusTabBtn: {
@@ -666,7 +675,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   statusTabBtnActive: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.12)',
   },
   statusDot: {
     width: 6,
@@ -676,10 +685,10 @@ const styles = StyleSheet.create({
   statusTabBtnText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: isLight ? '#64748B' : '#94A3B8',
   },
   statusTabBtnTextActive: {
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     fontWeight: '800',
   },
   searchAndRefresh: {
@@ -690,10 +699,10 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.04)',
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: isLight ? '#CBD5E1' : 'rgba(255,255,255,0.1)',
     paddingHorizontal: 9,
     height: 34,
     gap: 6,
@@ -701,28 +710,33 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     fontSize: 11.5,
   },
   refreshBtn: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.08)',
     padding: 8,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: isLight ? '#CBD5E1' : 'rgba(255,255,255,0.1)',
   },
 
   /* Streamlined Table Card */
   tableCard: {
     flex: 1,
-    backgroundColor: '#161616',
-    borderRadius: 12,
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
+    borderRadius: isLight ? 14 : 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
     minHeight: 0,
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
+      : isLight
+      ? { elevation: 2 }
+      : {}),
   },
   horizontalScroll: {
     flex: 1,
@@ -735,9 +749,9 @@ const styles = StyleSheet.create({
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.035)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.035)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.08)',
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -757,20 +771,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.04)',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.04)',
   },
   tableRowEven: {
-    backgroundColor: 'rgba(255,255,255,0.015)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.015)',
   },
   billNumberText: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
   },
   cellBold: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   cellSubText: {
     fontSize: 10.5,
@@ -778,7 +792,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   dealerCodeTag: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(255,255,255,0.06)',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
@@ -788,19 +802,19 @@ const styles = StyleSheet.create({
   dealerCodeTagText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#94A3B8',
+    color: isLight ? '#1D4ED8' : '#94A3B8',
   },
   plateTag: {
-    backgroundColor: '#0F172A',
+    backgroundColor: isLight ? '#F1F5F9' : '#0F172A',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: isLight ? '#CBD5E1' : '#334155',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
     alignSelf: 'flex-start',
   },
   plateText: {
-    color: '#F8FAFC',
+    color: isLight ? '#0F172A' : '#F8FAFC',
     fontWeight: '900',
     fontSize: 11,
     letterSpacing: 0.5,
@@ -836,16 +850,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(56,189,248,0.1)',
+    backgroundColor: isLight ? '#EFF6FF' : 'rgba(56,189,248,0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(56,189,248,0.25)',
+    borderColor: isLight ? '#BFDBFE' : 'rgba(56,189,248,0.25)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   viewBtnText: {
     fontSize: 10.5,
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
     fontWeight: '700',
   },
   centerContainer: {
@@ -862,7 +876,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     marginTop: 6,
   },
   emptySub: {
@@ -873,7 +887,7 @@ const styles = StyleSheet.create({
   /* Detail Modal */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
@@ -882,11 +896,16 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 680,
     maxHeight: '90%',
-    backgroundColor: '#161616',
+    backgroundColor: isLight ? '#FFFFFF' : '#161616',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
+    ...(isLight && Platform.OS === 'web'
+      ? ({ boxShadow: '0 8px 30px rgba(15, 23, 42, 0.12)' } as any)
+      : isLight
+      ? { elevation: 6 }
+      : {}),
   },
   modalHeader: {
     flexDirection: 'row',
@@ -894,20 +913,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.08)',
   },
   modalIconBox: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,26,26,0.15)',
+    backgroundColor: isLight ? '#FEF2F2' : 'rgba(255,26,26,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   modalSubtitle: {
     fontSize: 11,
@@ -921,17 +940,17 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalSectionCard: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.06)',
     padding: 14,
     marginBottom: 12,
   },
   modalSectionHeading: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: '#D97706',
+    color: isLight ? '#0F172A' : '#D97706',
     letterSpacing: 0.5,
     marginBottom: 10,
   },
@@ -952,17 +971,17 @@ const styles = StyleSheet.create({
   },
   modalVal: {
     fontSize: 12,
-    color: '#E2E8F0',
+    color: isLight ? '#0F172A' : '#E2E8F0',
     marginTop: 2,
   },
   modalValBold: {
     fontSize: 12.5,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
     marginTop: 2,
   },
   modalFinancialBox: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#F8FAFC' : 'rgba(255,255,255,0.02)',
     borderRadius: 8,
     padding: 10,
     gap: 6,
@@ -974,39 +993,39 @@ const styles = StyleSheet.create({
   },
   finLabel: {
     fontSize: 11.5,
-    color: '#94A3B8',
+    color: '#64748B',
   },
   finVal: {
     fontSize: 12.5,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   finLabelBold: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: isLight ? '#0F172A' : '#FFFFFF',
   },
   finValBold: {
     fontSize: 14,
     fontWeight: '900',
   },
   receiptItem: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.02)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.05)',
     padding: 10,
     marginBottom: 6,
   },
   receiptNoText: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: isLight ? '#1D4ED8' : '#38BDF8',
   },
   receiptAllocText: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#22C55E',
+    color: isLight ? '#059669' : '#22C55E',
   },
   receiptDateText: {
     fontSize: 10.5,
@@ -1015,17 +1034,17 @@ const styles = StyleSheet.create({
   },
   receiptRefText: {
     fontSize: 10.5,
-    color: '#94A3B8',
+    color: '#64748B',
     marginTop: 1,
   },
   modalFooter: {
     padding: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: isLight ? '#F1F5F9' : 'rgba(255,255,255,0.08)',
     alignItems: 'flex-end',
   },
   modalCloseButton: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isLight ? '#ED0712' : 'rgba(255,255,255,0.08)',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 7,

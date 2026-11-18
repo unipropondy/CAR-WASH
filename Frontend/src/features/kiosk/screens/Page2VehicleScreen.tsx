@@ -10,10 +10,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { VehicleOption, DealerOption } from '../types/kiosk.types';
-import { fetchVehicleTypes } from '../../../services/vehicleApi';
+import { fetchVehicleTypes, getCachedVehicleTypes } from '../../../services/vehicleApi';
+import { resolveApiUrl } from '../../../services/apiConfig';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface Page2VehicleScreenProps {
   initialVehicle?: VehicleOption;
@@ -95,20 +98,32 @@ const VEHICLE_LOCAL_ASSETS: Record<string, any> = {
   coupe: require('../../../../assets/images/vehicles/coupe.png'),
 };
 
-export function getVehicleImageSource(item?: VehicleOption | null): any {
+export function getVehicleImageSource(item?: VehicleOption | null, hasLoadFailed: boolean = false): any {
   if (!item) return null;
-  if (item.imageUrl && item.hasImage) {
-    return { uri: item.imageUrl };
-  }
   const code = (item.vehicleTypeCode || '').toLowerCase().trim();
   const name = (item.name || '').toLowerCase().trim();
+
+  // If network image failed or not provided, return local asset immediately
+  if (hasLoadFailed || !item.imageUrl) {
+    if (VEHICLE_LOCAL_ASSETS[code]) return VEHICLE_LOCAL_ASSETS[code];
+    if (VEHICLE_LOCAL_ASSETS[name]) return VEHICLE_LOCAL_ASSETS[name];
+    for (const [k, src] of Object.entries(VEHICLE_LOCAL_ASSETS)) {
+      if (code.includes(k) || name.includes(k) || k.replace('_', ' ') === name) return src;
+    }
+  }
+
+  // If item has a server/network imageUrl
+  if (item.imageUrl && !hasLoadFailed) {
+    const resolved = resolveApiUrl(item.imageUrl);
+    if (resolved) {
+      return { uri: resolved };
+    }
+  }
+
   if (VEHICLE_LOCAL_ASSETS[code]) return VEHICLE_LOCAL_ASSETS[code];
   if (VEHICLE_LOCAL_ASSETS[name]) return VEHICLE_LOCAL_ASSETS[name];
   for (const [k, src] of Object.entries(VEHICLE_LOCAL_ASSETS)) {
-    if (code.includes(k) || name.includes(k)) return src;
-  }
-  if (item.imageUrl) {
-    return { uri: item.imageUrl };
+    if (code.includes(k) || name.includes(k) || k.replace('_', ' ') === name) return src;
   }
   return null;
 }
@@ -137,36 +152,76 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
   onBack,
   onExitToPos,
 }) => {
-  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    isLandscapeShort, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    vehicleCols, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
+
+  const isVeryNarrow = width < 480;
+  const cardWidthPercent = isVeryNarrow 
+    ? '47%' 
+    : vehicleCols === 3 
+      ? '30.5%' 
+      : '47%';
+
+  const dynamicImageShowcaseHeight = scaleSize(125, 105, 150);
+  const dynamicVehicleImgHeight = scaleSize(115, 95, 135);
+  const dynamicVehicleNameFont = scaleFont(16.5, 15, 20);
+  const dynamicSizeHintFont = scaleFont(11.5, 10.5, 13);
+
+  const initialVehicles = getCachedVehicleTypes();
+  const [vehicles, setVehicles] = useState<VehicleOption[]>(initialVehicles);
+  const [loading, setLoading] = useState<boolean>(initialVehicles.length === 0);
   const [error, setError] = useState<string>('');
 
-  const [selectedVehicle, setSelectedVehicle] = useState<VehicleOption | undefined>(initialVehicle);
-  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<number | undefined>(
-    initialVehicle?.vehicleTypeId
-  );
+  const [selectedVehicle, setSelectedVehicle] = useState<VehicleOption | undefined>(() => {
+    if (initialVehicle) return initialVehicle;
+    if (isDealer && initialVehicles.length > 0) return initialVehicles[0];
+    return undefined;
+  });
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<number | undefined>(() => {
+    if (initialVehicle?.vehicleTypeId) return initialVehicle.vehicleTypeId;
+    if (isDealer && initialVehicles.length > 0) return initialVehicles[0].vehicleTypeId;
+    return undefined;
+  });
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   const loadVehicles = async () => {
     try {
-      setLoading(true);
+      if (vehicles.length === 0) {
+        setLoading(true);
+      }
       setError('');
       const data = await fetchVehicleTypes();
-      setVehicles(data);
+      if (data && data.length > 0) {
+        setVehicles(data);
 
-      if (initialVehicle) {
-        const found = data.find(
-          (v: VehicleOption) => v.vehicleTypeId === initialVehicle.vehicleTypeId || v.id === initialVehicle.id
-        );
-        if (found) {
-          setSelectedVehicle(found);
-          setSelectedVehicleTypeId(found.vehicleTypeId);
+        if (initialVehicle) {
+          const found = data.find(
+            (v: VehicleOption) => v.vehicleTypeId === initialVehicle.vehicleTypeId || v.id === initialVehicle.id
+          );
+          if (found) {
+            setSelectedVehicle(found);
+            setSelectedVehicleTypeId(found.vehicleTypeId);
+          }
+        } else if (isDealer && !selectedVehicle && data.length > 0) {
+          setSelectedVehicle(data[0]);
+          setSelectedVehicleTypeId(data[0].vehicleTypeId);
         }
-      } else if (isDealer && data.length > 0) {
-        setSelectedVehicle(data[0]);
-        setSelectedVehicleTypeId(data[0].vehicleTypeId);
       }
     } catch (err: any) {
-      setError(err?.message || 'Failed to load vehicle types from server.');
+      if (vehicles.length === 0) {
+        setError(err?.message || 'Failed to load vehicle types from server.');
+      }
     } finally {
       setLoading(false);
     }
@@ -190,6 +245,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle={isDealer ? "DEALER STEP 1: VEHICLE TYPE" : "STEP 1 OF 5: VEHICLE TYPE"}
@@ -200,22 +256,22 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
       />
 
       {/* Main Title & Prompt Header */}
-      <View style={styles.promptHeader}>
-        <Text style={styles.mainTitle}>{isDealer ? "Select Vehicle Type" : "Select Your Vehicle Type"}</Text>
-        <Text style={styles.subtitle}>
+      <View style={[styles.promptHeader, isTallKiosk && styles.promptHeaderTall]}>
+        <Text style={[styles.mainTitle, isTallKiosk && styles.mainTitleTall]}>{isDealer ? "Select Vehicle Type" : "Select Your Vehicle Type"}</Text>
+        <Text style={[styles.subtitle, isTallKiosk && styles.subtitleTall]}>
           {isDealer 
             ? "Choose the vehicle category for commercial account billing."
             : "Choose the category matching your vehicle. Pricing is tailored accordingly."}
         </Text>
       </View>
 
-      {/* Content Area - Optimized for PORTRAIT MODE */}
-      {loading ? (
+      {/* Content Area - Optimized for PORTRAIT MODE & TABLETS */}
+      {loading && vehicles.length === 0 ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
           <Text style={styles.loadingText}>Loading vehicle categories...</Text>
         </View>
-      ) : error ? (
+      ) : error && vehicles.length === 0 ? (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
           <Text style={styles.errorText}>{error}</Text>
@@ -226,20 +282,32 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
       ) : (
         <ScrollView 
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent, 
+            { paddingHorizontal: horizontalPadding }, 
+            isTallKiosk && styles.scrollContentTall
+          ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.portraitGrid}>
+          <View style={[styles.portraitGrid, { maxWidth: contentMaxWidth }, isTallKiosk && styles.portraitGridTall]}>
             {vehicles.map((item) => {
               const isSelected = selectedVehicleTypeId === item.vehicleTypeId;
               const meta = getVehicleMeta(item.name);
-              const imgSource = getVehicleImageSource(item);
+              const imgSource = getVehicleImageSource(item, Boolean(failedImages[String(item.vehicleTypeId)]));
+              const hasDescription = Boolean(
+                item.description &&
+                item.description.trim() !== '' &&
+                item.description.trim() !== '-'
+              );
 
               return (
                 <TouchableOpacity
                   key={item.vehicleTypeId}
                   style={[
                     styles.vehicleCard,
+                    { width: cardWidthPercent },
+                    isTallKiosk && styles.vehicleCardTall,
+                    isLandscapeShort && styles.vehicleCardShort,
                     isSelected && styles.vehicleCardSelected,
                   ]}
                   onPress={() => handleSelect(item)}
@@ -247,37 +315,63 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
                   accessibilityRole="radio"
                   accessibilityState={{ selected: isSelected }}
                 >
-                  {/* Top Red Strip when selected */}
-                  {isSelected && <View style={styles.cardSelectedStrip} />}
-
-                  {/* Body: Vehicle Image Showcase with Pedestal */}
-                  <View style={[styles.imageShowcase, isSelected && styles.imageShowcaseSelected]}>
+                  {/* Body: Vehicle Image Showcase */}
+                  <View style={[
+                    styles.imageShowcase, 
+                    { height: dynamicImageShowcaseHeight },
+                    isTallKiosk && styles.imageShowcaseTall,
+                    isLandscapeShort && styles.imageShowcaseShort,
+                    isSelected && styles.imageShowcaseSelected
+                  ]}>
                     {imgSource ? (
                       <Image
                         source={imgSource}
-                        style={styles.vehicleImage}
+                        style={[
+                          styles.vehicleImage,
+                          { height: dynamicVehicleImgHeight },
+                          isTallKiosk && styles.vehicleImageTall,
+                          isLandscapeShort && styles.vehicleImageShort
+                        ]}
                         resizeMode="contain"
+                        onError={() => {
+                          setFailedImages((prev) => ({ ...prev, [String(item.vehicleTypeId)]: true }));
+                        }}
                       />
                     ) : (
-                      <View style={[styles.iconBox, isSelected && styles.iconBoxSelected]}>
+                      <View style={[
+                        styles.iconBox, 
+                        isTallKiosk && styles.iconBoxTall,
+                        isSelected && styles.iconBoxSelected
+                      ]}>
                         <Ionicons
                           name={meta.iconName}
-                          size={38}
+                          size={isTallKiosk ? 52 : 38}
                           color={isSelected ? RED_BAY_COLORS.primary : meta.accentColor}
                         />
                       </View>
                     )}
-                    <View style={styles.pedestalShadow} />
                   </View>
 
-                  {/* Info: Name & Subtitle */}
+                  {/* Info: Name & Select Action */}
                   <View style={styles.cardInfo}>
-                    <Text style={[styles.vehicleName, isSelected && styles.vehicleNameSelected]} numberOfLines={1}>
+                    <Text style={[
+                      styles.vehicleName, 
+                      { fontSize: dynamicVehicleNameFont },
+                      isTallKiosk && styles.vehicleNameTall,
+                      isLandscapeShort && styles.vehicleNameShort,
+                      isSelected && styles.vehicleNameSelected,
+                    ]} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={styles.vehicleSizeHint} numberOfLines={2}>
-                      {item.description || meta.sizeLabel}
-                    </Text>
+                    {hasDescription ? (
+                      <Text style={[
+                        styles.vehicleSizeHint,
+                        { fontSize: dynamicSizeHintFont },
+                        isTallKiosk && styles.vehicleSizeHintTall
+                      ]} numberOfLines={1}>
+                        {item.description!.trim()}
+                      </Text>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );
@@ -292,17 +386,21 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
   },
   promptHeader: {
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
+  },
+  promptHeaderTall: {
+    paddingVertical: 18,
+    paddingHorizontal: 24,
   },
   stepBadge: {
     backgroundColor: '#FEF2F2',
@@ -325,12 +423,19 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     letterSpacing: 0.3,
   },
+  mainTitleTall: {
+    fontSize: 28,
+  },
   subtitle: {
     fontSize: 12.5,
     color: '#64748B',
     marginTop: 2,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  subtitleTall: {
+    fontSize: 15,
+    marginTop: 4,
   },
   centerContainer: {
     flex: 1,
@@ -363,81 +468,104 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    width: '100%',
   },
   scrollContent: {
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'center',
     flexGrow: 1,
+  },
+  scrollContentTall: {
+    paddingVertical: 28,
+    paddingHorizontal: 24,
   },
   portraitGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 16,
+    justifyContent: 'center',
+    gap: 18,
+    rowGap: 20,
     width: '100%',
-    maxWidth: 600,
+    maxWidth: 840,
+  },
+  portraitGridTall: {
+    gap: 22,
+    rowGap: 22,
+    maxWidth: 880,
   },
   vehicleCard: {
-    width: '48.5%',
+    width: '30.5%',
+    maxWidth: 245,
+    minWidth: 160,
+    aspectRatio: 0.96,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    paddingHorizontal: 10,
-    paddingTop: 12,
-    paddingBottom: 14,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 16,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     position: 'relative',
     overflow: 'hidden',
-    minHeight: 185,
-    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 12, 3),
+    ...makeShadow('#0F172A', { width: 0, height: 6 }, 0.08, 14, 2),
+  },
+  vehicleCard3Col: {
+    width: '30.5%',
+  },
+  vehicleCardTall: {
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 18,
+    ...makeShadow('#0F172A', { width: 0, height: 8 }, 0.10, 16, 3),
+  },
+  vehicleCardShort: {
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderRadius: 16,
   },
   vehicleCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFFAFA',
+    backgroundColor: '#FFFFFF',
     borderWidth: 2.5,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.22, 16, 4),
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.28, 18, 4),
   },
   cardSelectedStrip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: RED_BAY_COLORS.primary,
+    display: 'none',
   },
   imageShowcase: {
     width: '100%',
-    height: 104,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    padding: 6,
+    backgroundColor: 'transparent',
+    padding: 0,
+    marginBottom: 4,
+  },
+  imageShowcaseTall: {
     marginBottom: 8,
   },
+  imageShowcaseShort: {
+    marginBottom: 2,
+  },
   imageShowcaseSelected: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FEE2E2',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
   vehicleImage: {
-    width: '100%',
-    height: 90,
-    zIndex: 2,
+    width: '92%',
+    height: 115,
   },
-  pedestalShadow: {
-    position: 'absolute',
-    bottom: 6,
-    width: '75%',
-    height: 6,
-    borderRadius: 6,
-    backgroundColor: 'rgba(15, 23, 42, 0.05)',
-    zIndex: 1,
+  vehicleImageTall: {
+    height: 130,
+  },
+  vehicleImageShort: {
+    height: 95,
   },
   iconBox: {
     width: 52,
@@ -449,33 +577,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconBoxTall: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+  },
   iconBoxSelected: {
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
   },
   cardInfo: {
     alignItems: 'center',
+    justifyContent: 'center',
     width: '100%',
     marginTop: 4,
   },
   vehicleName: {
     fontSize: 16.5,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  vehicleNameTall: {
+    fontSize: 18,
     letterSpacing: 0.3,
+  },
+  vehicleNameShort: {
+    fontSize: 14.5,
   },
   vehicleNameSelected: {
     color: RED_BAY_COLORS.primary,
   },
+  selectBtn: {
+    backgroundColor: RED_BAY_COLORS.primary,
+    paddingVertical: 7,
+    paddingHorizontal: 22,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+    minWidth: 88,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 2 }, 0.18, 6, 1),
+  },
+  selectBtnSelected: {
+    backgroundColor: '#B91C1C',
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 3 }, 0.25, 8, 2),
+  },
+  selectBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
   vehicleSizeHint: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
-    fontWeight: '600',
+    fontWeight: '500',
     marginTop: 2,
     textAlign: 'center',
-    lineHeight: 15,
+    lineHeight: 14,
     paddingHorizontal: 4,
+  },
+  vehicleSizeHintTall: {
+    fontSize: 12,
+    lineHeight: 15,
+    marginTop: 2,
   },
   dealerBannerBadge: {
     flexDirection: 'row',

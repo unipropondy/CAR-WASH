@@ -6,7 +6,8 @@ import {
   StyleSheet, 
   ScrollView, 
   Platform,
-  Image 
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
@@ -15,6 +16,7 @@ import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { printKioskReceipt, triggerBrowserReceiptPrint } from '../../../services/printerApi';
 import { getVehicleImageSource } from './Page2VehicleScreen';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface Page6SuccessScreenProps {
   order: KioskOrder;
@@ -27,6 +29,22 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
   onNewCustomer,
   onExitToPos,
 }) => {
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
+
+  const dynamicPassMaxWidth = isLandscape 
+    ? clamp(Math.round(width * 0.75), 680, 960) 
+    : clamp(Math.round(width * 0.90), 440, 780);
+
   const [printStatus, setPrintStatus] = useState<'IDLE' | 'PRINTING' | 'DONE' | 'ERROR'>('PRINTING');
   const [printMessage, setPrintMessage] = useState<string>('Auto-printing receipt...');
   const [countdown, setCountdown] = useState<number>(30);
@@ -35,23 +53,38 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
   const isDealer = order.userType === 'DEALER';
 
   // Automatic Kiosk Receipt Printing upon successful order placement
-  // Uses the Kiosk printer config (kioskPrinterConfigManager) — never the POS printer.
   const executePrint = async (isManual = false) => {
     setPrintStatus('PRINTING');
-    setPrintMessage(isManual ? 'Printing bill ticket...' : 'Auto-printing receipt on Kiosk printer...');
+    setPrintMessage(isManual ? 'Printing bill ticket...' : 'Auto-printing receipt on thermal printer...');
     try {
       const res = await printKioskReceipt(order);
-      setPrintStatus('DONE');
-      if (res.printer) {
-        setPrintMessage(`✓ Kiosk receipt printed via ${res.printer} (${res.ip || 'LAN'}:${res.port || 9100})`);
+      if (res.success && res.printedVia !== 'OFFLINE_FALLBACK' && res.printedVia !== 'NONE') {
+        setPrintStatus('DONE');
+        if (res.printer) {
+          setPrintMessage(`✓ Receipt printed via ${res.printer} (${res.ip || 'LAN'}:${res.port || 9100})`);
+        } else {
+          setPrintMessage('✓ Bill ticket printed successfully!');
+        }
       } else {
-        setPrintMessage('✓ Kiosk bill ticket printed successfully!');
+        if (Platform.OS === 'web') {
+          triggerBrowserReceiptPrint(order);
+          setPrintStatus('DONE');
+          setPrintMessage('✓ Bill ticket opened via print dialog');
+        } else {
+          setPrintStatus('ERROR');
+          setPrintMessage(res.message || 'Thermal printer unreachable. Tap button to retry print.');
+        }
       }
     } catch (err: any) {
       console.warn('Kiosk auto print receipt fallback:', err?.message);
-      triggerBrowserReceiptPrint(order);
-      setPrintStatus('DONE');
-      setPrintMessage('✓ Kiosk bill ticket printed via station receipt printer');
+      if (Platform.OS === 'web') {
+        triggerBrowserReceiptPrint(order);
+        setPrintStatus('DONE');
+        setPrintMessage('✓ Bill ticket printed via station receipt printer');
+      } else {
+        setPrintStatus('ERROR');
+        setPrintMessage(err?.message || 'Printer error. Tap button below to retry.');
+      }
     }
   };
 
@@ -106,15 +139,19 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
         <View style={styles.titleUnderlineAccent} />
       </View>
 
-      {/* Main Content Area - PORTRAIT OPTIMIZED */}
+      {/* Main Content Area - RESPONSIVE & BALANCED */}
       <ScrollView 
         style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && { paddingVertical: 28 }
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
+        <View style={[styles.portraitContainer, { maxWidth: dynamicPassMaxWidth, width: '100%' }]}>
           {/* THE UNIFIED DIGITAL QUEUE PASS */}
-          <View style={styles.unifiedPassCard}>
+          <View style={[styles.unifiedPassCard, isTallKiosk && styles.unifiedPassCardTall]}>
             <View style={styles.passTopAccent} />
 
             {/* TOP TICKET SECTION: QUEUE NUMBER HERO */}
@@ -229,14 +266,14 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                         {order.paymentMode || 'CASH'}
                       </Text>
                     </View>
-                    <View style={[styles.paidPill, !isPaid && styles.pendingPill]}>
+                    <View style={[styles.paidPill, isDealer ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' } : (!isPaid && styles.pendingPill)]}>
                       <Ionicons 
-                        name={isPaid ? "checkmark-circle" : "time-outline"} 
+                        name={isDealer ? "shield-checkmark" : (isPaid ? "checkmark-circle" : "time-outline")} 
                         size={12} 
-                        color={isPaid ? "#059669" : "#D97706"} 
+                        color={isDealer ? "#2563EB" : (isPaid ? "#059669" : "#D97706")} 
                       />
-                      <Text style={[styles.paidPillText, !isPaid && styles.pendingPillText]}>
-                        {order.paymentStatus || 'PAID'}
+                      <Text style={[styles.paidPillText, isDealer ? { color: '#1D4ED8' } : (!isPaid && styles.pendingPillText)]}>
+                        {isDealer ? 'CREDIT' : (order.paymentStatus || 'PAID')}
                       </Text>
                     </View>
                   </View>
@@ -254,6 +291,53 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                   </Text>
                 </View>
                 <Text style={styles.totalBannerPrice}>${(order.totalAmount || 0).toFixed(2)}</Text>
+              </View>
+
+              {/* Thermal Receipt Print Status & Actions */}
+              <View style={[
+                styles.printStatusBox,
+                printStatus === 'ERROR' && styles.printStatusBoxError,
+                printStatus === 'DONE' && styles.printStatusBoxSuccess,
+              ]}>
+                <View style={styles.printStatusLeft}>
+                  {printStatus === 'PRINTING' ? (
+                    <ActivityIndicator size="small" color="#E60012" />
+                  ) : printStatus === 'DONE' ? (
+                    <Ionicons name="checkmark-circle" size={20} color="#16A34A" />
+                  ) : (
+                    <Ionicons name="alert-circle" size={20} color="#DC2626" />
+                  )}
+                  <Text style={[
+                    styles.printStatusMsg,
+                    printStatus === 'ERROR' && styles.printStatusMsgError,
+                    printStatus === 'DONE' && styles.printStatusMsgSuccess,
+                  ]} numberOfLines={2}>
+                    {printMessage}
+                  </Text>
+                </View>
+
+                {printStatus !== 'PRINTING' && (
+                  <TouchableOpacity
+                    style={[
+                      styles.printRetryBtn,
+                      printStatus === 'DONE' && styles.printReprintBtn,
+                    ]}
+                    onPress={() => executePrint(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons 
+                      name={printStatus === 'DONE' ? "print-outline" : "refresh-outline"} 
+                      size={14} 
+                      color={printStatus === 'DONE' ? "#334155" : "#FFFFFF"} 
+                    />
+                    <Text style={[
+                      styles.printRetryBtnText,
+                      printStatus === 'DONE' && styles.printReprintBtnText,
+                    ]}>
+                      {printStatus === 'DONE' ? 'Reprint Ticket' : 'Retry Print'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>
@@ -283,15 +367,15 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
   },
   promptHeader: {
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
     width: '100%',
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
@@ -319,7 +403,6 @@ const styles = StyleSheet.create({
   },
   portraitContainer: {
     width: '100%',
-    maxWidth: 540,
     gap: 14,
   },
 
@@ -333,6 +416,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 3),
+  },
+  unifiedPassCardTall: {
+    borderRadius: 28,
   },
   passTopAccent: {
     position: 'absolute',
@@ -653,6 +739,67 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: RED_BAY_COLORS.primary,
     letterSpacing: 0.3,
+  },
+
+  /* Print Status Box */
+  printStatusBox: {
+    marginTop: 12,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
+  },
+  printStatusBoxSuccess: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#DCFCE7',
+  },
+  printStatusBoxError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FEE2E2',
+  },
+  printStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  printStatusMsg: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    flex: 1,
+  },
+  printStatusMsgSuccess: {
+    color: '#15803D',
+  },
+  printStatusMsgError: {
+    color: '#B91C1C',
+  },
+  printRetryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DC2626',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  printReprintBtn: {
+    backgroundColor: '#E2E8F0',
+  },
+  printRetryBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  printReprintBtnText: {
+    color: '#334155',
   },
 
   /* Action Button & Countdown */

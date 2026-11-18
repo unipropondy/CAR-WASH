@@ -49,6 +49,11 @@ export interface WashingBay {
   duration?: string;      // e.g. "38 min"
   carColor?: string;      // e.g. "#18181B"
   vehicleType?: string;   // e.g. "SUV"
+  vehicleTypeName?: string;
+  vehicleTypeCode?: string;
+  vehicleTypeId?: number;
+  vehicleImageUrl?: string | null;
+  hasImage?: boolean;
 }
 
 export type OrderQueueStatus = 
@@ -79,6 +84,10 @@ export interface PosOrder {
   vehiclePlate: string; // e.g. "SMK 8821 Z"
   vehicleCategory?: VehicleCategoryType | string;
   vehicleTypeName?: string;
+  vehicleTypeCode?: string;
+  vehicleTypeId?: number;
+  vehicleImageUrl?: string | null;
+  hasImage?: boolean;
   serviceCategoryName?: string;
   carColor?: string;    // e.g. "#EF4444"
   packageName: string;  // "Premium", "Deluxe", "Basic"

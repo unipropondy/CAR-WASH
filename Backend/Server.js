@@ -29,6 +29,7 @@ const companySettingsRoutes = require('./routes/companySettingsRoutes');
 const userRoutes = require('./routes/userRoutes');
 const dayManagementRoutes = require('./routes/dayManagementRoutes');
 const dealerRoutes = require('./routes/dealerRoutes');
+const accountTypeRoutes = require('./routes/accountTypeRoutes');
 const { getPool } = require('./config/db');
 
 const app = express();
@@ -45,8 +46,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Request logger
 app.use((req, res, next) => {
@@ -71,6 +72,8 @@ app.use('/api/settings/company', companySettingsRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/dealers', dealerRoutes);
+app.use('/api/account-types', accountTypeRoutes);
+app.use('/api/kiosk-user-types', accountTypeRoutes);
 app.use('/api/day-management', dayManagementRoutes);
 app.use('/api/carwash', carwashRoutes);
 app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
@@ -78,6 +81,40 @@ app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
 // Fast Connectivity Ping
 app.get('/api/ping', (req, res) => {
   res.status(200).json({ ok: true, status: 'UP', timestamp: new Date().toISOString() });
+});
+
+// Database System Time & Singapore Standard Time (SGT, UTC+8)
+app.get(['/api/time', '/api/system/time'], async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT 
+        GETDATE() AS dbTime,
+        CONVERT(varchar(33), SYSDATETIMEOFFSET() AT TIME ZONE 'Singapore Standard Time', 127) AS sgTimeIso,
+        DATEDIFF_BIG(ms, '1970-01-01 00:00:00', GETUTCDATE()) AS epochMs
+    `);
+    const row = result.recordset && result.recordset[0];
+    const epochMs = row?.epochMs ? Number(row.epochMs) : Date.now();
+    res.json({
+      success: true,
+      dbTime: row?.dbTime,
+      sgTimeIso: row?.sgTimeIso,
+      epochMs: epochMs,
+      timeZone: 'Asia/Singapore',
+      utcOffsetHours: 8,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.json({
+      success: true,
+      fallback: true,
+      epochMs: Date.now(),
+      timeZone: 'Asia/Singapore',
+      utcOffsetHours: 8,
+      timestamp: new Date().toISOString(),
+      error: err.message,
+    });
+  }
 });
 
 // Health Check

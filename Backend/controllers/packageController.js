@@ -1,5 +1,14 @@
 const { sql, getPool } = require('../config/db');
 
+// In-memory cache for ultra-fast kiosk response
+let packageCache = {
+  store: {}, // key -> { timestamp, data }
+};
+
+function invalidatePackageCache() {
+  packageCache.store = {};
+}
+
 /**
  * 1. GET /api/service-packages or /api/packages
  * Query params: ?categoryId=1, ?all=true, ?search=...
@@ -11,6 +20,12 @@ async function getPackages(req, res) {
     const categoryId = categoryParam ? parseInt(categoryParam, 10) : null;
     const { all, search } = req.query || {};
     const includeAll = all === 'true' || all === '1';
+
+    const cacheKey = `${includeAll ? 'all' : 'active'}_cat_${categoryId || 'all'}_s_${search || ''}`;
+
+    if (packageCache.store[cacheKey] && (Date.now() - packageCache.store[cacheKey].timestamp < 120000)) {
+      return res.status(200).json(packageCache.store[cacheKey].data);
+    }
 
     const pool = await getPool();
     const request = pool.request();
@@ -102,11 +117,18 @@ async function getPackages(req, res) {
       featureList: featuresByPkg[row.PackageId] || [],
     }));
 
-    return res.status(200).json({
+    const responsePayload = {
       success: true,
       count: packages.length,
       data: packages,
-    });
+    };
+
+    packageCache.store[cacheKey] = {
+      timestamp: Date.now(),
+      data: responsePayload,
+    };
+
+    return res.status(200).json(responsePayload);
   } catch (err) {
     console.error('[getPackages Error]', err);
     return res.status(500).json({
@@ -279,6 +301,7 @@ async function createPackage(req, res) {
 
     await transaction.commit();
 
+    invalidatePackageCache();
     return res.status(201).json({
       success: true,
       message: `Package "${packageName}" created successfully.`,
@@ -414,6 +437,7 @@ async function updatePackage(req, res) {
       .input('id', sql.Int, packageId)
       .query(`SELECT * FROM dbo.ServicePackageMaster WHERE PackageId = @id`);
 
+    invalidatePackageCache();
     return res.status(200).json({
       success: true,
       message: 'Package updated successfully.',
@@ -455,6 +479,7 @@ async function deletePackage(req, res) {
         .input('id', sql.Int, packageId)
         .query(`UPDATE dbo.ServicePackageMaster SET IsActive = 0 WHERE PackageId = @id`);
 
+      invalidatePackageCache();
       return res.status(200).json({
         success: true,
         message: 'Package has existing bookings, deactivated successfully.',
@@ -467,6 +492,7 @@ async function deletePackage(req, res) {
       DELETE FROM dbo.ServicePackageMaster WHERE PackageId = @id;
     `);
 
+    invalidatePackageCache();
     return res.status(200).json({
       success: true,
       message: 'Package deleted successfully from database.',

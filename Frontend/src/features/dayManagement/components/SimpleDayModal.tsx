@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useDayManagementStore } from '../store/dayManagementStore';
 import { useAuthStore } from '../../auth/store/authStore';
+import { getSgDateISO, formatSgDate, getDbTime } from '../../../services/timeService';
 
 interface SimpleDayModalProps {
   onViewHistory?: () => void;
@@ -28,13 +29,9 @@ export const SimpleDayModal: React.FC<SimpleDayModalProps> = ({ onViewHistory })
   const startDay = useDayManagementStore((state) => state.startDay);
   const closeDay = useDayManagementStore((state) => state.closeDay);
 
-  // Helper to format today's local date as YYYY-MM-DD
+  // Helper to format today's operational date in Singapore as YYYY-MM-DD
   const getTodayStr = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return getSgDateISO(getDbTime());
   };
 
   const todayStr = getTodayStr();
@@ -56,18 +53,12 @@ export const SimpleDayModal: React.FC<SimpleDayModalProps> = ({ onViewHistory })
   // Pretty date formatter: "Wednesday, 11 November 2026"
   const formatFriendlyDate = (dateStr: string) => {
     if (!dateStr) return '';
-    try {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const dt = new Date(y, m - 1, d);
-      return dt.toLocaleDateString('en-US', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatSgDate(dateStr, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   };
 
   const handleStartDay = async () => {

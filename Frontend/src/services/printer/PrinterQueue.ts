@@ -58,7 +58,7 @@ export class PrinterQueue {
     options: PrintOptions = {},
     config?: UniversalPrinterConfig
   ): Promise<PrintResult> {
-    const orderNo = String(order?.OrderNo || order?.OrderNumber || order?.id || 'NO_ORDER');
+    const orderNo = String(order?.OrderNo || order?.orderNo || order?.billNumber || order?.OrderNumber || order?.id || 'NO_ORDER');
     const dedupKey = `${type}_${orderNo}`;
     const now = Date.now();
 

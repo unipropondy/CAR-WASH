@@ -1,5 +1,6 @@
 import { CompanySettings } from '../companySettingsApi';
 import { PaperWidth, PrintOptions } from './PrinterTypes';
+import { formatSgDate, formatSgTime, formatSgDateTime, getDbTime } from '../timeService';
 
 // Standard ESC/POS Control Byte Constants
 const ESC = 0x1b;
@@ -213,23 +214,21 @@ export class PrinterFormatter {
     const gstRate = Number(company?.GSTPercentage ?? 9);
     const currency = company?.CurrencySymbol || '$';
 
-    const orderNo = order?.billNumber || order?.orderNo || `RB-${order?.orderId || '0001'}`;
-    const custName = order?.customerDetails?.customerName || order?.customerName || 'Walk-in Customer';
-    const vehicleNo = order?.customerDetails?.vehicleNumber || order?.vehicleNumber || 'WALK-IN';
-    const mobileNo = order?.customerDetails?.mobileNumber || order?.mobileNumber || '';
-    const bayName = order?.bayName || (order?.bayId ? `Bay ${order.bayId}` : 'Wash Bay');
-    const packageName = order?.selectedPackage?.name || order?.packageName || 'Express Foam Wash';
-    const total = Number(order?.totalAmount || 0);
-    const gst = Number(order?.gstAmount ?? (gstRate > 0 ? (total * gstRate) / (100 + gstRate) : 0));
-    const net = total - gst;
-    const payMode = (order?.paymentMode || order?.payMode || 'CASH').toUpperCase();
+    const orderNo = String(order?.billNumber || order?.orderNo || order?.OrderNo || order?.orderNumber || (order?.orderId ? `RB-${order.orderId}` : (order?.id ? `RB-${order.id}` : 'RECEIPT')));
+    const custName = (order?.customerDetails?.customerName || order?.customerName || order?.CustomerName || 'Walk-in Customer').toString();
+    const vehicleNo = (order?.customerDetails?.vehicleNumber || order?.vehicleNumber || order?.VehicleNumber || order?.vehiclePlate || 'WALK-IN').toString();
+    const mobileNo = (order?.customerDetails?.mobileNumber || order?.mobileNumber || order?.MobileNumber || '').toString();
+    const bayName = (order?.bayName || order?.BayName || (order?.bayId || order?.BayId ? `Bay ${order.bayId || order.BayId}` : 'Wash Bay')).toString();
+    const packageName = (order?.selectedPackage?.name || order?.packageName || order?.PackageName || 'Express Foam Wash').toString();
+    const total = Number(order?.totalAmount ?? order?.TotalAmount ?? 0);
+    const gst = Number(order?.gstAmount ?? order?.GSTAmount ?? (gstRate > 0 ? (total * gstRate) / (100 + gstRate) : 0));
+    const net = Math.max(0, total - gst);
+    const payMode = String(order?.paymentMode || order?.payMode || order?.PayMode || 'CASH').toUpperCase();
     const isReprint = Boolean(options?.isReprint);
-    const dateStr = order?.createdAt
-      ? new Date(order.createdAt).toLocaleDateString('en-GB')
-      : new Date().toLocaleDateString('en-GB');
-    const timeStr = order?.createdAt
-      ? new Date(order.createdAt).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      : new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const rawDate = order?.createdDate || order?.createdAt || order?.CreatedDate;
+    let dateStr = formatSgDate(rawDate || getDbTime());
+    let timeStr = formatSgTime(rawDate || getDbTime(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     // 1. REPRINT WATERMARK (If applicable)
     if (isReprint) {
@@ -393,7 +392,7 @@ export class PrinterFormatter {
     const bayName = order?.bayName || (order?.bayId ? `Bay ${order.bayId}` : 'Wash Bay 1');
     const packageName = order?.selectedPackage?.name || order?.packageName || 'Express Foam Wash';
     const isReprint = Boolean(options?.isReprint);
-    const timeStr = new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeStr = formatSgTime(order?.createdDate || order?.createdAt || getDbTime(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     builder.alignCenter();
     if (isReprint) {
@@ -491,7 +490,7 @@ export class PrinterFormatter {
 
     const companyName = (company?.CompanyName || 'CAR WASH').trim();
     const address = (company?.Address || '').replace(/\r?\n/g, ' ').trim();
-    const dateStr = new Date().toLocaleString('en-SG');
+    const dateStr = formatSgDateTime(getDbTime());
 
     builder
       .alignCenter()

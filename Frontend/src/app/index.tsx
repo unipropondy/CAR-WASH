@@ -18,6 +18,7 @@ import { PosNavTab } from '../features/pos/components/PosSidebar';
 import { KioskPage, KioskUserType } from '../features/kiosk/types/kiosk.types';
 import { loadKioskSession } from '../features/kiosk/store/kioskSessionStorage';
 import { getRouteForUserGroup, resolveUserRoleCategory } from '../features/auth/utils/userGroupRouting';
+import { initTimeSync } from '../services/timeService';
 
 export type AppMode = 'LOGIN' | 'POS' | 'KIOSK';
 
@@ -46,6 +47,7 @@ export const POS_ROUTES = [
   '/bays',
   '/settings',
   '/customers',
+  '/dealers',
   '/history',
 ];
 
@@ -58,9 +60,13 @@ function AppContent() {
   const logout = useAuthStore((state) => state.logout);
   const loadStoredSession = useAuthStore((state) => state.loadStoredSession);
 
-  // Restore saved session if available
+  // Restore saved session if available & initialize Singapore DB time sync
   useEffect(() => {
     loadStoredSession();
+    const cleanupTimeSync = initTimeSync();
+    return () => {
+      cleanupTimeSync?.();
+    };
   }, [loadStoredSession]);
 
   const userRole = resolveUserRoleCategory(user);
@@ -114,6 +120,9 @@ function AppContent() {
       case 'CUSTOMERS':
         navigate('/customers');
         break;
+      case 'DEALERS':
+        navigate('/dealers');
+        break;
       case 'HISTORY':
         navigate('/history');
         break;
@@ -128,6 +137,7 @@ function AppContent() {
     if (location.pathname === '/bays') return 'BAYS';
     if (location.pathname === '/settings') return 'SETTINGS';
     if (location.pathname === '/customers') return 'CUSTOMERS';
+    if (location.pathname === '/dealers') return 'DEALERS';
     if (location.pathname === '/history') return 'HISTORY';
     return 'ORDERS';
   };
@@ -175,6 +185,7 @@ function AppContent() {
         path === '/bays' ||
         path === '/settings' ||
         path === '/customers' ||
+        path === '/dealers' ||
         path === '/history'
       ) {
         navigate('/dashboard');
@@ -217,8 +228,9 @@ function AppContent() {
       case '/vehicles':
         return { page: 'PAGE_2_VEHICLE', userType: sessionUserType };
       case '/services':
-      case '/packages':
         return { page: 'PAGE_3_SERVICE_CAT', userType: sessionUserType };
+      case '/packages':
+        return { page: 'PAGE_3_PACKAGES', userType: sessionUserType };
       case '/details':
         return { page: 'PAGE_4_DETAILS', userType: sessionUserType };
       case '/checkout':
@@ -310,9 +322,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     ...(Platform.OS === 'web'
       ? {
-          height: '100vh' as any,
-          minHeight: '100vh' as any,
-          width: '100vw' as any,
+          height: '100%' as any,
+          maxHeight: '100%' as any,
+          width: '100%' as any,
+          maxWidth: '100%' as any,
           overflow: 'hidden' as any,
         }
       : {}),

@@ -259,6 +259,29 @@ export const PrinterSettingsScreen: React.FC<Props> = ({
       // 1. Save to device storage (key: redbay_printer_config_pos_v1 or kiosk_v1)
       await configManager.saveConfig(config);
 
+      // Auto-sync LAN settings to other context so both POS and Kiosk can print to the configured hardware
+      if (config.type === 'LAN' && config.lanIp && config.lanIp.trim().length > 0) {
+        try {
+          if (printerContext === 'POS') {
+            const kioskCfg = kioskPrinterConfigManager.getConfig();
+            if (!kioskCfg.lanIp || kioskCfg.lanIp === '192.168.1.100' || kioskCfg.lanIp === config.lanIp) {
+              await kioskPrinterConfigManager.saveConfig({
+                ...config,
+                printerName: 'Kiosk Network Printer',
+              });
+            }
+          } else {
+            const posCfg = posPrinterConfigManager.getConfig();
+            if (!posCfg.lanIp || posCfg.lanIp === '192.168.1.100') {
+              await posPrinterConfigManager.saveConfig({
+                ...config,
+                printerName: 'POS Receipt Printer',
+              });
+            }
+          }
+        } catch (_) {}
+      }
+
       // 2. If it is a LAN/Wi-Fi printer, sync to SQL PrintMaster table
       // Requirement 5: PrinterType = 1 for POS, PrinterType = 3 for Kiosk
       let syncedToDb = false;

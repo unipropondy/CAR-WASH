@@ -43,13 +43,24 @@ export class PrinterConfigManager {
   private currentConfig: UniversalPrinterConfig = { ...DEFAULT_PRINTER_CONFIG };
   private listeners: Set<ConfigChangeListener> = new Set();
   private isLoaded: boolean = false;
+  private loadPromise: Promise<UniversalPrinterConfig> | null = null;
   private readonly storageKey: string;
   private readonly label: string; // 'POS' or 'KIOSK' — for log messages only
 
   constructor(storageKey: string, label: string = 'PRINTER') {
     this.storageKey = storageKey;
     this.label = label;
-    this.loadConfig();
+    this.loadPromise = this.loadConfig();
+  }
+
+  /**
+   * Ensure printer configuration has finished loading from disk before printing.
+   */
+  public async ensureLoaded(): Promise<UniversalPrinterConfig> {
+    if (this.loadPromise) {
+      await this.loadPromise;
+    }
+    return { ...this.currentConfig };
   }
 
   /**
@@ -67,6 +78,17 @@ export class PrinterConfigManager {
           console.warn(`[PrinterConfigManager:${this.label}] Native storage read error:`, nativeErr);
         }
 
+        // If Kiosk has no saved config, check if POS config exists and adopt it
+        if ((!rawJson || rawJson.trim().length === 0) && this.storageKey === KIOSK_CONFIG_STORAGE_KEY) {
+          try {
+            const posRaw = await UniversalPrinterModule.getPersistentConfig(POS_CONFIG_STORAGE_KEY, '');
+            if (posRaw && posRaw.trim().length > 0) {
+              rawJson = posRaw;
+              console.info(`[PrinterConfigManager:${this.label}] Inherited configuration from POS.`);
+            }
+          } catch (_) {}
+        }
+
         // One-time legacy migration: only for POS (the original single-config slot)
         if ((!rawJson || rawJson.trim().length === 0) && this.storageKey === POS_CONFIG_STORAGE_KEY) {
           try {
@@ -81,6 +103,11 @@ export class PrinterConfigManager {
 
       if (!rawJson && Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         rawJson = window.localStorage.getItem(this.storageKey);
+
+        // Web Kiosk fallback to POS
+        if ((!rawJson || rawJson.trim().length === 0) && this.storageKey === KIOSK_CONFIG_STORAGE_KEY) {
+          rawJson = window.localStorage.getItem(POS_CONFIG_STORAGE_KEY);
+        }
 
         // Web legacy migration for POS
         if ((!rawJson || rawJson.trim().length === 0) && this.storageKey === POS_CONFIG_STORAGE_KEY) {

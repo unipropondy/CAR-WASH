@@ -9,6 +9,7 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +31,15 @@ import { BayMasterRecord } from '../../../services/carwashOrderApi';
 import { IconMenu, IconClock } from '../../../components/common/AppIcons';
 import { printOrderReceipt } from '../../../services/printerApi';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+import { 
+  formatSgDate, 
+  formatSgTime, 
+  formatSgDateTime, 
+  getSgDateISO, 
+  getDbTime, 
+  parseToSgDate, 
+  getDbTimestampMs 
+} from '../../../services/timeService';
 import { 
   fetchFullSalesDashboard, 
   FullDashboardPayload, 
@@ -151,9 +161,9 @@ const formatISOToDDMMYYYY = (isoStr: string): string => {
 
 const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeInfo => {
   const pad = (n: number) => String(n).padStart(2, '0');
-  const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const toISO = (d: Date) => getSgDateISO(d);
   const formatFriendly = (d: Date, withWeekday = false) => {
-    return d.toLocaleDateString('en-GB', {
+    return formatSgDate(d, {
       weekday: withWeekday ? 'short' : undefined,
       day: '2-digit',
       month: 'short',
@@ -161,7 +171,7 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     });
   };
 
-  const today = new Date();
+  const today = getDbTime();
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
   if (tab === 'DAILY') {
@@ -171,8 +181,8 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     return {
       startISO: iso,
       endISO: iso,
-      weekdayLabel: d.toLocaleDateString('en-GB', { weekday: 'short' }),
-      mainDateText: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      weekdayLabel: formatSgDate(d, { weekday: 'short' }),
+      mainDateText: formatSgDate(d, { day: 'numeric', month: 'short', year: 'numeric' }),
     };
   }
 
@@ -197,7 +207,7 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     return {
       startISO: toISO(start),
       endISO: toISO(end),
-      mainDateText: start.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+      mainDateText: formatSgDate(start, { month: 'long', year: 'numeric' }),
       subDateText: `${formatFriendly(start)} – ${formatFriendly(end)}`,
     };
   }
@@ -931,7 +941,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <td>${w.packageName || w.serviceName || 'Standard Wash'}</td>
             <td style="text-align: right; font-weight: 700; color: #0F172A;">$${Number(w.totalAmount || w.amount || 0).toFixed(2)}</td>
             <td><span class="status-badge status-done">${w.statusName || w.status || 'Completed'}</span></td>
-            <td style="color: #64748B; font-size: 11px;">${w.createdDate ? new Date(w.createdDate).toLocaleDateString('en-GB') : '—'}</td>
+            <td style="color: #64748B; font-size: 11px;">${w.createdDate ? formatSgDate(w.createdDate) : '—'}</td>
           </tr>
         `
         )
@@ -1319,28 +1329,55 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     if (!order) return;
     try {
       setIsReprinting(true);
-      await printOrderReceipt({
+      const res = await printOrderReceipt({
+        orderId: order.orderId,
+        orderNo: order.orderNo,
         billNumber: order.orderNo,
+        customerName: order.customerName,
         customerDetails: {
           customerName: order.customerName,
           vehicleNumber: order.vehicleNumber,
         },
+        vehicleNumber: order.vehicleNumber,
+        vehicleTypeName: order.vehicleTypeName || 'Standard Vehicle',
         vehicle: {
           name: order.vehicleTypeName || 'Standard Vehicle',
         },
+        packageName: order.packageName,
         selectedPackage: {
           name: order.packageName,
         },
+        bayName: order.bayName,
         totalAmount: order.totalAmount,
-        gstAmount: order.totalAmount * 0.09 / 1.09,
+        gstAmount: (order.totalAmount * 0.09) / 1.09,
         paymentMode: 'CASH',
         paymentStatus: order.statusName || 'PAID',
+        createdAt: order.createdDate,
+        createdDate: order.createdDate,
       }, { isReprint: true });
-      if (Platform.OS === 'web') {
-        alert(`Receipt ticket sent to printer for Order ${order.orderNo}`);
+
+      if (res.success && res.printedVia !== 'OFFLINE_FALLBACK' && res.printedVia !== 'NONE') {
+        const msg = `Receipt ticket printed successfully for Order #${order.orderNo}${res.printer ? ` via ${res.printer}` : ''}`;
+        if (Platform.OS === 'web') {
+          alert(`✓ ${msg}`);
+        } else {
+          Alert.alert('Receipt Printed', msg);
+        }
+      } else {
+        const errMsg = res.message || 'Thermal printer offline or unreachable. Check printer IP in Settings.';
+        if (Platform.OS === 'web') {
+          alert(`✗ ${errMsg}`);
+        } else {
+          Alert.alert('Print Failed', errMsg);
+        }
       }
     } catch (err: any) {
-      if (Platform.OS === 'web') alert('Print Error: ' + err.message);
+      const errMsg = err?.message || 'Print error';
+      if (Platform.OS === 'web') {
+        alert('Print Error: ' + errMsg);
+      } else {
+        Alert.alert('Print Error', errMsg);
+      }
     } finally {
       setIsReprinting(false);
     }
@@ -1349,22 +1386,17 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   const formatRelativeTime = (dateStr?: string | null): string => {
     if (!dateStr) return 'Recently';
     try {
-      const d = new Date(dateStr);
+      const d = parseToSgDate(dateStr);
       if (isNaN(d.getTime())) return 'Recently';
 
-      const diffMs = Date.now() - d.getTime();
+      const diffMs = getDbTimestampMs() - d.getTime();
       const diffMins = Math.floor(diffMs / (1000 * 60));
       if (diffMins < 1) return 'Just now';
       if (diffMins < 60) return `${diffMins}m ago`;
       const diffHours = Math.floor(diffMins / 60);
       if (diffHours < 24) return `${diffHours}h ago`;
 
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const day = d.getDate();
-      const month = months[d.getMonth()];
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      return `${day} ${month}, ${hh}:${mm}`;
+      return formatSgDateTime(d);
     } catch {
       return 'Recently';
     }
@@ -1882,6 +1914,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               {/* Bars Row */}
               <ScrollView
                 horizontal
+                nestedScrollEnabled={true}
                 showsHorizontalScrollIndicator={false}
                 style={styles.barsContainer}
                 contentContainerStyle={[
@@ -3105,60 +3138,68 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
           <View style={styles.keyMetricsGrid}>
             {[
-              {
-                label: 'Avg Check (AOV)',
-                sub: 'Per wash order',
-                val: `$${summary.averageOrderValue.toFixed(2)}`,
-                tag: 'AOV',
-                icon: 'wallet',
-                iconBg: '#EEF2FF',
-                iconColor: '#4F46E5',
-              },
-              {
-                label: 'Completed Washes',
-                sub: `${closedWashesCount} closed • ${summary.totalBookings} booked`,
-                val: `${completedWashesCount > 0 ? completedWashesCount : (closedWashesCount > 0 ? closedWashesCount : 0)}`,
-                tag: 'Fulfilled',
-                icon: 'car-sport',
-                iconBg: '#ECFDF5',
-                iconColor: '#059669',
-              },
-              {
-                label: 'Avg Duration',
-                sub: 'Door-to-door cycle',
-                val: `${summary.avgWashDurationMinutes} min`,
-                tag: 'Speed',
-                icon: 'time',
-                iconBg: '#FFFBEB',
-                iconColor: '#D97706',
-              },
-              {
-                label: 'GST Collected',
-                sub: `Net: $${summary.totalNetRevenue.toFixed(2)}`,
-                val: `$${summary.totalGSTAmount.toFixed(2)}`,
-                tag: '9% GST',
-                icon: 'receipt',
-                iconBg: '#F0F9FF',
-                iconColor: '#0284C7',
-              },
-            ].map((m) => (
-              <View key={m.label} style={styles.kpiTile}>
-                <View style={styles.kpiTileTopRow}>
-                  <View style={[styles.kpiTileIconCircle, { backgroundColor: m.iconBg }]}>
-                    <Ionicons name={m.icon as any} size={18} color={m.iconColor} />
+              [
+                {
+                  label: 'Avg Check (AOV)',
+                  sub: 'Per wash order',
+                  val: `$${summary.averageOrderValue.toFixed(2)}`,
+                  tag: 'AOV',
+                  icon: 'wallet',
+                  iconBg: '#EEF2FF',
+                  iconColor: '#4F46E5',
+                },
+                {
+                  label: 'Completed Washes',
+                  sub: `${closedWashesCount} closed • ${summary.totalBookings} booked`,
+                  val: `${completedWashesCount > 0 ? completedWashesCount : (closedWashesCount > 0 ? closedWashesCount : 0)}`,
+                  tag: 'Fulfilled',
+                  icon: 'car-sport',
+                  iconBg: '#ECFDF5',
+                  iconColor: '#059669',
+                },
+              ],
+              [
+                {
+                  label: 'Avg Duration',
+                  sub: 'Door-to-door cycle',
+                  val: `${summary.avgWashDurationMinutes} min`,
+                  tag: 'Speed',
+                  icon: 'time',
+                  iconBg: '#FFFBEB',
+                  iconColor: '#D97706',
+                },
+                {
+                  label: 'GST Collected',
+                  sub: `Net: $${summary.totalNetRevenue.toFixed(2)}`,
+                  val: `$${summary.totalGSTAmount.toFixed(2)}`,
+                  tag: '9% GST',
+                  icon: 'receipt',
+                  iconBg: '#F0F9FF',
+                  iconColor: '#0284C7',
+                },
+              ],
+            ].map((rowPair, rowIdx) => (
+              <View key={`kpi-row-${rowIdx}`} style={styles.kpiGridRow}>
+                {rowPair.map((m) => (
+                  <View key={m.label} style={styles.kpiTile}>
+                    <View style={styles.kpiTileTopRow}>
+                      <View style={[styles.kpiTileIconCircle, { backgroundColor: m.iconBg }]}>
+                        <Ionicons name={m.icon as any} size={18} color={m.iconColor} />
+                      </View>
+                      <View style={[styles.kpiTileTag, { backgroundColor: m.iconBg }]}>
+                        <Text style={[styles.kpiTileTagText, { color: m.iconColor }]}>{m.tag}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.kpiTileMiddle}>
+                      <Text style={styles.kpiTileValue}>{m.val}</Text>
+                      <Text style={styles.kpiTileLabel} numberOfLines={1}>{m.label}</Text>
+                      <Text style={styles.kpiTileSubtext} numberOfLines={1}>{m.sub}</Text>
+                    </View>
+                    <View style={styles.kpiTileBottomTrack}>
+                      <View style={[styles.kpiTileBottomFill, { backgroundColor: m.iconColor }]} />
+                    </View>
                   </View>
-                  <View style={[styles.kpiTileTag, { backgroundColor: m.iconBg }]}>
-                    <Text style={[styles.kpiTileTagText, { color: m.iconColor }]}>{m.tag}</Text>
-                  </View>
-                </View>
-                <View style={styles.kpiTileMiddle}>
-                  <Text style={styles.kpiTileValue}>{m.val}</Text>
-                  <Text style={styles.kpiTileLabel} numberOfLines={1}>{m.label}</Text>
-                  <Text style={styles.kpiTileSubtext} numberOfLines={1}>{m.sub}</Text>
-                </View>
-                <View style={styles.kpiTileBottomTrack}>
-                  <View style={[styles.kpiTileBottomFill, { backgroundColor: m.iconColor }]} />
-                </View>
+                ))}
               </View>
             ))}
           </View>
@@ -3344,15 +3385,20 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           </View>
 
           <View style={styles.tableContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ minWidth: '100%' }}>
-              <View style={{ width: '100%', minWidth: 560 }}>
+            <ScrollView 
+              horizontal 
+              nestedScrollEnabled={true}
+              showsHorizontalScrollIndicator={false} 
+              contentContainerStyle={{ minWidth: '100%' }}
+            >
+              <View style={{ width: '100%', minWidth: 620 }}>
                 {/* Table Header: Exactly 5 Columns (ORDER NO, NAME, VEHICLE, AMOUNT, ACTION) */}
                 <View style={styles.tableHeaderRow}>
-                  <Text style={[styles.thText, { flex: 1.1, minWidth: 95 }]}>ORDER NO</Text>
-                  <Text style={[styles.thText, { flex: 2, minWidth: 150, paddingLeft: 8 }]}>NAME</Text>
-                  <Text style={[styles.thText, { flex: 1.4, minWidth: 120 }]}>VEHICLE</Text>
-                  <Text style={[styles.thText, { flex: 1.2, minWidth: 100 }]}>AMOUNT</Text>
-                  <Text style={[styles.thText, { flex: 0.9, minWidth: 80, textAlign: 'center' }]}>ACTION</Text>
+                  <Text style={[styles.thText, styles.tableColOrderNo]}>ORDER NO</Text>
+                  <Text style={[styles.thText, styles.tableColName]}>NAME</Text>
+                  <Text style={[styles.thText, styles.tableColVehicle]}>VEHICLE</Text>
+                  <Text style={[styles.thText, styles.tableColAmount]}>AMOUNT</Text>
+                  <Text style={[styles.thText, styles.tableColAction, { textAlign: 'center' }]}>ACTION</Text>
                 </View>
 
                 {/* Table Rows */}
@@ -3378,7 +3424,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         ]}
                       >
                         {/* 1. ORDER NO */}
-                        <View style={{ flex: 1.1, minWidth: 95, justifyContent: 'center' }}>
+                        <View style={styles.tableColOrderNo}>
                           <View style={styles.orderIdBadge}>
                             <View style={styles.orderIdAccentBar} />
                             <Text style={styles.orderIdNumberText}>#{formatOrderNo(row.orderNo)}</Text>
@@ -3386,40 +3432,40 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         </View>
 
                         {/* 2. NAME */}
-                        <View style={[styles.customerCell, { flex: 2, minWidth: 150, paddingLeft: 8 }]}>
+                        <View style={[styles.customerCell, styles.tableColName]}>
                           <View style={[styles.customerAvatarBox, { backgroundColor: avatarStyle.bg, borderColor: avatarStyle.border }]}>
                             <Text style={[styles.customerAvatarText, { color: avatarStyle.text }]}>
                               {(row.customerName || 'CU').slice(0, 2).toUpperCase()}
                             </Text>
                           </View>
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={styles.customerNameText} numberOfLines={1}>
+                          <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                            <Text style={styles.customerNameText} numberOfLines={1} ellipsizeMode="tail">
                               {row.customerName || 'Walk-in'}
                             </Text>
-                            <Text style={styles.customerSubText} numberOfLines={1}>
+                            <Text style={styles.customerSubText} numberOfLines={1} ellipsizeMode="tail">
                               {row.packageName || 'Standard Wash'}
                             </Text>
                           </View>
                         </View>
 
                         {/* 3. VEHICLE */}
-                        <View style={[styles.vehicleCell, { flex: 1.4, minWidth: 120 }]}>
+                        <View style={[styles.vehicleCell, styles.tableColVehicle]}>
                           {isWalkIn ? (
                             <View style={styles.walkinPlatePill}>
                               <Ionicons name="walk-outline" size={12} color="#64748B" style={{ marginRight: 3 }} />
-                              <Text style={styles.walkinPlateText}>WALK-IN</Text>
+                              <Text style={styles.walkinPlateText} numberOfLines={1} ellipsizeMode="tail">WALK-IN</Text>
                             </View>
                           ) : (
                             <View style={styles.embossedPlatePill}>
                               <View style={styles.plateDot} />
-                              <Text style={styles.embossedPlateText} numberOfLines={1}>{row.vehicleNumber}</Text>
+                              <Text style={styles.embossedPlateText} numberOfLines={1} ellipsizeMode="tail">{row.vehicleNumber}</Text>
                               <View style={styles.plateDot} />
                             </View>
                           )}
                         </View>
 
                         {/* 4. AMOUNT */}
-                        <View style={{ flex: 1.2, minWidth: 100, justifyContent: 'center' }}>
+                        <View style={styles.tableColAmount}>
                           <Text style={styles.amountBoldText}>${row.totalAmount.toFixed(2)}</Text>
                           <View style={styles.amountPaidPill}>
                             <View style={styles.paidDotMini} />
@@ -3428,7 +3474,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         </View>
 
                         {/* 5. ACTION (View Button Opening Full Order Details Modal) */}
-                        <View style={{ flex: 0.9, minWidth: 80, alignItems: 'center', justifyContent: 'center' }}>
+                        <View style={styles.tableColAction}>
                           <TouchableOpacity 
                             style={styles.modernViewBtn} 
                             activeOpacity={0.75}
@@ -3509,7 +3555,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <ScrollView 
             style={styles.txFeedScrollView} 
             contentContainerStyle={styles.txFeedContent} 
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={16}
           >
             {filteredRecentTransactions.length > 0 ? (
               filteredRecentTransactions.map((tx, i) => {
@@ -3742,7 +3791,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <View style={[styles.modalDetailRow, { borderBottomWidth: 0 }]}>
                 <Text style={styles.modalDetailLabel}>Order Timestamp</Text>
                 <Text style={styles.modalDetailVal}>
-                  {selectedWashOrder?.createdDate ? new Date(selectedWashOrder.createdDate).toLocaleString('en-SG') : '-'}
+                  {selectedWashOrder?.createdDate ? formatSgDateTime(selectedWashOrder.createdDate) : '-'}
                 </Text>
               </View>
             </View>
@@ -3804,7 +3853,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={true} style={styles.filterScrollView}>
+            <ScrollView 
+              showsVerticalScrollIndicator={true} 
+              style={styles.filterScrollView}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+            >
               {/* SORT BY */}
               <Text style={styles.filterSectionTitle}>SORT BY</Text>
               <View style={styles.filterOptionsGroup}>
@@ -5576,30 +5630,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   keyMetricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
     gap: 10,
     marginTop: 12,
     width: '100%',
   },
+  kpiGridRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
   kpiTile: {
-    ...(Platform.OS === 'web'
-      ? ({
-          width: 'calc(50% - 5px)',
-          minWidth: 'calc(50% - 5px)',
-          maxWidth: 'calc(50% - 5px)',
-          boxSizing: 'border-box',
-        } as any)
-      : { width: '48.5%', minWidth: '48.5%', maxWidth: '48.5%' }),
-    flexGrow: 0,
-    flexShrink: 0,
-    minHeight: 132,
+    flex: 1,
+    minHeight: 124,
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 13,
+    padding: 12,
     justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any) : { elevation: 1 }),
   },
@@ -5921,10 +5969,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   topPkgCardsList: {
-    flex: 1,
     flexDirection: 'column',
-    justifyContent: 'space-evenly',
-    marginVertical: 12,
+    justifyContent: 'flex-start',
+    marginVertical: 10,
     gap: 10,
   },
   topPkgItemCard: {
@@ -6024,6 +6071,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     gap: 8,
+    marginTop: 'auto',
   },
   topPkgFooterLeft: {
     flexDirection: 'row',
@@ -6166,6 +6214,36 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#ED0712',
   },
+  // Unified Table Column Styles
+  tableColOrderNo: {
+    width: 95,
+    flexShrink: 0,
+    justifyContent: 'center',
+  },
+  tableColName: {
+    flex: 1,
+    minWidth: 160,
+    paddingHorizontal: 8,
+    flexShrink: 1,
+    overflow: 'hidden',
+  },
+  tableColVehicle: {
+    width: 140,
+    flexShrink: 0,
+    justifyContent: 'center',
+    paddingRight: 6,
+  },
+  tableColAmount: {
+    width: 95,
+    flexShrink: 0,
+    justifyContent: 'center',
+  },
+  tableColAction: {
+    width: 80,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   // ORDER NO Column
   orderIdBadge: {
     flexDirection: 'row',
@@ -6211,7 +6289,8 @@ const styles = StyleSheet.create({
   customerCell: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    overflow: 'hidden',
   },
   customerAvatarBox: {
     width: 34,
@@ -6258,6 +6337,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     alignSelf: 'flex-start',
+    maxWidth: 134,
+    overflow: 'hidden',
     ...(Platform.OS === 'web' ? ({ boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1)' } as any) : {}),
   },
   plateDot: {
@@ -6270,7 +6351,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11.5,
     fontWeight: '800',
-    letterSpacing: 1.1,
+    letterSpacing: 0.8,
+    flexShrink: 1,
   },
   walkinPlatePill: {
     flexDirection: 'row',
@@ -6282,12 +6364,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     alignSelf: 'flex-start',
+    maxWidth: 134,
+    overflow: 'hidden',
   },
   walkinPlateText: {
     color: '#64748B',
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
+    flexShrink: 1,
   },
   platePill: {
     backgroundColor: '#0F172A',

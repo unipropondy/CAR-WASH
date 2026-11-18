@@ -27,6 +27,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+import { formatSgDateTime, formatSgTime } from '../../../services/timeService';
 
 // ── Auth & Store ──
 import { useAuthStore } from '../../auth/store/authStore';
@@ -114,6 +115,14 @@ import {
   deleteDealer,
   DealerRecord,
 } from '../../../services/dealerApi';
+
+import {
+  fetchAccountTypes,
+  createAccountType,
+  updateAccountType,
+  deleteAccountType,
+  AccountTypeOption,
+} from '../../../services/accountTypeApi';
 
 import {
   fetchActiveHelpRequests,
@@ -204,7 +213,7 @@ type NavId =
   | 'export'
   | 'alerts';
 
-type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'BAYS' | 'DEALERS' | 'COMPANY' | 'PRINTERS';
+type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'BAYS' | 'DEALERS' | 'ACCOUNT_TYPES' | 'COMPANY' | 'PRINTERS';
 
 export interface BackofficeScreenProps {
   onLogout?: () => void;
@@ -899,6 +908,20 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [dLogo, setDLogo] = useState('');
   const [dActive, setDActive] = useState(true);
 
+  // 3e2. Account Types (AccountTypeMaster)
+  const [accountTypesList, setAccountTypesList] = useState<AccountTypeOption[]>([]);
+  const [accountTypeModalOpen, setAccountTypeModalOpen] = useState(false);
+  const [editingAccountType, setEditingAccountType] = useState<AccountTypeOption | null>(null);
+  const [atCode, setAtCode] = useState('');
+  const [atName, setAtName] = useState('');
+  const [atDesc, setAtDesc] = useState('');
+  const [atIcon, setAtIcon] = useState('car-sport');
+  const [atOrder, setAtOrder] = useState('1');
+  const [atActive, setAtActive] = useState(true);
+  const [atImage, setAtImage] = useState('');
+  const [savingAccountType, setSavingAccountType] = useState(false);
+  const [atModalError, setAtModalError] = useState('');
+
   // 3e. Company Profile
   const [compSettings, setCompSettings] = useState<CompanySettings | null>(null);
   const [compName, setCompName] = useState('');
@@ -944,6 +967,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       } else if (settingsTab === 'DEALERS') {
         const data = await fetchAllDealers(true);
         setDealers(data);
+      } else if (settingsTab === 'ACCOUNT_TYPES') {
+        const data = await fetchAccountTypes(true);
+        setAccountTypesList(data);
       } else if (settingsTab === 'COMPANY') {
         const data = await fetchCompanySettings();
         if (data) {
@@ -1266,6 +1292,72 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete dealer');
+        }
+      },
+    });
+  };
+
+  // Account Type Save & Delete
+  const handleSaveAccountType = async () => {
+    setAtModalError('');
+    if (!atCode.trim()) {
+      setAtModalError('Account Type Code is required (e.g. CUSTOMER, DEALER).');
+      return;
+    }
+    if (!atName.trim()) {
+      setAtModalError('Display Name is required.');
+      return;
+    }
+    try {
+      setSavingAccountType(true);
+      if (editingAccountType) {
+        await updateAccountType(editingAccountType.accountTypeId, {
+          typeCode: atCode.trim().toUpperCase(),
+          typeName: atName.trim(),
+          description: atDesc.trim(),
+          iconName: atIcon.trim() || undefined,
+          displayOrder: parseInt(atOrder || '1', 10),
+          isActive: atActive,
+          imageData: atImage || undefined,
+        });
+        showAlert('Success', `Account type "${atName}" updated successfully.`);
+      } else {
+        await createAccountType({
+          typeCode: atCode.trim().toUpperCase(),
+          typeName: atName.trim(),
+          description: atDesc.trim(),
+          iconName: atIcon.trim() || undefined,
+          displayOrder: parseInt(atOrder || '1', 10),
+          isActive: atActive,
+          imageData: atImage || undefined,
+        });
+        showAlert('Success', `Account type "${atName}" created successfully.`);
+      }
+      setAccountTypeModalOpen(false);
+      loadSettingsData();
+    } catch (err: any) {
+      console.error('[handleSaveAccountType Error]', err);
+      const errMsg = err.message || 'Failed to save account type.';
+      setAtModalError(errMsg);
+      showAlert('Save Failed', errMsg);
+    } finally {
+      setSavingAccountType(false);
+    }
+  };
+
+  const handleDeleteAccountType = (id: number, name: string) => {
+    showConfirm({
+      title: 'Delete Account Type',
+      message: `Are you sure you want to permanently delete "${name}" from kiosk account types?`,
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteAccountType(id, true);
+          showAlert('Success', `Account type "${name}" permanently deleted.`);
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete account type');
         }
       },
     });
@@ -2162,6 +2254,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           { id: 'PACKAGES', label: 'Service Packages' },
           { id: 'BAYS', label: 'Washing Bays' },
           { id: 'DEALERS', label: 'Dealers' },
+          { id: 'ACCOUNT_TYPES', label: 'Account Types' },
           { id: 'COMPANY', label: 'Station Profile' },
           { id: 'PRINTERS', label: 'Printers' },
         ].map((tab) => (
@@ -2640,6 +2733,137 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={{ padding: 30, alignItems: 'center' }}>
               <Text style={{ color: C.textMuted, fontSize: 13 }}>
                 No dealers registered yet. Click "+ Add Dealer" to create one.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Tab 3e2: Kiosk Account Types */}
+      {settingsTab === 'ACCOUNT_TYPES' && (
+        <View style={styles.glassCard}>
+          <View style={styles.cardHeaderAction}>
+            <View>
+              <Text style={styles.cardHeading}>Kiosk Account Types (AccountTypeMaster)</Text>
+              <Text style={styles.cardSubhead}>
+                Manage welcome screen customer/dealer account cards, names, descriptions, order, and badges
+              </Text>
+            </View>
+            <Pressable
+              style={styles.btnPrimary}
+              onPress={() => {
+                setEditingAccountType(null);
+                setAtCode('');
+                setAtName('');
+                setAtDesc('');
+                setAtIcon('car-sport');
+                setAtOrder(String((accountTypesList.length || 0) + 1));
+                setAtActive(true);
+                setAtImage('');
+                setAtModalError('');
+                setAccountTypeModalOpen(true);
+              }}
+            >
+              <Ionicons name="add" size={16} color={C.white} />
+              <Text style={styles.btnPrimaryText}>Add Account Type</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 0.6 }]}>NO</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>IMAGE / ICON</Text>
+            <Text style={[styles.th, { flex: 1.2 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 1.5 }]}>TYPE NAME</Text>
+            <Text style={[styles.th, { flex: 2.2 }]}>DESCRIPTION</Text>
+            <Text style={[styles.th, { flex: 0.8 }]}>ORDER</Text>
+            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
+          </View>
+
+          {accountTypesList.map((at, idx) => (
+            <View key={String(at.accountTypeId || at.code || idx)} style={styles.tableRow}>
+              {/* No / ID */}
+              <Text style={[styles.td, styles.textSec, { flex: 0.6, fontWeight: '700' }]}>
+                {at.displayOrder ?? idx + 1}
+              </Text>
+
+              {/* Logo / Icon */}
+              <View style={{ flex: 0.9, justifyContent: 'center' }}>
+                {at.imageUrl ? (
+                  <Image source={{ uri: at.imageUrl }} style={styles.tableThumb} resizeMode="contain" />
+                ) : (
+                  <View style={[styles.tableThumbPlaceholder, { backgroundColor: at.code === 'DEALER' ? '#0F172A' : '#EF4444' }]}>
+                    <Ionicons 
+                      name={(at.iconName || (at.code === 'DEALER' ? 'business' : 'car-sport')) as any} 
+                      size={18} 
+                      color="#FFFFFF" 
+                    />
+                  </View>
+                )}
+              </View>
+
+              {/* Code */}
+              <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '800' }]}>
+                {at.code}
+              </Text>
+
+              {/* Name */}
+              <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>
+                {at.name}
+              </Text>
+
+              {/* Description */}
+              <Text style={[styles.td, styles.textSec, { flex: 2.2 }]} numberOfLines={2}>
+                {at.description || <Text style={{ fontStyle: 'italic', color: C.textMuted }}>No description</Text>}
+              </Text>
+
+              {/* Order */}
+              <Text style={[styles.td, styles.textSec, { flex: 0.8 }]}>
+                {at.displayOrder ?? 1}
+              </Text>
+
+              {/* Status */}
+              <View style={{ flex: 1 }}>
+                <View style={[styles.statusBadge, at.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                  <Text style={[styles.statusBadgeText, at.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                    {at.isActive ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={[styles.actionRow, { flex: 1 }]}>
+                <Pressable
+                  style={styles.btnAction}
+                  onPress={() => {
+                    setEditingAccountType(at);
+                    setAtCode(at.code);
+                    setAtName(at.name);
+                    setAtDesc(at.description || '');
+                    setAtIcon(at.iconName || (at.code === 'DEALER' ? 'business' : 'car-sport'));
+                    setAtOrder(String(at.displayOrder ?? 1));
+                    setAtActive(at.isActive);
+                    setAtImage(at.imageUrl || '');
+                    setAtModalError('');
+                    setAccountTypeModalOpen(true);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                </Pressable>
+                <Pressable 
+                  style={styles.btnAction} 
+                  onPress={() => handleDeleteAccountType(at.accountTypeId, at.name)}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </Pressable>
+              </View>
+            </View>
+          ))}
+
+          {accountTypesList.length === 0 && !settingsLoading && (
+            <View style={{ padding: 30, alignItems: 'center' }}>
+              <Text style={{ color: C.textMuted, fontSize: 13 }}>
+                No account types found. Click "+ Add Account Type" to create one.
               </Text>
             </View>
           )}
@@ -3194,6 +3418,162 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
         </View>
       </Modal>
+
+      {/* Account Type Modal */}
+      <Modal visible={accountTypeModalOpen} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxWidth: 520 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {editingAccountType ? 'Edit Kiosk Account Type' : 'Add Kiosk Account Type'}
+              </Text>
+              <Pressable onPress={() => setAccountTypeModalOpen(false)}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
+              {atModalError ? (
+                <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#EF4444', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                  <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '700' }}>{atModalError}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>TYPE CODE *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={atCode}
+                    onChangeText={setAtCode}
+                    placeholder="e.g. CUSTOMER, DEALER"
+                    autoCapitalize="characters"
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 0.8 }]}>
+                  <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={atOrder}
+                    onChangeText={setAtOrder}
+                    keyboardType="numeric"
+                    placeholder="1"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DISPLAY NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={atName}
+                  onChangeText={setAtName}
+                  placeholder="e.g. CUSTOMER or DEALER"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DESCRIPTION (OPTIONAL)</Text>
+                <TextInput
+                  style={[styles.fieldInput, { height: 60, textAlignVertical: 'top' }]}
+                  value={atDesc}
+                  onChangeText={setAtDesc}
+                  placeholder="Subheading shown on kiosk card (leave blank to center the title)"
+                  multiline
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>EMBLEM ICON</Text>
+                <View style={[styles.groupPickerRow, { flexWrap: 'wrap', gap: 6 }]}>
+                  {[
+                    { id: 'car-sport', label: 'Car' },
+                    { id: 'business', label: 'Dealer/Building' },
+                    { id: 'shield-checkmark', label: 'Shield' },
+                    { id: 'sparkles', label: 'Sparkles' },
+                    { id: 'people', label: 'People' },
+                    { id: 'briefcase', label: 'Corporate' },
+                  ].map((ic) => (
+                    <Pressable
+                      key={ic.id}
+                      style={[styles.groupPill, atIcon === ic.id && styles.groupPillActive]}
+                      onPress={() => setAtIcon(ic.id)}
+                    >
+                      <Ionicons name={ic.id as any} size={13} color={atIcon === ic.id ? C.white : C.textSec} style={{ marginRight: 4 }} />
+                      <Text style={[styles.groupPillText, atIcon === ic.id && { color: C.white, fontWeight: '700' }]}>
+                        {ic.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>BADGE IMAGE (OPTIONAL)</Text>
+                <View style={styles.uploadRow}>
+                  {atImage ? (
+                    <View style={styles.previewBox}>
+                      <Image source={{ uri: atImage }} style={styles.previewImg} resizeMode="contain" />
+                      <Pressable style={styles.previewRemoveBtn} onPress={() => setAtImage('')}>
+                        <Ionicons name="trash" size={12} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={[styles.previewBoxPlaceholder, { backgroundColor: atCode === 'DEALER' ? '#0F172A' : '#EF4444' }]}>
+                      <Ionicons name={(atIcon || 'car-sport') as any} size={24} color="#FFFFFF" />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Pressable
+                      style={styles.btnUpload}
+                      onPress={() => handlePickImage((base64) => setAtImage(base64))}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                      <Text style={styles.btnUploadText}>{atImage ? 'Change Image' : 'Upload Badge Image'}</Text>
+                    </Pressable>
+                    <Text style={styles.uploadHint}>Replaces the icon on the kiosk card</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={[styles.formGroup, { marginTop: 4 }]}>
+                <Text style={styles.fieldLabel}>STATUS</Text>
+                <View style={styles.groupPickerRow}>
+                  <Pressable
+                    style={[styles.groupPill, atActive && styles.groupPillActive]}
+                    onPress={() => setAtActive(true)}
+                  >
+                    <Text style={[styles.groupPillText, atActive && { color: C.white, fontWeight: '700' }]}>Active (Visible on Kiosk)</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.groupPill, !atActive && styles.groupPillActive]}
+                    onPress={() => setAtActive(false)}
+                  >
+                    <Text style={[styles.groupPillText, !atActive && { color: C.white, fontWeight: '700' }]}>Disabled (Hidden)</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <Pressable style={styles.btnSecondary} onPress={() => setAccountTypeModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.btnPrimary, savingAccountType && { opacity: 0.7 }]} 
+                onPress={handleSaveAccountType}
+                disabled={savingAccountType}
+              >
+                {savingAccountType ? (
+                  <ActivityIndicator color={C.white} size="small" />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>Save Account Type</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 
@@ -3257,7 +3637,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
                 <Text style={[styles.td, styles.textWhite, { flex: 1, fontWeight: '700' }]}>{log.changedBy}</Text>
                 <Text style={[styles.td, styles.textMuted, { flex: 1.5, fontSize: 11 }]}>
-                  {new Date(log.changedDate).toLocaleString()}
+                  {formatSgDateTime(log.changedDate)}
                 </Text>
                 <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{log.remarks || '-'}</Text>
               </View>
@@ -3376,7 +3756,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </Text>
                 <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{alt.message || 'Help requested at kiosk'}</Text>
                 <Text style={[styles.td, styles.textMuted, { flex: 1.5, fontSize: 11 }]}>
-                  {alt.timestamp ? new Date(alt.timestamp).toLocaleTimeString() : 'N/A'}
+                  {alt.timestamp ? formatSgTime(alt.timestamp) : 'N/A'}
                 </Text>
                 <View style={{ flex: 1 }}>
                   <Pressable style={styles.btnPrimarySmall} onPress={() => handleResolveAlert(alt.id)}>

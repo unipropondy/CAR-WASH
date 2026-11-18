@@ -30,6 +30,10 @@ import {
 import { StaffPosLoginModal } from '../components/StaffPosLoginModal';
 import { AuthenticatedUser } from '../../../types/auth.types';
 import { getRouteForUserGroup } from '../../auth/utils/userGroupRouting';
+import { fetchVehicleTypes } from '../../../services/vehicleApi';
+import { fetchServiceCategories } from '../../../services/categoryApi';
+import { fetchPackagesByCategory } from '../../../services/packageApi';
+import { fetchAllDealers } from '../../../services/dealerApi';
 
 interface KioskMainScreenProps {
   onExitToPos?: () => void;
@@ -92,6 +96,38 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
       onExitToPos();
     }
   };
+
+  // Proactive background prefetching for all kiosk steps
+  useEffect(() => {
+    let isMounted = true;
+    const prefetchKioskData = async () => {
+      try {
+        const [vehicles, categories] = await Promise.all([
+          fetchVehicleTypes().catch(() => []),
+          fetchServiceCategories().catch(() => []),
+          fetchAllDealers(false).catch(() => []),
+        ]);
+
+        if (!isMounted) return;
+
+        // Prefetch packages for each category
+        if (Array.isArray(categories)) {
+          for (const cat of categories) {
+            if (cat.serviceCategoryId) {
+              fetchPackagesByCategory(cat.serviceCategoryId).catch(() => []);
+            }
+          }
+        }
+      } catch (e) {
+        // Silent background prefetch fallback
+      }
+    };
+
+    prefetchKioskData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Sync state changes with session storage for browser refresh restoration
   useEffect(() => {

@@ -29,18 +29,62 @@ export interface CreateDealerPayload {
   isActive?: boolean;
 }
 
+const DEALER_CACHE_KEY = '@redbay_cached_dealers';
+let memoryDealerCache: DealerRecord[] | null = null;
+
+export function getCachedDealers(): DealerRecord[] {
+  if (memoryDealerCache && memoryDealerCache.length > 0) {
+    return memoryDealerCache;
+  }
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const stored = window.localStorage.getItem(DEALER_CACHE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          memoryDealerCache = parsed;
+          return parsed;
+        }
+      }
+    } catch (e) {}
+  }
+  return [];
+}
+
+export function setCachedDealers(dealers: DealerRecord[]) {
+  if (!Array.isArray(dealers) || dealers.length === 0) return;
+  memoryDealerCache = dealers;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(DEALER_CACHE_KEY, JSON.stringify(dealers));
+    } catch (e) {}
+  }
+}
+
 export async function fetchAllDealers(includeAll: boolean = true, search?: string): Promise<DealerRecord[]> {
   const params = new URLSearchParams();
   if (includeAll) params.append('all', 'true');
   if (search) params.append('search', search);
 
-  const res = await apiFetch(`/api/dealers?${params.toString()}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Failed to fetch dealers');
+  try {
+    const res = await apiFetch(`/api/dealers?${params.toString()}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to fetch dealers');
+    }
+    const data = await res.json();
+    const list = data.data || [];
+    if (!includeAll && !search && list.length > 0) {
+      setCachedDealers(list);
+    }
+    return list;
+  } catch (err: any) {
+    const cached = getCachedDealers();
+    if (cached.length > 0) {
+      return cached;
+    }
+    throw err;
   }
-  const data = await res.json();
-  return data.data || [];
 }
 
 export async function createDealer(payload: CreateDealerPayload): Promise<DealerRecord> {

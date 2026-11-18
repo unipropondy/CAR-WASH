@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskNavButtons } from '../components/KioskNavButtons';
 import { DealerOption, VehicleOption, ServiceCategory, ServicePackage, CustomerDetails } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface DealerCreditConfirmScreenProps {
   dealer: DealerOption;
@@ -28,6 +29,8 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
   onBack,
   onExitToPos,
 }) => {
+  const { isTallKiosk, isLandscape, contentMaxWidth, horizontalPadding, width } = useKioskResponsive();
+  const isTwoCol = isLandscape && width >= 850;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const total = selectedPackage.price;
@@ -58,10 +61,14 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && { paddingVertical: 28 }
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
+        <View style={[styles.portraitContainer, { maxWidth: isTwoCol ? 1200 : contentMaxWidth, width: '100%' }]}>
           {/* Top Automatic Credit Banner */}
           <View style={styles.creditBanner}>
             <View style={styles.creditIconBadge}>
@@ -78,10 +85,10 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
             </View>
           </View>
 
-          {/* Cards Stacked Vertically for Portrait Mode */}
-          <View style={styles.cardsStack}>
+          {/* Cards: Responsive Stack (1 Col in Portrait, 2 Col in Landscape) */}
+          <View style={[styles.cardsStack, isTwoCol && styles.cardsStackTwoCol]}>
             {/* 1. Dealer Account Details Card */}
-            <View style={styles.card}>
+            <View style={[styles.card, isTwoCol && styles.cardTwoCol]}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardHeaderTitle}>DEALER ACCOUNT DETAILS</Text>
                 <View style={styles.tag}>
@@ -106,7 +113,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
             </View>
 
             {/* 2. Vehicle & Service Details Card */}
-            <View style={styles.card}>
+            <View style={[styles.card, isTwoCol && styles.cardTwoCol]}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardHeaderTitle}>VEHICLE & SERVICE BREAKDOWN</Text>
                 <View style={styles.serviceCatTag}>
@@ -135,7 +142,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
             </View>
 
             {/* 3. Financial Summary Card */}
-            <View style={styles.card}>
+            <View style={[styles.card, isTwoCol && styles.cardFullWidth]}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardHeaderTitle}>INVOICE SUMMARY</Text>
                 <Text style={styles.taxInclusivePill}>9% GST INCLUDED</Text>
@@ -183,11 +190,17 @@ const styles = StyleSheet.create({
     height: '100%',
     overflow: 'hidden',
     backgroundColor: '#F8FAFC',
+    ...(Platform.OS === 'web'
+      ? {
+          maxHeight: '100%' as any,
+        }
+      : {}),
   },
   scrollView: {
     flex: 1,
     flexShrink: 1,
     width: '100%',
+    minHeight: 0,
   },
   scrollContent: {
     paddingVertical: 14,
@@ -197,7 +210,6 @@ const styles = StyleSheet.create({
   },
   portraitContainer: {
     width: '100%',
-    maxWidth: 560,
     gap: 12,
   },
   creditBanner: {
@@ -249,6 +261,12 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 12,
   },
+  cardsStackTwoCol: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -257,6 +275,12 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
     ...makeShadow('#000000', { width: 0, height: 3 }, 0.04, 6, 2),
+  },
+  cardTwoCol: {
+    width: '48.5%',
+  },
+  cardFullWidth: {
+    width: '100%',
   },
   cardHeader: {
     flexDirection: 'row',

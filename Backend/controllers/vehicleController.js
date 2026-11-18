@@ -20,6 +20,17 @@ const DEFAULT_CAR_SVG = `
 </svg>
 `.trim();
 
+// In-memory cache for ultra-fast kiosk response
+let vehicleCache = {
+  data: null,
+  timestamp: 0,
+};
+
+function invalidateVehicleCache() {
+  vehicleCache.data = null;
+  vehicleCache.timestamp = 0;
+}
+
 /**
  * 1. GET /api/vehicle-types or /api/vehicles
  * Retrieve vehicle types from VehicleTypeMaster
@@ -30,16 +41,23 @@ async function getVehicleTypes(req, res) {
     const { all, search } = req.query || {};
     const includeAll = all === 'true' || all === '1';
 
+    // Serve from in-memory cache if active kiosk request (non-filtered)
+    if (!includeAll && !search && vehicleCache.data && (Date.now() - vehicleCache.timestamp < 120000)) {
+      return res.status(200).json(vehicleCache.data);
+    }
+
     const pool = await getPool();
     const request = pool.request();
 
+    // Fast query: NEVER fetch raw ImageData VARBINARY blobs in list queries.
+    // Use DATALENGTH check to return lightweight metadata in milliseconds.
     let query = `
       SELECT 
         VehicleTypeId,
         VehicleTypeCode,
         VehicleTypeName,
         Description,
-        ImageData,
+        CASE WHEN ImageData IS NOT NULL AND DATALENGTH(ImageData) > 0 THEN 1 ELSE 0 END AS HasImage,
         ImageContentType,
         DisplayOrder,
         IsActive,
@@ -64,23 +82,10 @@ async function getVehicleTypes(req, res) {
 
     const result = await request.query(query);
 
-    const host = req.get('host') || 'localhost:5000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
-
     const vehicleTypes = result.recordset.map((row) => {
-      let imageUrl = null;
-      const hasImage = Boolean(row.ImageData && row.ImageData.length > 0);
-
-      if (hasImage) {
-        const mime = row.ImageContentType || 'image/png';
-        const base64 = Buffer.isBuffer(row.ImageData)
-          ? row.ImageData.toString('base64')
-          : Buffer.from(row.ImageData).toString('base64');
-        imageUrl = `data:${mime};base64,${base64}`;
-      } else {
-        imageUrl = `${baseUrl}/api/vehicle-types/${row.VehicleTypeId}/image`;
-      }
+      const hasImage = Boolean(row.HasImage);
+      const version = row.CreatedDate ? new Date(row.CreatedDate).getTime() : 1;
+      const imageUrl = `/api/vehicle-types/${row.VehicleTypeId}/image?v=${version}`;
 
       return {
         vehicleTypeId: row.VehicleTypeId,
@@ -96,11 +101,18 @@ async function getVehicleTypes(req, res) {
       };
     });
 
-    return res.status(200).json({
+    const responsePayload = {
       success: true,
       count: vehicleTypes.length,
       data: vehicleTypes,
-    });
+    };
+
+    if (!includeAll && !search) {
+      vehicleCache.data = responsePayload;
+      vehicleCache.timestamp = Date.now();
+    }
+
+    return res.status(200).json(responsePayload);
   } catch (err) {
     console.error('[getVehicleTypes Error]', err);
     return res.status(500).json({
@@ -240,6 +252,7 @@ async function createVehicleType(req, res) {
       );
     `);
 
+    invalidateVehicleCache();
     return res.status(201).json({
       success: true,
       message: `Vehicle Type "${vehicleTypeName}" created successfully.`,
@@ -340,6 +353,7 @@ async function updateVehicleType(req, res) {
       return res.status(404).json({ success: false, message: `Vehicle Type ${vehicleTypeId} not found.` });
     }
 
+    invalidateVehicleCache();
     return res.status(200).json({
       success: true,
       message: 'Vehicle Type updated successfully.',
@@ -379,6 +393,7 @@ async function deleteVehicleType(req, res) {
         .input('id', sql.Int, vehicleTypeId)
         .query(`UPDATE dbo.VehicleTypeMaster SET IsActive = 0 WHERE VehicleTypeId = @id`);
 
+      invalidateVehicleCache();
       return res.status(200).json({
         success: true,
         message: 'Vehicle type has existing orders, deactivated successfully.',
@@ -390,6 +405,7 @@ async function deleteVehicleType(req, res) {
       .input('id', sql.Int, vehicleTypeId)
       .query(`DELETE FROM dbo.VehicleTypeMaster WHERE VehicleTypeId = @id`);
 
+    invalidateVehicleCache();
     return res.status(200).json({
       success: true,
       message: 'Vehicle type deleted successfully from database.',

@@ -1,24 +1,114 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, useWindowDimensions, Image } from 'react-native';
 import { WashingBay } from '../../../types/pos.types';
+import { VehicleOption } from '../../kiosk/types/kiosk.types';
 import {
   IconSettings,
   IconClock,
   IconGrid,
-  VehicleSplashBlackSuv,
-  VehicleSplashWhiteSedan,
-  VehicleSplashBlueSuv,
   VehicleAvailableSparkle,
 } from '../../../components/common/AppIcons';
 
+const VEHICLE_LOCAL_ASSETS: Record<string, any> = {
+  sedan: require('../../../../assets/images/vehicles/sedan.png'),
+  suv: require('../../../../assets/images/vehicles/suv.png'),
+  mpv: require('../../../../assets/images/vehicles/mpv.png'),
+  'big mpv': require('../../../../assets/images/vehicles/big_mpv.png'),
+  big_mpv: require('../../../../assets/images/vehicles/big_mpv.png'),
+  'big-mpv': require('../../../../assets/images/vehicles/big_mpv.png'),
+  hatchback: require('../../../../assets/images/vehicles/hatchback.png'),
+  coupe: require('../../../../assets/images/vehicles/coupe.png'),
+};
+
+const getVehicleNormalizedKey = (rawName?: string, bayNumber?: number): string => {
+  const str = (rawName || '').toLowerCase().trim();
+  if (str.includes('big') || str.includes('alphard') || str.includes('vellfire')) return 'big_mpv';
+  if (str.includes('hatch')) return 'hatchback';
+  if (str.includes('coupe') || str.includes('sport')) return 'coupe';
+  if (str.includes('suv') || str.includes('cross') || str.includes('4x4')) return 'suv';
+  if (str.includes('mpv') || str.includes('van') || str.includes('7-seater')) return 'mpv';
+  if (str.includes('sedan') || str.includes('saloon') || str.includes('standard') || str.includes('car')) return 'sedan';
+
+  // Smart fallback by bay number if vehicle type is not yet specified
+  if (bayNumber === 1) return 'suv';
+  if (bayNumber === 2) return 'sedan';
+  if (bayNumber === 3) return 'big_mpv';
+  if (bayNumber === 4) return 'mpv';
+  if (bayNumber === 5) return 'hatchback';
+
+  return 'sedan';
+};
+
+interface BayVehicleImageProps {
+  bay: WashingBay;
+  vehicleTypes?: VehicleOption[];
+  isMobile?: boolean;
+}
+
+export const BayVehicleImage: React.FC<BayVehicleImageProps> = ({ bay, vehicleTypes, isMobile }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  if (bay.status !== 'IN_SERVICE') {
+    return <VehicleAvailableSparkle size={isMobile ? 48 : 64} />;
+  }
+
+  // 1. Check if vehicle type has custom image in vehicleTypes list or directly on bay
+  const vt = bay.vehicleTypeId
+    ? vehicleTypes?.find((v) => v.vehicleTypeId === bay.vehicleTypeId)
+    : vehicleTypes?.find(
+        (v) =>
+          (v.name && bay.vehicleTypeName && v.name.toLowerCase() === bay.vehicleTypeName.toLowerCase()) ||
+          (v.vehicleTypeCode && bay.vehicleTypeCode && v.vehicleTypeCode.toLowerCase() === bay.vehicleTypeCode.toLowerCase()) ||
+          (v.name && bay.vehicleType && v.name.toLowerCase() === bay.vehicleType.toLowerCase())
+      );
+
+  const customUri =
+    !imgFailed && (bay.hasImage || vt?.hasImage)
+      ? bay.vehicleImageUrl || vt?.imageUrl
+      : null;
+
+  // 2. Identify normalized vehicle key for local asset fallback
+  const rawKey =
+    bay.vehicleTypeName ||
+    bay.vehicleType ||
+    bay.vehicleTypeCode ||
+    vt?.name ||
+    vt?.vehicleTypeCode ||
+    bay.packageName ||
+    '';
+  const normKey = getVehicleNormalizedKey(rawKey, bay.bayNumber);
+  const localAsset =
+    VEHICLE_LOCAL_ASSETS[normKey] ||
+    VEHICLE_LOCAL_ASSETS['sedan'] ||
+    VEHICLE_LOCAL_ASSETS['suv'];
+
+  const source = customUri ? { uri: customUri } : localAsset;
+
+  return (
+    <View style={isMobile ? styles.mobileVehicleWrapper : styles.desktopVehicleWrapper}>
+      <Image
+        key={`${bay.id}-${customUri || normKey}`}
+        source={source}
+        style={isMobile ? styles.mobileVehicleImg : styles.desktopVehicleImg}
+        resizeMode="contain"
+        onError={() => setImgFailed(true)}
+      />
+      {/* Sleek soft elliptical pedestal shadow under the wheels */}
+      <View style={isMobile ? styles.mobileCarShadow : styles.desktopCarShadow} />
+    </View>
+  );
+};
+
 interface BayOverviewCardsProps {
   bays: WashingBay[];
+  vehicleTypes?: VehicleOption[];
   onSelectBay: (bay: WashingBay) => void;
   onManageBays?: () => void;
 }
 
 export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
   bays,
+  vehicleTypes,
   onSelectBay,
   onManageBays,
 }) => {
@@ -38,20 +128,8 @@ export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
     ? { width: '48%' as any, minWidth: '48%' as any }
     : { flex: 1 };
 
-  const getBayVehicleGraphic = (bay: WashingBay) => {
-    if (bay.status !== 'IN_SERVICE') {
-      return <VehicleAvailableSparkle size={64} />;
-    }
-    if (bay.id.includes('1') || bay.bayNumber === 1) {
-      return <VehicleSplashBlackSuv width="100%" height={70} />;
-    }
-    if (bay.id.includes('2') || bay.bayNumber === 2) {
-      return <VehicleSplashWhiteSedan width="100%" height={70} />;
-    }
-    if (bay.id.includes('3') || bay.bayNumber === 3) {
-      return <VehicleSplashBlueSuv width="100%" height={70} />;
-    }
-    return <VehicleSplashBlackSuv width="100%" height={70} />;
+  const getBayVehicleGraphic = (bay: WashingBay, isMobileView: boolean = false) => {
+    return <BayVehicleImage bay={bay} vehicleTypes={vehicleTypes} isMobile={isMobileView} />;
   };
 
   const getBayAvatar = (bay: WashingBay) => {
@@ -150,7 +228,7 @@ export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
                 {/* Content Body: Vehicle Graphic + Info */}
                 <View style={styles.mobileBayBody}>
                   <View style={styles.mobileVehicleIcon}>
-                    {getBayVehicleGraphic(bay)}
+                    {getBayVehicleGraphic(bay, true)}
                   </View>
 
                   <View style={styles.mobileBayInfo}>
@@ -244,7 +322,7 @@ export const BayOverviewCards: React.FC<BayOverviewCardsProps> = ({
 
                 {/* Upper Body: Realistic 3D Vehicle Render with Water Splash */}
                 <View style={[styles.vehicleVisualContainer, !isOccupied && styles.vehicleVisualEmpty]}>
-                  {getBayVehicleGraphic(bay)}
+                  {getBayVehicleGraphic(bay, false)}
                 </View>
 
                 {/* Middle Body: Customer Details with Circular Avatar OR Empty State Text */}
@@ -651,6 +729,50 @@ const styles = StyleSheet.create({
   },
   vehicleVisualEmpty: {
     opacity: 0.65,
+  },
+  desktopVehicleWrapper: {
+    width: '100%',
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  desktopVehicleImg: {
+    width: '92%',
+    maxWidth: 160,
+    height: 62,
+    zIndex: 2,
+  },
+  desktopCarShadow: {
+    position: 'absolute',
+    bottom: 2,
+    width: '74%',
+    maxWidth: 130,
+    height: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.12)',
+    zIndex: 1,
+  },
+  mobileVehicleWrapper: {
+    width: 68,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  mobileVehicleImg: {
+    width: 64,
+    height: 44,
+    zIndex: 2,
+  },
+  mobileCarShadow: {
+    position: 'absolute',
+    bottom: 2,
+    width: '80%',
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.12)',
+    zIndex: 1,
   },
   customerInfoBlock: {
     gap: 4,

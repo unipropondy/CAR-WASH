@@ -17,6 +17,7 @@ import { fetchPaymodes, PayModeOption } from '../../../services/carwashOrderApi'
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { getVehicleImageSource } from './Page2VehicleScreen';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface Page5PaymentScreenProps {
   vehicle: VehicleOption;
@@ -41,6 +42,31 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
   onExitToPos,
   orderNo,
 }) => {
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    isLandscapeShort, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    paymodeCols, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
+
+  const isVeryNarrow = width < 480;
+  const paymodeCardWidth = isVeryNarrow 
+    ? '100%' 
+    : paymodeCols === 3 
+      ? '31.5%' 
+      : '48.5%';
+
+  const dynamicPayCardMinHeight = scaleSize(142, 115, 220);
+  const dynamicPayIconBoxSize = scaleSize(52, 42, 74);
+  const dynamicPayTitleFont = scaleFont(15.5, 13, 21);
+
   const [paymodes, setPaymodes] = useState<PayModeOption[]>([]);
   const [loadingPaymodes, setLoadingPaymodes] = useState<boolean>(true);
   const [paymodeError, setPaymodeError] = useState<string>('');
@@ -140,15 +166,19 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
         <View style={styles.titleUnderlineAccent} />
       </View>
 
-      {/* Main Content Area - PORTRAIT OPTIMIZED */}
+      {/* Main Content Area - RESPONSIVE & BALANCED */}
       <ScrollView 
         style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && styles.scrollContentTall
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.portraitContainer}>
-          {/* Order Summary Strip (Portrait Full-Width) */}
-          <View style={styles.summaryBar}>
+        <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth, width: '100%' }]}>
+          {/* Order Summary Strip (Responsive Full-Width) */}
+          <View style={[styles.summaryBar, isTallKiosk && styles.summaryBarTall]}>
             <View style={styles.summaryTopStrip} />
             <View style={styles.summaryBarTop}>
               {/* Showroom Vehicle Image Thumbnail */}
@@ -235,6 +265,9 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                       key={pm.position || pm.payMode}
                       style={[
                         styles.paymentOptionCard,
+                        { width: paymodeCardWidth, minHeight: dynamicPayCardMinHeight },
+                        isTallKiosk && styles.paymentOptionCardTall,
+                        isLandscapeShort && styles.paymentOptionCardShort,
                         isSelected && styles.paymentOptionCardSelected,
                         isProcessing && !isSelected && styles.paymentOptionCardDisabled,
                       ]}
@@ -260,13 +293,13 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                       )}
 
                       {/* Centered Icon */}
-                      <View style={[styles.payIconBox, { backgroundColor: meta.badgeBg }]}>
-                        <Ionicons name={meta.iconName} size={28} color={meta.badgeColor} />
+                      <View style={[styles.payIconBox, { width: dynamicPayIconBoxSize, height: dynamicPayIconBoxSize, backgroundColor: meta.badgeBg }]}>
+                        <Ionicons name={meta.iconName} size={isTallKiosk ? 34 : 28} color={meta.badgeColor} />
                       </View>
 
                       {/* Centered Details: Title & Subtitle */}
                       <View style={styles.payDetailsCol}>
-                        <Text style={[styles.payModeTitle, isSelected && styles.payModeTitleSelected]}>
+                        <Text style={[styles.payModeTitle, { fontSize: dynamicPayTitleFont }, isSelected && styles.payModeTitleSelected]}>
                           {pm.payMode}
                         </Text>
                         <Text style={styles.paySubtitle} numberOfLines={1}>{meta.subtitle}</Text>
@@ -304,15 +337,15 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
   },
   promptHeader: {
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
     width: '100%',
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
@@ -360,9 +393,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexGrow: 1,
   },
+  scrollContentTall: {
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+  },
   portraitContainer: {
     width: '100%',
-    maxWidth: 700,
     gap: 14,
     alignItems: 'center',
   },
@@ -378,6 +414,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
+  },
+  summaryBarTall: {
+    padding: 24,
+    borderRadius: 26,
+    gap: 16,
   },
   summaryTopStrip: {
     position: 'absolute',
@@ -522,6 +563,24 @@ const styles = StyleSheet.create({
     minHeight: 142,
     gap: 12,
     ...makeShadow('#000000', { width: 0, height: 6 }, 0.05, 12, 3),
+  },
+  paymentOptionCard3Col: {
+    width: '31.8%',
+  },
+  paymentOptionCardTall: {
+    minHeight: 200,
+    borderRadius: 26,
+    paddingVertical: 28,
+    paddingHorizontal: 18,
+    gap: 16,
+    ...makeShadow('#000000', { width: 0, height: 8 }, 0.08, 16, 4),
+  },
+  paymentOptionCardShort: {
+    minHeight: 110,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    gap: 6,
   },
   paymentOptionCardSelected: {
     borderColor: RED_BAY_COLORS.primary,

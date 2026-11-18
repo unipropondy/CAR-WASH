@@ -17,6 +17,7 @@ import {
   IconClock,
 } from '../../../components/common/AppIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { getDbTimestampMs, parseToSgDate, getDbTime } from '../../../services/timeService';
 
 export type FilterTabKey =
   | 'ALL'
@@ -208,7 +209,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   };
 
   // Live ticking counter state for active orders (updates every 10 seconds)
-  const [now, setNow] = useState<number>(() => Date.now());
+  const [now, setNow] = useState<number>(() => getDbTimestampMs());
 
   useEffect(() => {
     // Only run the timer if there is at least one active order
@@ -223,7 +224,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
     if (!hasActiveOrders) return;
 
     const interval = setInterval(() => {
-      setNow(Date.now());
+      setNow(getDbTimestampMs());
     }, 10000);
 
     return () => clearInterval(interval);
@@ -253,17 +254,17 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
     // Determine start timestamp
     let startMs: number | null = null;
     if (order.createdDate) {
-      const p = new Date(order.createdDate).getTime();
+      const p = parseToSgDate(order.createdDate).getTime();
       if (!isNaN(p)) startMs = p;
     }
     if (startMs === null && order.createdAt) {
-      const p = new Date(order.createdAt).getTime();
+      const p = parseToSgDate(order.createdAt).getTime();
       if (!isNaN(p)) {
         startMs = p;
       } else {
         const match = order.createdAt.match(/(\d+):(\d+)\s*(AM|PM)?/i);
         if (match) {
-          const d = new Date();
+          const d = getDbTime();
           let hrs = parseInt(match[1], 10);
           const mins = parseInt(match[2], 10);
           const ampm = match[3]?.toUpperCase();
@@ -280,7 +281,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
       let endMs: number | null = null;
       const endCandidate = order.closedDate || order.completedDate;
       if (endCandidate) {
-        const p = new Date(endCandidate).getTime();
+        const p = parseToSgDate(endCandidate).getTime();
         if (!isNaN(p)) endMs = p;
       }
 
@@ -325,8 +326,8 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
 
   const formatOrderNo = (orderNo?: string | number): string => {
     if (!orderNo) return '#0000';
-    const str = String(orderNo).trim();
-    const digits = str.length >= 4 ? str.slice(-4) : str.padStart(4, '0');
+    const clean = String(orderNo).trim().replace(/^#+/, '');
+    const digits = clean.length >= 4 ? clean.slice(-4) : clean.padStart(4, '0');
     return `#${digits}`;
   };
 
@@ -336,6 +337,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
       <View style={styles.filterPillsContainer}>
         <ScrollView
           horizontal
+          nestedScrollEnabled={true}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterPillsRow}
         >
@@ -483,7 +485,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   {/* Top Row: Order # and Payment / Wait badges */}
                   <View style={styles.mobileCardHeader}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
-                      <Text style={styles.mobileOrderNo}>#{formatOrderNo(order.orderNumber)}</Text>
+                      <Text style={styles.mobileOrderNo}>{formatOrderNo(order.orderNumber)}</Text>
                       <View style={[styles.packagePill, pkgStyle.pill]}>
                         <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1}>
                           {order.packageName}
@@ -594,9 +596,11 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
         </View>
       ) : (
         <ScrollView
-          horizontal={width < 960}
+          horizontal={true}
           showsHorizontalScrollIndicator={false}
           style={{ width: '100%' }}
+          contentContainerStyle={{ minWidth: '100%' }}
+          nestedScrollEnabled={true}
         >
           <View style={[styles.tableWrapper, width < 960 && { minWidth: 880 }]}>
             {/* Table Column Headers */}
@@ -617,6 +621,8 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
               style={styles.tableBody}
               nestedScrollEnabled={true}
               showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              scrollEventThrottle={16}
             >
               {filteredOrders.length === 0 ? (
                 <View style={styles.emptyContainer}>

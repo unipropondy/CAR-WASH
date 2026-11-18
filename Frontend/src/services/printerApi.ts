@@ -2,6 +2,7 @@ import { apiFetch, getApiBaseUrl } from './apiConfig';
 import { Platform } from 'react-native';
 import { posPrinter, kioskPrinter, universalPrinter } from './printer/UniversalPrinter';
 import { fetchCompanySettings, CompanySettings } from './companySettingsApi';
+import { formatSgDate, formatSgTime, getDbTime } from './timeService';
 import { PrintOptions } from './printer/PrinterTypes';
 
 export interface PrinterConfig {
@@ -124,10 +125,18 @@ export async function testPrinter(
   port = 9100,
   printerName = 'Printer'
 ): Promise<{ success: boolean; message: string }> {
-  // First attempt native POS printer test on Android devices
+  // First attempt native POS printer test on Android devices directly via LAN socket
   if (Platform.OS === 'android') {
     try {
-      const nativeRes = await posPrinter.testPrint();
+      const overrideCfg = ip ? {
+        ...posPrinter.getConfigManager().getConfig(),
+        type: 'LAN' as const,
+        lanIp: ip.trim(),
+        lanPort: port || 9100,
+        printerName: printerName || 'Thermal Printer',
+      } : undefined;
+
+      const nativeRes = await posPrinter.testPrint(overrideCfg);
       if (nativeRes.success) {
         return { success: true, message: nativeRes.message };
       }
@@ -156,12 +165,13 @@ export async function testPrinter(
  * Print a POS order receipt / KOT / reprint.
  *
  * Always uses the POS printer config (posPrinterConfigManager).
- * Never touches the Kiosk printer config.
+ * If POS printer is unreachable on Android, automatically tries Kiosk printer as direct fallback.
  *
  * Routing priority:
  *  1. Native Android POS printer (SUNMI / LAN / USB via posPrinter)
- *  2. Backend API fallback (PrintMaster PrinterType=1 — POS receipt)
- *  3. Web browser print dialog
+ *  2. Native Android Kiosk printer direct fallback (shares shop counter printer)
+ *  3. Backend API fallback (PrintMaster PrinterType=1 — POS receipt)
+ *  4. Web browser print dialog
  */
 export async function printOrderReceipt(
   order: any,
@@ -184,6 +194,22 @@ export async function printOrderReceipt(
       }
     } catch (nativeErr: any) {
       console.warn('[printOrderReceipt:POS] POS printer direct exception:', nativeErr);
+    }
+
+    // Direct fallback on Android: try Kiosk printer driver directly
+    try {
+      const kioskResult = await kioskPrinter.printReceipt(order, options);
+      if (kioskResult.success) {
+        return {
+          success: true,
+          printedVia: kioskResult.printerType,
+          printer: kioskResult.printerName,
+          orderNo: kioskResult.orderNo,
+          message: kioskResult.message,
+        };
+      }
+    } catch (kioskErr: any) {
+      console.warn('[printOrderReceipt:POS] Kiosk driver fallback failed:', kioskErr?.message);
     }
   }
 
@@ -216,7 +242,7 @@ export async function printOrderReceipt(
       success: true,
       printedVia: 'BROWSER_DIALOG',
       message: 'Printed via browser print dialog',
-      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.id || ''),
+      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.billNumber || order?.orderNo || order?.id || ''),
     };
   }
 
@@ -233,12 +259,13 @@ export async function printOrderReceipt(
  * Print a Kiosk order receipt (Kiosk Receipt or Kiosk Order Success).
  *
  * Always uses the Kiosk printer config (kioskPrinterConfigManager).
- * Never touches the POS printer config.
+ * If Kiosk printer is unreachable on Android, automatically tries POS printer as direct fallback.
  *
  * Routing priority:
  *  1. Native Android Kiosk printer (SUNMI / LAN / USB via kioskPrinter)
- *  2. Backend API fallback (PrintMaster PrinterType=3 — Kiosk billing printer)
- *  3. Web browser print dialog
+ *  2. Native Android POS printer direct fallback (shares shop counter printer)
+ *  3. Backend API fallback (PrintMaster PrinterType=3 — Kiosk billing printer)
+ *  4. Web browser print dialog
  */
 export async function printKioskReceipt(
   order: any,
@@ -261,6 +288,22 @@ export async function printKioskReceipt(
       }
     } catch (nativeErr: any) {
       console.warn('[printKioskReceipt] Kiosk printer direct exception:', nativeErr);
+    }
+
+    // Direct fallback on Android: try POS printer driver (shares physical counter printer)
+    try {
+      const posResult = await posPrinter.printReceipt(order, options);
+      if (posResult.success) {
+        return {
+          success: true,
+          printedVia: posResult.printerType,
+          printer: posResult.printerName,
+          orderNo: posResult.orderNo,
+          message: posResult.message,
+        };
+      }
+    } catch (posErr: any) {
+      console.warn('[printKioskReceipt] POS driver fallback failed:', posErr?.message);
     }
   }
 
@@ -293,7 +336,7 @@ export async function printKioskReceipt(
       success: true,
       printedVia: 'BROWSER_DIALOG',
       message: 'Kiosk receipt printed via browser print dialog',
-      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.id || ''),
+      orderNo: String(order?.OrderNo || order?.OrderNumber || order?.billNumber || order?.orderNo || order?.id || ''),
     };
   }
 
@@ -322,7 +365,7 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
   const net = (Number(total) - Number(gst)).toFixed(2);
   const payMode = (order.paymentMode || order.payMode || order.PaymentMode || 'CASH').toUpperCase();
   const payStatus = (order.paymentStatus || (payMode === 'CASH' ? 'PENDING' : 'PAID')).toUpperCase();
-  const timeStr = order.createdAt || new Date().toLocaleTimeString('en-SG');
+  const timeStr = order.createdAt ? formatSgTime(order.createdAt) : formatSgTime(order.createdDate || getDbTime());
 
   // Dynamic Company Details from dbo.CompanySettings
   const companyName = company?.CompanyName || 'CAR WASH';
@@ -376,7 +419,7 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
         </div>
         <div class="double-divider"></div>
         <div class="section">
-          <div class="row"><span>Date: ${new Date().toLocaleDateString('en-GB')}</span><span>Time: ${timeStr}</span></div>
+          <div class="row"><span>Date: ${formatSgDate(order.createdDate || getDbTime())}</span><span>Time: ${timeStr}</span></div>
           <div style="margin-top: 4px;">Customer: ${custName}</div>
           <div>Vehicle:  ${plate}</div>
           <div>Contact:  ${mobile}</div>

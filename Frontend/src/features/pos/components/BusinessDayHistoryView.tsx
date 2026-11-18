@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { fetchDayHistory, DayMetrics } from '../../../services/dayManagementApi';
 import { fetchCarWashOrders, ApiOrder } from '../../../services/carwashOrderApi';
+import { formatSgDate, formatSgTime, formatSgDateTime } from '../../../services/timeService';
 
 interface DayHistoryItem {
   dayId: number;
@@ -118,27 +119,17 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-GB', {
-        weekday: 'short',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatSgDate(dateStr, {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
   };
 
   const formatTime = (dateStr?: string | null) => {
     if (!dateStr) return '-';
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch {
-      return dateStr;
-    }
+    return formatSgTime(dateStr, { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const filteredOrders = dayOrders.filter((o) => {
@@ -495,7 +486,11 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                   <Text style={styles.emptySubtitle}>No records match your filter criteria for this day.</Text>
                 </View>
               ) : (
-                <ScrollView style={styles.ordersTableScroll}>
+                <ScrollView 
+                  style={styles.ordersTableScroll}
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                >
                   <View style={styles.tableHeaderRow}>
                     <Text style={[styles.thCell, { flex: 1.2 }]}>ORDER NO</Text>
                     <Text style={[styles.thCell, { flex: 1.5 }]}>CUSTOMER</Text>
@@ -589,7 +584,11 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.summaryModalBody}>
+              <ScrollView 
+                style={styles.summaryModalBody}
+                nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
+              >
                 {/* Section 1: Operational Times */}
                 <View style={styles.summarySection}>
                   <Text style={styles.summarySectionTitle}>Operational Times</Text>
@@ -597,7 +596,7 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                     <Text style={styles.summaryRowLabel}>Started Date/Time:</Text>
                     <Text style={styles.summaryRowValue}>
                       {selectedDayForSummary.startedDate
-                        ? new Date(selectedDayForSummary.startedDate).toLocaleString()
+                        ? formatSgDateTime(selectedDayForSummary.startedDate)
                         : '-'}
                     </Text>
                   </View>
@@ -609,7 +608,7 @@ export const BusinessDayHistoryView: React.FC<BusinessDayHistoryViewProps> = ({
                     <Text style={styles.summaryRowLabel}>Ended Date/Time:</Text>
                     <Text style={styles.summaryRowValue}>
                       {selectedDayForSummary.endedDate
-                        ? new Date(selectedDayForSummary.endedDate).toLocaleString()
+                        ? formatSgDateTime(selectedDayForSummary.endedDate)
                         : 'Active / Still Open'}
                     </Text>
                   </View>

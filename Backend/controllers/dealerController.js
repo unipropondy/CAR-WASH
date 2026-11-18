@@ -111,8 +111,21 @@ function saveLocalDealers(dealers) {
 
 let inMemoryDealers = loadLocalDealers();
 
+let dealerTableEnsured = false;
+// In-memory cache for ultra-fast kiosk response
+let dealerCache = {
+  data: null,
+  timestamp: 0,
+};
+
+function invalidateDealerCache() {
+  dealerCache.data = null;
+  dealerCache.timestamp = 0;
+}
+
 // Ensure MSSQL table exists
 async function ensureDealerTable(pool) {
+  if (dealerTableEnsured) return;
   try {
     await pool.request().query(`
       IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'DealerMaster')
@@ -134,6 +147,7 @@ async function ensureDealerTable(pool) {
         );
       END
     `);
+    dealerTableEnsured = true;
   } catch (e) {
     console.warn('[DealerController] ensureDealerTable notice:', e.message);
   }
@@ -146,6 +160,10 @@ async function getDealers(req, res) {
   try {
     const { all, search } = req.query || {};
     const includeAll = all === 'true' || all === '1';
+
+    if (!includeAll && !search && dealerCache.data && (Date.now() - dealerCache.timestamp < 120000)) {
+      return res.status(200).json(dealerCache.data);
+    }
 
     try {
       const pool = await getPool(1, 500);
@@ -201,7 +219,12 @@ async function getDealers(req, res) {
           createdDate: r.CreatedDate,
         }));
 
-        return res.json({ success: true, count: dealers.length, data: dealers });
+        const payload = { success: true, count: dealers.length, data: dealers };
+        if (!includeAll && !search) {
+          dealerCache.data = payload;
+          dealerCache.timestamp = Date.now();
+        }
+        return res.json(payload);
       }
     } catch (dbErr) {
       // Fallback to local storage
@@ -224,7 +247,12 @@ async function getDealers(req, res) {
       );
     }
 
-    return res.json({ success: true, count: list.length, data: list });
+    const payload = { success: true, count: list.length, data: list };
+    if (!includeAll && !search) {
+      dealerCache.data = payload;
+      dealerCache.timestamp = Date.now();
+    }
+    return res.json(payload);
   } catch (err) {
     console.error('[DealerController.getDealers Error]', err);
     return res.status(500).json({ success: false, message: 'Failed to retrieve dealers', error: err.message });
@@ -372,6 +400,7 @@ async function createDealer(req, res) {
 
     inMemoryDealers.push(newDealer);
     saveLocalDealers(inMemoryDealers);
+    invalidateDealerCache();
 
     return res.status(201).json({
       success: true,
@@ -456,6 +485,7 @@ async function updateDealer(req, res) {
 
     inMemoryDealers[idx] = updated;
     saveLocalDealers(inMemoryDealers);
+    invalidateDealerCache();
 
     return res.json({
       success: true,
@@ -481,6 +511,7 @@ async function deleteDealer(req, res) {
 
     const removed = inMemoryDealers.splice(idx, 1)[0];
     saveLocalDealers(inMemoryDealers);
+    invalidateDealerCache();
 
     try {
       const pool = await getPool(1, 500);

@@ -13,11 +13,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
-import { KioskNavButtons } from '../components/KioskNavButtons';
 import { CustomerDetails, DealerOption, VehicleOption, ServicePackage } from '../types/kiosk.types';
 import { getVehicleImageSource } from './Page2VehicleScreen';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface Page4DetailsScreenProps {
   initialDetails?: CustomerDetails;
@@ -42,8 +42,22 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   onBack,
   onExitToPos,
 }) => {
-  const { width } = useWindowDimensions();
-  const isWideTablet = width >= 800;
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    isLandscapeShort, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
+  const isSideBySide = isLandscape && width >= 850;
+
+  const dynamicInputHeight = scaleSize(52, 46, 68);
+  const dynamicInputFontSize = scaleFont(14.5, 13, 19);
 
   const [customerName, setCustomerName] = useState(initialDetails?.customerName || '');
   const [mobileNumber, setMobileNumber] = useState(initialDetails?.mobileNumber || '');
@@ -164,15 +178,27 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
         <View style={styles.titleUnderlineAccent} />
       </View>
 
-      {/* Main Content Area - PORTRAIT OPTIMIZED */}
+      {/* Main Content Area - RESPONSIVE & BALANCED */}
       <ScrollView 
         style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && styles.scrollContentTall
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.portraitContainer, isWideTablet && { maxWidth: 880, flexDirection: 'row', alignItems: 'flex-start' }]}>
+        <View style={[
+          styles.portraitContainer, 
+          { maxWidth: contentMaxWidth, width: '100%' }, 
+          isSideBySide && { flexDirection: 'row', alignItems: 'flex-start', gap: 20 }
+        ]}>
           {/* ================= DETAILS FORM CARD ================= */}
-          <View style={[styles.formCard, isWideTablet && { flex: 1.2 }]}>
+          <View style={[
+            styles.formCard, 
+            isSideBySide && { flex: 1.25, width: undefined }, 
+            isTallKiosk && styles.formCardTall
+          ]}>
             <View style={styles.formAccentStrip} />
 
             {/* Dealer Fast-Track Banner */}
@@ -255,17 +281,18 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
 
               <View style={[
                 styles.modernInputBox, 
+                isTallKiosk && styles.modernInputBoxTall,
                 isNameValid && styles.modernInputBoxFilled,
                 nameError && styles.modernInputBoxError,
               ]}>
                 <Ionicons 
                   name="person-outline" 
-                  size={19} 
+                  size={isTallKiosk ? 22 : 19} 
                   color={nameError ? "#EF4444" : (isNameValid ? RED_BAY_COLORS.primary : "#64748B")} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
-                  style={styles.modernTextInput}
+                  style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={customerName}
                   onChangeText={(text) => {
                     setCustomerName(text);
@@ -322,17 +349,18 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
 
               <View style={[
                 styles.modernInputBox, 
+                isTallKiosk && styles.modernInputBoxTall,
                 isMobileValid && styles.modernInputBoxFilled,
                 mobileError && styles.modernInputBoxError,
               ]}>
                 <Ionicons 
                   name="call-outline" 
-                  size={19} 
+                  size={isTallKiosk ? 22 : 19} 
                   color={mobileError ? "#EF4444" : (isMobileValid ? RED_BAY_COLORS.primary : "#64748B")} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
-                  style={styles.modernTextInput}
+                  style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={mobileNumber}
                   onChangeText={(text) => {
                     setMobileNumber(text);
@@ -379,15 +407,19 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={[styles.modernInputBox, hasPlate && styles.modernPlateBoxFilled]}>
+              <View style={[
+                styles.modernInputBox, 
+                isTallKiosk && styles.modernInputBoxTall,
+                hasPlate && styles.modernPlateBoxFilled
+              ]}>
                 <Ionicons 
                   name="car-outline" 
-                  size={19} 
+                  size={isTallKiosk ? 22 : 19} 
                   color={hasPlate ? RED_BAY_COLORS.primary : "#64748B"} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
-                  style={styles.modernTextInput}
+                  style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={vehicleNumber}
                   onChangeText={(text) => setVehicleNumber(text.toUpperCase())}
                   placeholder="Enter vehicle plate (optional)"
@@ -408,120 +440,117 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             </View>
           </View>
 
-          {/* ================= ORDER SUMMARY CARD (STACKED IN PORTRAIT / SIDE-BY-SIDE IN TABLET) ================= */}
-          <View style={[styles.summaryCard, isWideTablet && { flex: 1 }]}>
-            <View style={styles.summaryTopStrip} />
+          {/* ================= RIGHT COLUMN: ORDER SUMMARY + ACTION BUTTON ================= */}
+          <View style={[
+            styles.sideBySideRightCol,
+            isSideBySide ? { flex: 1, width: undefined } : { width: '100%' }
+          ]}>
+            {/* ORDER SUMMARY CARD */}
+            <View style={[styles.summaryCard, isTallKiosk && styles.summaryCardTall]}>
+              <View style={styles.summaryTopStrip} />
 
-            <View style={styles.summaryHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={styles.summaryReceiptBadge}>
-                  <Ionicons name="receipt-outline" size={15} color={RED_BAY_COLORS.primary} />
+              <View style={styles.summaryHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.summaryReceiptBadge}>
+                    <Ionicons name="receipt-outline" size={15} color={RED_BAY_COLORS.primary} />
+                  </View>
+                  <Text style={styles.summaryTitle}>ORDER SUMMARY</Text>
                 </View>
-                <Text style={styles.summaryTitle}>ORDER SUMMARY</Text>
               </View>
-            </View>
 
-            {/* Vehicle Chosen Row */}
-            <View style={styles.summaryItemRow}>
-              <View style={styles.summaryVehicleImageBox}>
-                {vehicleImgSource ? (
-                  <Image
-                    source={vehicleImgSource}
-                    style={styles.summaryVehicleImage}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <Ionicons name="car-sport" size={24} color={RED_BAY_COLORS.primary} />
+              {/* Vehicle Chosen Row */}
+              <View style={styles.summaryItemRow}>
+                <View style={styles.summaryVehicleImageBox}>
+                  {vehicleImgSource ? (
+                    <Image
+                      source={vehicleImgSource}
+                      style={styles.summaryVehicleImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Ionicons name="car-sport" size={24} color={RED_BAY_COLORS.primary} />
+                  )}
+                </View>
+                <View style={styles.summaryItemInfo}>
+                  <Text style={styles.summaryItemLabel}>VEHICLE TYPE</Text>
+                  <Text style={styles.summaryItemValue}>
+                    {selectedVehicle?.name || 'Standard Vehicle'}
+                  </Text>
+                  <Text style={styles.summaryItemSub}>
+                    {selectedVehicle?.description || 'Selected Category'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Divider Line */}
+              <View style={styles.summaryDivider} />
+
+              {/* Package Chosen Row */}
+              <View style={styles.summaryItemRow}>
+                <View style={styles.summaryPackageIconBox}>
+                  <Ionicons name="sparkles" size={22} color={RED_BAY_COLORS.primary} />
+                </View>
+                <View style={styles.summaryItemInfo}>
+                  <Text style={styles.summaryItemLabel}>SERVICE PACKAGE</Text>
+                  <Text style={styles.summaryItemValue}>
+                    {selectedPackage?.name || 'Selected Package'}
+                  </Text>
+                  <Text style={styles.summaryItemSub}>
+                    {selectedPackage?.durationMinutes 
+                      ? `${selectedPackage.durationMinutes} mins service` 
+                      : 'Complete car care'}
+                  </Text>
+                </View>
+                {selectedPackage && (
+                  <View style={styles.summaryPriceBox}>
+                    <Text style={styles.summaryPriceText}>{priceFormatted}</Text>
+                    <Text style={styles.summaryGstText}>
+                      {selectedPackage.isTaxInclusive ? 'Incl. 9% GST' : '+ 9% GST'}
+                    </Text>
+                  </View>
                 )}
               </View>
-              <View style={styles.summaryItemInfo}>
-                <Text style={styles.summaryItemLabel}>VEHICLE TYPE</Text>
-                <Text style={styles.summaryItemValue}>
-                  {selectedVehicle?.name || 'Standard Vehicle'}
-                </Text>
-                <Text style={styles.summaryItemSub}>
-                  {selectedVehicle?.description || 'Selected Category'}
-                </Text>
-              </View>
             </View>
 
-            {/* Divider Line */}
-            <View style={styles.summaryDivider} />
-
-            {/* Package Chosen Row */}
-            <View style={styles.summaryItemRow}>
-              <View style={styles.summaryPackageIconBox}>
-                <Ionicons name="sparkles" size={22} color={RED_BAY_COLORS.primary} />
-              </View>
-              <View style={styles.summaryItemInfo}>
-                <Text style={styles.summaryItemLabel}>SERVICE PACKAGE</Text>
-                <Text style={styles.summaryItemValue}>
-                  {selectedPackage?.name || 'Selected Package'}
-                </Text>
-                <Text style={styles.summaryItemSub}>
-                  {selectedPackage?.durationMinutes 
-                    ? `${selectedPackage.durationMinutes} mins service` 
-                    : 'Complete car care'}
-                </Text>
-              </View>
-              {selectedPackage && (
-                <View style={styles.summaryPriceBox}>
-                  <Text style={styles.summaryPriceText}>{priceFormatted}</Text>
-                  <Text style={styles.summaryGstText}>
-                    {selectedPackage.isTaxInclusive ? 'Incl. 9% GST' : '+ 9% GST'}
-                  </Text>
-                </View>
-              )}
+            {/* In-flow Action Button: Always immediately visible right below Order Summary */}
+            <View style={styles.inlineActionWrapper}>
+              <TouchableOpacity
+                style={[
+                  styles.inlineProceedBtn,
+                  isSubmitting && styles.inlineProceedBtnDisabled,
+                ]}
+                onPress={handleContinue}
+                disabled={isSubmitting}
+                activeOpacity={0.88}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isDealer
+                    ? 'Confirm Dealer Order'
+                    : selectedPackage
+                      ? `Proceed to Payment (${priceFormatted})`
+                      : 'Proceed to Payment'
+                }
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <View style={styles.inlineProceedInner}>
+                    <Text style={styles.inlineProceedBtnText}>
+                      {isSubmitting
+                        ? 'Processing Order...'
+                        : isDealer
+                          ? 'Confirm Dealer Order (Account Credit) ›'
+                          : selectedPackage
+                            ? `Proceed to Payment (${priceFormatted}) ›`
+                            : 'Proceed to Payment ›'}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
-          </View>
-
-          {/* ================= INLINE PROCEED ACTION (GUARANTEED VISIBLE IN SCROLL FLOW) ================= */}
-          <View style={styles.inlineActionWrapper}>
-            <TouchableOpacity
-              style={[
-                styles.inlineProceedBtn,
-                isSubmitting && styles.inlineProceedBtnDisabled,
-              ]}
-              onPress={handleContinue}
-              disabled={isSubmitting}
-              activeOpacity={0.88}
-              accessibilityRole="button"
-              accessibilityLabel="Proceed to Payment"
-            >
-              {isSubmitting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <View style={styles.inlineProceedInner}>
-                  <Text style={styles.inlineProceedBtnText}>
-                    {isDealer
-                      ? 'Confirm Dealer Order (Account Credit)'
-                      : selectedPackage
-                        ? `Proceed to Payment (${priceFormatted})`
-                        : 'Proceed to Payment'}
-                  </Text>
-                  <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
-                </View>
-              )}
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
-
-      {/* Navigation Buttons: Pinned at bottom */}
-      <KioskNavButtons
-        onContinue={handleContinue}
-        continueDisabled={isSubmitting}
-        isLoading={isSubmitting}
-        continueLabel={
-          isSubmitting
-            ? 'Processing Order...'
-            : isDealer
-              ? 'Confirm Dealer Order (Account Credit)'
-              : selectedPackage
-                ? `Proceed to Payment (${priceFormatted})`
-                : 'Proceed to Payment'
-        }
-      />
     </View>
   );
 };
@@ -531,8 +560,13 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+    backgroundColor: 'transparent',
     overflow: 'hidden',
-    backgroundColor: '#F8FAFC',
+    ...(Platform.OS === 'web'
+      ? {
+          maxHeight: '100%' as any,
+        }
+      : {}),
   },
   promptHeader: {
     alignItems: 'center',
@@ -584,18 +618,35 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     width: '100%',
+    minHeight: 0,
   },
   scrollContent: {
     paddingVertical: 14,
     paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingBottom: 40,
     alignItems: 'center',
     flexGrow: 1,
   },
+  scrollContentTall: {
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+  },
   portraitContainer: {
     width: '100%',
-    maxWidth: 560,
     gap: 14,
+  },
+  sideBySideRightCol: {
+    gap: 14,
+  },
+  formCardTall: {
+    padding: 26,
+    borderRadius: 26,
+    gap: 20,
+  },
+  summaryCardTall: {
+    padding: 24,
+    borderRadius: 26,
+    gap: 16,
   },
   inlineActionWrapper: {
     width: '100%',
@@ -807,7 +858,7 @@ const styles = StyleSheet.create({
     borderColor: '#FECACA',
   },
   badgePillOptional: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
     borderColor: '#E2E8F0',
   },
   badgePillSuccess: {
@@ -845,6 +896,11 @@ const styles = StyleSheet.create({
     height: 52,
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
+  modernInputBoxTall: {
+    height: 64,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+  },
   fieldInputIcon: {
     marginRight: 10,
   },
@@ -870,6 +926,9 @@ const styles = StyleSheet.create({
       outlineWidth: 0,
       borderStyle: 'none',
     } as any) : {}),
+  },
+  modernTextInputTall: {
+    fontSize: 18,
   },
   errorRow: {
     flexDirection: 'row',
@@ -955,7 +1014,7 @@ const styles = StyleSheet.create({
     width: 82,
     height: 54,
     borderRadius: 14,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: '#EDF2F7',
     alignItems: 'center',

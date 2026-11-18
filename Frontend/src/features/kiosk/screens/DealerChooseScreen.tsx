@@ -12,10 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { DealerOption } from '../types/kiosk.types';
-import { fetchAllDealers } from '../../../services/dealerApi';
+import { fetchAllDealers, getCachedDealers } from '../../../services/dealerApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
+import { useKioskResponsive } from '../utils/useKioskResponsive';
 
 interface DealerChooseScreenProps {
   initialDealer?: DealerOption;
@@ -30,15 +32,54 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
   onBack,
   onExitToPos,
 }) => {
+  const { 
+    isTallKiosk, 
+    isLandscape, 
+    contentMaxWidth, 
+    horizontalPadding, 
+    dealerCols, 
+    scale, 
+    scaleFont, 
+    scaleSize, 
+    clamp, 
+    width 
+  } = useKioskResponsive();
+
+  const isVeryNarrow = width < 480;
+  const cardWidthPercent = isVeryNarrow 
+    ? '47%' 
+    : dealerCols === 3 
+      ? '30.5%' 
+      : '47%';
+
+  const dynamicImageShowcaseHeight = scaleSize(125, 105, 150);
+  const dynamicLogoHeight = scaleSize(105, 85, 130);
+  const dynamicDealerNameFont = scaleFont(16, 14.5, 19);
+
+  const initialCachedDealers: DealerOption[] = getCachedDealers().map((r) => ({
+    id: String(r.dealerId || r.uniqueCode),
+    name: r.dealerName,
+    code: r.uniqueCode,
+    pin: r.securityPin || '1234',
+    contactPerson: r.contactPerson,
+    phone: r.contactNumber,
+    address: r.address,
+    billingCycle: r.billingCycle || 'Monthly 30-Day Credit',
+    icon: '🏢',
+    logoUrl: r.logoUrl,
+    isActive: r.isActive,
+  }));
+
   const [selectedDealer, setSelectedDealer] = useState<DealerOption | undefined>(initialDealer);
-  const [dealersList, setDealersList] = useState<DealerOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [dealersList, setDealersList] = useState<DealerOption[]>(initialCachedDealers);
+  const [isLoading, setIsLoading] = useState(initialCachedDealers.length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isNavigating, setIsNavigating] = useState(false);
-  const { width } = useWindowDimensions();
 
   useEffect(() => {
-    setIsLoading(true);
+    if (dealersList.length === 0) {
+      setIsLoading(true);
+    }
     fetchAllDealers(false)
       .then((records) => {
         if (records && records.length > 0) {
@@ -56,13 +97,10 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
             isActive: r.isActive,
           }));
           setDealersList(mapped);
-        } else {
-          setDealersList([]);
         }
       })
       .catch((err) => {
         console.warn('Failed to load dealer accounts:', err);
-        setDealersList([]);
       })
       .finally(() => {
         setIsLoading(false);
@@ -89,6 +127,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 1: SELECT DEALER ACCOUNT"
@@ -99,18 +138,21 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
       />
 
       {/* Title Header */}
-      <View style={styles.promptHeader}>
-        <Text style={styles.title}>Choose Your Dealer Account</Text>
+      <View style={[styles.promptHeader, isTallKiosk && styles.promptHeaderTall]}>
+        <Text style={[styles.title, isTallKiosk && styles.titleTall]}>Choose Your Dealer Account</Text>
+        <Text style={[styles.subtitle, isTallKiosk && styles.subtitleTall]}>
+          Select your registered dealer account for commercial billing.
+        </Text>
         <View style={styles.titleUnderlineAccent} />
       </View>
 
       {/* Optional Search Bar for Dealer Accounts */}
       {dealersList.length > 3 && (
         <View style={styles.searchBarWrapper}>
-          <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={18} color="#94A3B8" />
+          <View style={[styles.searchBar, isTallKiosk && styles.searchBarTall]}>
+            <Ionicons name="search-outline" size={isTallKiosk ? 22 : 18} color="#94A3B8" />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, isTallKiosk && { fontSize: 16 }]}
               placeholder="Search dealer by name or code (e.g. UNIPRO, APEX)..."
               placeholderTextColor="#94A3B8"
               value={searchQuery}
@@ -118,7 +160,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
             />
             {searchQuery ? (
               <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close-circle" size={18} color="#94A3B8" />
+                <Ionicons name="close-circle" size={isTallKiosk ? 22 : 18} color="#94A3B8" />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -128,16 +170,20 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
       {/* Main Content Area */}
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingHorizontal: horizontalPadding }, 
+          isTallKiosk && styles.scrollContentTall
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {isLoading ? (
+        {isLoading && dealersList.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
             <Text style={styles.loadingText}>Loading dealer accounts...</Text>
           </View>
         ) : (
-          <View style={styles.gridContainer}>
+          <View style={[styles.gridContainer, { maxWidth: contentMaxWidth }, isTallKiosk && styles.gridContainerTall]}>
             {filteredDealers.map((dealer) => {
               const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
               const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
@@ -147,6 +193,8 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
                   key={dealer.id || dealer.code}
                   style={[
                     styles.dealerCard,
+                    { width: cardWidthPercent },
+                    isTallKiosk && styles.dealerCardTall,
                     isSelected && styles.dealerCardSelected,
                   ]}
                   onPress={() => handleSelectDealer(dealer)}
@@ -154,21 +202,46 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
                   accessibilityRole="button"
                   accessibilityLabel={`Select ${dealer.name}`}
                 >
-                  {/* Dealer Logo Box */}
-                  <View style={[styles.logoBox, isSelected && styles.logoBoxSelected]}>
+                  {/* Body: Dealer Logo Showcase */}
+                  <View style={[
+                    styles.imageShowcase, 
+                    { height: dynamicImageShowcaseHeight },
+                    isTallKiosk && styles.imageShowcaseTall
+                  ]}>
                     {logoSource ? (
-                      <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
+                      <Image 
+                        source={logoSource} 
+                        style={[
+                          styles.logoImage, 
+                          { height: dynamicLogoHeight },
+                          isTallKiosk && styles.logoImageTall
+                        ]} 
+                        resizeMode="contain" 
+                      />
                     ) : (
-                      <View style={styles.placeholderLogoBox}>
-                        <Ionicons name="business" size={40} color={RED_BAY_COLORS.primary} />
+                      <View style={[
+                        styles.iconBox,
+                        isTallKiosk && styles.iconBoxTall,
+                        isSelected && styles.iconBoxSelected
+                      ]}>
+                        <Ionicons 
+                          name="business" 
+                          size={isTallKiosk ? 50 : 38} 
+                          color={RED_BAY_COLORS.primary} 
+                        />
                       </View>
                     )}
                   </View>
 
                   {/* Dealer Name */}
-                  <View style={styles.cardInfoCol}>
+                  <View style={styles.cardInfo}>
                     <Text
-                      style={[styles.dealerName, isSelected && styles.dealerNameSelected]}
+                      style={[
+                        styles.dealerName, 
+                        { fontSize: dynamicDealerNameFont },
+                        isTallKiosk && styles.dealerNameTall, 
+                        isSelected && styles.dealerNameSelected
+                      ]}
                       numberOfLines={2}
                     >
                       {dealer.name}
@@ -199,36 +272,54 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'transparent',
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 6, 1),
+    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
+  },
+  promptHeaderTall: {
+    paddingVertical: 18,
+    paddingHorizontal: 24,
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.3,
     textAlign: 'center',
   },
+  titleTall: {
+    fontSize: 28,
+  },
+  subtitle: {
+    fontSize: 12.5,
+    color: '#64748B',
+    marginTop: 2,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  subtitleTall: {
+    fontSize: 15,
+    marginTop: 4,
+  },
   titleUnderlineAccent: {
-    width: 44,
-    height: 3.5,
+    width: 36,
+    height: 3,
     backgroundColor: RED_BAY_COLORS.primary,
     borderRadius: 2,
-    marginTop: 8,
+    marginTop: 6,
   },
   searchBarWrapper: {
     width: '100%',
     alignItems: 'center',
-    paddingTop: 16,
+    paddingTop: 14,
     paddingHorizontal: 20,
   },
   searchBar: {
@@ -245,6 +336,12 @@ const styles = StyleSheet.create({
     gap: 10,
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 6, 1),
   },
+  searchBarTall: {
+    maxWidth: 700,
+    height: 52,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+  },
   searchInput: {
     flex: 1,
     fontSize: 13.5,
@@ -253,83 +350,122 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    width: '100%',
   },
   scrollContent: {
-    paddingVertical: 32,
-    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
     alignItems: 'center',
     flexGrow: 1,
   },
+  scrollContentTall: {
+    paddingTop: 28,
+    paddingBottom: 40,
+    paddingHorizontal: 32,
+  },
   gridContainer: {
     width: '100%',
-    maxWidth: 820,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
+    gap: 18,
+    rowGap: 20,
+    maxWidth: 840,
+  },
+  gridContainerTall: {
     gap: 22,
+    rowGap: 22,
+    maxWidth: 880,
   },
   dealerCard: {
-    width: 280,
-    minHeight: 190,
+    width: '30.5%',
+    maxWidth: 245,
+    minWidth: 160,
+    aspectRatio: 0.96,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    paddingVertical: 26,
-    paddingHorizontal: 20,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 16,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     position: 'relative',
     overflow: 'hidden',
-    ...makeShadow('#000000', { width: 0, height: 6 }, 0.06, 14, 2),
+    ...makeShadow('#0F172A', { width: 0, height: 6 }, 0.08, 14, 2),
+  },
+  dealerCardTall: {
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 18,
+    ...makeShadow('#0F172A', { width: 0, height: 8 }, 0.10, 16, 3),
   },
   dealerCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFFDFD',
+    backgroundColor: '#FFFFFF',
     borderWidth: 2.5,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 10 }, 0.22, 18, 4),
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.28, 18, 4),
   },
-  logoBox: {
-    width: 82,
-    height: 82,
-    borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#EDF2F7',
+  imageShowcase: {
+    width: '100%',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    padding: 8,
-    marginBottom: 16,
-    ...makeShadow('#000000', { width: 0, height: 3 }, 0.04, 6, 1),
+    backgroundColor: 'transparent',
+    padding: 0,
+    marginBottom: 4,
   },
-  logoBoxSelected: {
+  imageShowcaseTall: {
+    marginBottom: 8,
+  },
+  logoImage: {
+    width: '88%',
+    height: 105,
+    borderRadius: 12,
+  },
+  logoImageTall: {
+    height: 125,
+  },
+  iconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBoxTall: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+  },
+  iconBoxSelected: {
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
   },
-  logoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  placeholderLogoBox: {
-    width: '100%',
-    height: '100%',
+  cardInfo: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFF1F2',
-    borderRadius: 14,
-  },
-  cardInfoCol: {
     width: '100%',
-    alignItems: 'center',
+    marginTop: 4,
   },
   dealerName: {
-    fontSize: 17.5,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
+    lineHeight: 20,
+  },
+  dealerNameTall: {
+    fontSize: 18,
     lineHeight: 23,
+    letterSpacing: 0.2,
   },
   dealerNameSelected: {
     color: RED_BAY_COLORS.primary,

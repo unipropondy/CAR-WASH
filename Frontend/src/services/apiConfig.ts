@@ -96,7 +96,23 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(customApiBaseUrl);
   }
 
-  // 2. Environment variable (configured for production or LAN builds)
+  // 2. On Web: if opened via localhost, LAN IP (192.168.x, 10.x, 26.x), or .local,
+  // dynamically connect to the backend server running on that SAME host IP on port 5000
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const { hostname, protocol } = window.location;
+    const isLocalOrLan =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.local') ||
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+
+    if (isLocalOrLan) {
+      const scheme = protocol === 'https:' ? 'https:' : 'http:';
+      return `${scheme}//${hostname}:${DEFAULT_BACKEND_PORT}`;
+    }
+  }
+
+  // 3. Environment variable (configured for production or LAN builds)
   const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
   if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
     const envUrl = envApiUrl.trim();
@@ -109,7 +125,7 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 3. Extra configuration in app.json (production public HTTPS URL)
+  // 4. Extra configuration in app.json (production public HTTPS URL)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (
     extraUrl &&
@@ -118,14 +134,6 @@ export function getApiBaseUrl(): string {
     !extraUrl.includes('railway.internal')
   ) {
     return normalizeApiUrl(extraUrl);
-  }
-
-  // 4. In development mode on localhost ONLY: allow local dev server on Web
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
-    const { hostname } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return `http://localhost:${DEFAULT_BACKEND_PORT}`;
-    }
   }
 
   // 5. Final safe production fallback — Railway Public HTTPS
@@ -253,4 +261,27 @@ export async function apiFetch(
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Resolves an image path or URL into a fully-qualified, device-reachable URL.
+ * Automatically rewrites localhost/127.0.0.1 to the current device's LAN base URL.
+ */
+export function resolveApiUrl(pathOrUrl?: string | null): string {
+  if (!pathOrUrl || typeof pathOrUrl !== 'string') return '';
+  if (pathOrUrl.startsWith('data:')) return pathOrUrl;
+
+  const baseUrl = getApiBaseUrl();
+
+  // If path is relative (/api/...)
+  if (pathOrUrl.startsWith('/')) {
+    return `${baseUrl}${pathOrUrl}`;
+  }
+
+  // If URL contains localhost or 127.0.0.1, rewrite to the active baseUrl
+  if (pathOrUrl.includes('://localhost') || pathOrUrl.includes('://127.0.0.1')) {
+    return pathOrUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, baseUrl);
+  }
+
+  return pathOrUrl;
 }

@@ -10,6 +10,7 @@ import {
   Platform,
   Modal,
   useWindowDimensions,
+  LayoutChangeEvent,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import {
@@ -18,6 +19,7 @@ import {
   ApiOrder,
   OrderStatusHistoryItem,
 } from '../../../services/carwashOrderApi';
+import { formatSgDate, formatSgTime, formatSgDateTime } from '../../../services/timeService';
 
 export interface PosCustomerHistoryViewProps {
   cashierName?: string;
@@ -97,22 +99,12 @@ function formatCurrency(amount?: number | null): string {
 
 function formatDateTime(dateStr?: string | null): string {
   if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return String(dateStr);
-  return d.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatSgDateTime(dateStr);
 }
 
 function formatShortDate(dateStr?: string | null): string {
   if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return String(dateStr);
-  return d.toLocaleDateString('en-GB', {
+  return formatSgDate(dateStr, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -454,7 +446,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
     }
   };
 
-  const getStatusBadgeStyle = (statusCode?: number | null, paymentStatus?: string | null) => {
+  const getStatusBadgeStyle = (statusCode?: number | null, paymentStatus?: string | null, isDealer?: boolean) => {
     if (statusCode === 70 || statusCode === 60) {
       return { bg: '#ECFDF5', text: '#059669', border: '#A7F3D0', label: statusCode === 70 ? 'CLOSED' : 'COMPLETED' };
     }
@@ -462,10 +454,15 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
       return { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE', label: 'IN SERVICE' };
     }
     if (statusCode === 40 || statusCode === 30) {
-      return { bg: '#F5F3FF', text: '#7C3AED', border: '#DDD6FE', label: 'PAID / QUEUE' };
+      return isDealer
+        ? { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE', label: 'CREDIT / QUEUE' }
+        : { bg: '#F5F3FF', text: '#7C3AED', border: '#DDD6FE', label: 'PAID / QUEUE' };
     }
     if (statusCode === 80) {
       return { bg: '#FEE2E2', text: '#DC2626', border: '#FECACA', label: 'CANCELLED' };
+    }
+    if (isDealer || paymentStatus === 'CREDIT') {
+      return { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE', label: 'CREDIT' };
     }
     if (paymentStatus === 'PAID') {
       return { bg: '#ECFDF5', text: '#059669', border: '#A7F3D0', label: 'PAID' };
@@ -492,7 +489,25 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
   };
 
   const { width } = useWindowDimensions();
-  const isMobile = width < 680;
+  const [gridContainerWidth, setGridContainerWidth] = useState<number>(0);
+
+  // Responsive Grid Card Width for Laptop, Desktop & Tablet (APK)
+  const cardGap = 14;
+  // Fallback before onLayout fires: accounts for outer mainContent padding (24*2), container padding (18*2), and browser scrollbar (~20px)
+  const fallbackGridWidth = Math.max(300, width - (24 * 2 + 18 * 2 + 20));
+  const effectiveGridWidth = gridContainerWidth > 0 ? gridContainerWidth : fallbackGridWidth;
+
+  const numGridCols = effectiveGridWidth < 680
+    ? 1
+    : effectiveGridWidth >= 1520
+    ? 4
+    : effectiveGridWidth >= 1020
+    ? 3
+    : 2;
+
+  const cardWidth = numGridCols === 1
+    ? '100%'
+    : Math.floor((effectiveGridWidth - (numGridCols - 1) * cardGap - 2) / numGridCols);
 
   return (
     <View style={styles.container}>
@@ -739,7 +754,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
             <Text style={[styles.th, { width: 80, textAlign: 'center' }]}>ACTION</Text>
           </View>
 
-          <ScrollView style={styles.tableScrollView} showsVerticalScrollIndicator>
+          <ScrollView 
+            style={styles.tableScrollView} 
+            showsVerticalScrollIndicator
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+          >
             {filteredWashes.length === 0 ? (
               <View style={styles.emptyTableBox}>
                 <Ionicons name="search-outline" size={36} color="#CBD5E1" />
@@ -751,7 +771,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
             ) : (
               filteredWashes.map((order, idx) => {
                 const isDealer = isDealerOrder(order);
-                const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus);
+                const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus, isDealer);
                 const payStyle = getPayModeStyle(order.payMode);
                 const avatarStyle = isDealer
                   ? { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }
@@ -815,7 +835,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     <View style={{ flex: 1.2 }}>
                       <Text style={styles.tableDateText}>{formatShortDate(order.createdDate)}</Text>
                       <Text style={styles.tableTimeSub}>
-                        {new Date(order.createdDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatSgTime(order.createdDate, { hour: '2-digit', minute: '2-digit' })}
                       </Text>
                     </View>
 
@@ -884,7 +904,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
         </View>
       ) : (
         /* ================= CUSTOMER / DEALER PROFILES DIRECTORY VIEW ================= */
-        <ScrollView style={styles.cardsScrollView} showsVerticalScrollIndicator>
+        <ScrollView 
+          style={styles.cardsScrollView} 
+          showsVerticalScrollIndicator
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+        >
           {filteredCustomers.length === 0 ? (
             <View style={styles.emptyTableBox}>
               <Ionicons
@@ -910,7 +935,15 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
               </Text>
             </View>
           ) : (
-            <View style={styles.customerGrid}>
+            <View 
+              style={styles.customerGrid}
+              onLayout={(e: LayoutChangeEvent) => {
+                const w = Math.floor(e.nativeEvent.layout.width);
+                if (w > 0 && Math.abs(w - gridContainerWidth) > 2) {
+                  setGridContainerWidth(w);
+                }
+              }}
+            >
               {filteredCustomers.map((cust) => {
                 const isDealer = cust.isDealer;
                 const avatarStyle = isDealer
@@ -919,7 +952,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                 const payStyle = getPayModeStyle(cust.preferredPayMode);
 
                 return (
-                  <View key={cust.customerKey} style={[styles.customerCard, isDealer && styles.dealerCardBorder]}>
+                  <View key={cust.customerKey} style={[styles.customerCard, { width: cardWidth }, isDealer && styles.dealerCardBorder]}>
                     {/* Top Customer / Dealer Info Row */}
                     <View style={styles.cardHeader}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
@@ -976,7 +1009,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     {/* Spend & Frequency Metrics */}
                     <View style={styles.cardMetricsRow}>
                       <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>{isDealer ? 'CREDIT SPENT' : 'TOTAL SPENT'}</Text>
+                        <Text style={styles.metricLabel}>{isDealer ? 'TOTAL CREDIT' : 'TOTAL SPENT'}</Text>
                         <Text style={[styles.metricValuePrimary, isDealer && { color: '#2563EB' }]}>
                           {formatCurrency(cust.totalSpend)}
                         </Text>
@@ -1121,7 +1154,9 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                   </View>
                   <View style={styles.custStatDivider} />
                   <View style={styles.customerStatBox}>
-                    <Text style={styles.custStatLabel}>TOTAL SPENT</Text>
+                    <Text style={styles.custStatLabel}>
+                      {selectedCustomer.isDealer ? 'TOTAL CREDIT' : 'TOTAL SPENT'}
+                    </Text>
                     <Text style={[styles.custStatValue, { color: selectedCustomer.isDealer ? '#2563EB' : '#ED0712' }]}>
                       {formatCurrency(modalTotalSpend)}
                     </Text>
@@ -1156,9 +1191,14 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                 </View>
 
                 {/* Orders Timeline List */}
-                <ScrollView style={styles.timelineScrollView} showsVerticalScrollIndicator>
+                <ScrollView 
+                  style={styles.timelineScrollView} 
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {selectedCustomerLifetimeOrders.map((order, idx) => {
-                    const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus);
+                    const statusStyle = getStatusBadgeStyle(order.statusCode, order.paymentStatus, selectedCustomer.isDealer);
                     const payStyle = getPayModeStyle(order.payMode);
 
                     return (
@@ -1310,7 +1350,12 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator>
+                <ScrollView 
+                  style={{ maxHeight: 480 }} 
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {/* Key Stats Bar */}
                   <View style={styles.orderKeyBar}>
                     <View style={styles.orderKeyCol}>
@@ -1341,12 +1386,14 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                       </Text>
                     </View>
                     <View style={styles.orderKeyCol}>
-                      <Text style={styles.orderKeyLabel}>TOTAL PAID</Text>
-                      <Text style={[styles.orderKeyVal, { color: '#ED0712' }]}>
+                      <Text style={styles.orderKeyLabel}>
+                        {isDealerOrder(selectedOrder) ? 'TOTAL CREDIT' : 'TOTAL PAID'}
+                      </Text>
+                      <Text style={[styles.orderKeyVal, { color: isDealerOrder(selectedOrder) ? '#2563EB' : '#ED0712' }]}>
                         {formatCurrency(selectedOrder.totalAmount)}
                       </Text>
                       <Text style={styles.orderKeySub}>
-                        via {(selectedOrder.payMode || 'CASH').toUpperCase()}
+                        via {(selectedOrder.payMode || (isDealerOrder(selectedOrder) ? 'CREDIT' : 'CASH')).toUpperCase()}
                       </Text>
                     </View>
                   </View>
@@ -1370,8 +1417,10 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     )}
                     <View style={styles.priceDivider} />
                     <View style={styles.priceRow}>
-                      <Text style={styles.priceTotalLabel}>Total Settled Amount</Text>
-                      <Text style={styles.priceTotalVal}>
+                      <Text style={styles.priceTotalLabel}>
+                        {isDealerOrder(selectedOrder) ? 'Total Credit Amount' : 'Total Settled Amount'}
+                      </Text>
+                      <Text style={[styles.priceTotalVal, isDealerOrder(selectedOrder) && { color: '#2563EB' }]}>
                         {formatCurrency(selectedOrder.totalAmount)}
                       </Text>
                     </View>
@@ -1386,24 +1435,43 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                       <Text style={styles.noHistoryText}>No status transition logs recorded</Text>
                     ) : (
                       <View style={styles.trailList}>
-                        {orderHistoryTrail.map((h, i) => (
-                          <View key={h.historyId || i} style={styles.trailItem}>
-                            <View style={styles.trailDot} />
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.trailTopRow}>
-                                <Text style={styles.trailStatusName}>
-                                  {h.newStatusName || `Code ${h.newStatusCode}`}
-                                </Text>
-                                <Text style={styles.trailTime}>
-                                  {formatDateTime(h.changedDate)}
+                        {orderHistoryTrail.map((h, i) => {
+                          const isCreditStep = Boolean(
+                            (h.newStatusName === 'PAID' || h.newStatusCode === 30 || h.newStatusName === 'CREDIT') && (
+                              isDealerOrder(selectedOrder) ||
+                              (selectedOrder.payMode && selectedOrder.payMode.toUpperCase() === 'CREDIT') ||
+                              (h.remarks && h.remarks.toLowerCase().includes('credit')) ||
+                              (h.changedBy && h.changedBy.toUpperCase().includes('DEALER'))
+                            )
+                          );
+                          const statusDisplay = isCreditStep ? 'CREDIT' : (h.newStatusName || `Code ${h.newStatusCode}`);
+
+                          return (
+                            <View key={h.historyId || i} style={styles.trailItem}>
+                              <View style={[styles.trailDot, isCreditStep && { backgroundColor: '#2563EB' }]} />
+                              <View style={{ flex: 1 }}>
+                                <View style={styles.trailTopRow}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={[styles.trailStatusName, isCreditStep && { color: '#2563EB' }]}>
+                                      {statusDisplay}
+                                    </Text>
+                                    {isCreditStep && (
+                                      <View style={{ backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#1D4ED8' }}>DEALER CREDIT</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                  <Text style={styles.trailTime}>
+                                    {formatDateTime(h.changedDate)}
+                                  </Text>
+                                </View>
+                                <Text style={styles.trailRemarks}>
+                                  {h.remarks || 'Status update logged'} • By {h.changedBy || 'System'}
                                 </Text>
                               </View>
-                              <Text style={styles.trailRemarks}>
-                                {h.remarks || 'Status update logged'} • By {h.changedBy || 'System'}
-                              </Text>
                             </View>
-                          </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -1420,6 +1488,8 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    alignSelf: 'stretch',
     padding: 18,
     backgroundColor: '#F8FAFC',
   },
@@ -1734,11 +1804,13 @@ const styles = StyleSheet.create({
   /* CUSTOMER GRID & CARDS */
   cardsScrollView: {
     flex: 1,
+    width: '100%',
   },
   customerGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 14,
+    width: '100%',
     paddingBottom: 40,
   },
   customerCard: {
@@ -1747,8 +1819,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    width: 'calc(33.333% - 10px)' as any,
-    minWidth: 310,
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web'
       ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any)
       : { elevation: 1 }),
@@ -1959,6 +2030,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 10,
+    marginTop: 'auto',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     gap: 8,

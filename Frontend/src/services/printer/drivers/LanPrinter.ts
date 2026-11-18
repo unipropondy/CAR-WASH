@@ -196,7 +196,7 @@ export class LanPrinterDriver implements IPrinterDriver {
     const startTime = Date.now();
     const cfg = this.resolveConfig(config);
     const jobId = `LAN-REC-${Date.now()}`;
-    const orderNo = order?.OrderNo || order?.OrderNumber || order?.id || 'RECEIPT';
+    const orderNo = order?.OrderNo || order?.orderNo || order?.billNumber || order?.OrderNumber || order?.id || 'RECEIPT';
 
     try {
       const rawData = PrinterFormatter.buildOrderReceipt(order, company, cfg.paperWidth, options);

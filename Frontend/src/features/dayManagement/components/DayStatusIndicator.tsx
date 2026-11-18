@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDayManagementStore } from '../store/dayManagementStore';
+import { formatSgDate, getDbTime } from '../../../services/timeService';
 
 interface DayStatusIndicatorProps {
   onPress?: () => void;
@@ -33,23 +34,12 @@ export const DayStatusIndicator: React.FC<DayStatusIndicatorProps> = ({ onPress,
   };
 
   const formattedDate = React.useMemo(() => {
-    if (!businessDate) {
-      const today = new Date();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${pad(today.getDate())}.${pad(today.getMonth() + 1)}.${today.getFullYear()}`;
-    }
-    const clean = businessDate.split('T')[0];
-    const parts = clean.split('-');
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y}`;
-    }
-    const d = new Date(businessDate);
-    if (!isNaN(d.getTime())) {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
-    }
-    return businessDate;
+    const raw = businessDate || getDbTime();
+    return formatSgDate(raw, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).replace(/\//g, '.');
   }, [businessDate]);
 
   return (

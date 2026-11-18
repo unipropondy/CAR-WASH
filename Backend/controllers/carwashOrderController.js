@@ -1355,17 +1355,27 @@ async function getOrderHistory(req, res) {
 
     const result = await request.query(query);
 
-    const history = result.recordset.map((row) => ({
-      historyId: row.HistoryId,
-      orderId: row.OrderId,
-      oldStatusCode: row.OldStatusCode,
-      oldStatusName: row.OldStatusCode ? STATUS_NAMES[row.OldStatusCode] : null,
-      newStatusCode: row.NewStatusCode,
-      newStatusName: STATUS_NAMES[row.NewStatusCode],
-      remarks: row.Remarks,
-      changedBy: row.ChangedBy,
-      changedDate: row.ChangedDate,
-    }));
+    const history = result.recordset.map((row) => {
+      const isCreditNew = row.NewStatusCode === 30 && (
+        (row.Remarks && row.Remarks.toLowerCase().includes('credit')) ||
+        (row.ChangedBy && row.ChangedBy.toUpperCase().includes('DEALER'))
+      );
+      const isCreditOld = row.OldStatusCode === 30 && (
+        (row.Remarks && row.Remarks.toLowerCase().includes('credit')) ||
+        (row.ChangedBy && row.ChangedBy.toUpperCase().includes('DEALER'))
+      );
+      return {
+        historyId: row.HistoryId,
+        orderId: row.OrderId,
+        oldStatusCode: row.OldStatusCode,
+        oldStatusName: row.OldStatusCode ? (isCreditOld ? 'CREDIT' : STATUS_NAMES[row.OldStatusCode]) : null,
+        newStatusCode: row.NewStatusCode,
+        newStatusName: isCreditNew ? 'CREDIT' : STATUS_NAMES[row.NewStatusCode],
+        remarks: row.Remarks,
+        changedBy: row.ChangedBy,
+        changedDate: row.ChangedDate,
+      };
+    });
 
     return res.status(200).json({
       success: true,

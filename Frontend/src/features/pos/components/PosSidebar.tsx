@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
+export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'DEALERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
 
 interface PosSidebarProps {
   activeTab: PosNavTab;
@@ -165,6 +165,7 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
     { id: 'ORDERS', label: 'Orders' },
     { id: 'BAYS', label: 'Bays' },
     { id: 'CUSTOMERS', label: 'Customers' },
+    { id: 'DEALERS', label: 'Dealers' },
     { id: 'HISTORY', label: 'History' },
     { id: 'REPORTS', label: 'Reports' },
     { id: 'SETTINGS', label: 'Settings' },
@@ -193,6 +194,8 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
         return <Ionicons name="car-sport-outline" size={18} color={iconColor} />;
       case 'CUSTOMERS':
         return <Ionicons name="people-outline" size={18} color={iconColor} />;
+      case 'DEALERS':
+        return <Ionicons name="business-outline" size={18} color={iconColor} />;
       case 'HISTORY':
         return <Ionicons name="time-outline" size={18} color={iconColor} />;
       case 'REPORTS':
