@@ -351,12 +351,10 @@ export class PrinterFormatter {
 
     builder.textLine(this.formatDivider('-', width));
 
-    // TOTAL AMOUNT IN LARGE BOLD (Aligned to right edge)
+    // TOTAL AMOUNT IN BOLD ONLY (Standard size, clean alignment)
     builder
       .bold(true)
-      .setTextSize(1, 2)
       .textLine(this.formatTwoCol('TOTAL PAID:', `${currency}${total.toFixed(2)}`, width))
-      .resetTextSize()
       .bold(false);
 
     builder.textLine(this.formatDivider('-', width));
@@ -371,7 +369,7 @@ export class PrinterFormatter {
     builder.alignCenter();
     builder.bold(true).textLine('THANK YOU FOR CHOOSING US!').bold(false);
     builder.textLine('Please retain receipt for vehicle collection.');
-    builder.bold(true).textLine('CAR-POS BY UNIPROSG').bold(false);
+    builder.bold(true).textLine('CAR WASH-POS BY UNIPROSG').bold(false);
 
     if (options?.autoCut ?? true) {
       builder.cut(true);

@@ -17,6 +17,7 @@ import { PaymentMode, VehicleOption, ServiceCategory, ServicePackage, CustomerDe
 import { fetchPaymodes, PayModeOption, CreatedOrderResponse } from '../../../services/carwashOrderApi';
 import { processYeahPayPayment } from '../../../services/yeahpayApi';
 import { getCachedGstRate, getCachedCompanySettings } from '../../../services/companySettingsApi';
+import { buildValidSgQrString } from '../../../utils/sgqr';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { getVehicleImageSource } from './Page2VehicleScreen';
@@ -143,12 +144,23 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
     const effectiveDeviceSn = deviceSN || modeObj?.deviceSN;
     const effectiveSalt = deviceSalt || modeObj?.deviceSalt;
 
-    // Instantly generate and display the real PayNow QR code
-    if (!isCard) {
-      const initialQr = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(
-        `00020101021226500009SG.PAYNOW01012021620240901234567803010520458125303702540${total.toFixed(2)}5802SG5915RED BAY CARWASH6009SINGAPORE62190115${orderNo || savedOrder?.orderNo || 'RB-001'}6304`
-      )}`;
-      setQrCodeUrl(initialQr);
+    // Check if merchant has an official registered PayNow UEN in settings
+    const registeredUen = getCachedCompanySettings()?.GSTNo?.trim();
+    if (!isCard && registeredUen && registeredUen.length >= 8) {
+      const validSgQr = buildValidSgQrString({
+        uen: registeredUen,
+        amount: total,
+        orderRef: orderNo || savedOrder?.orderNo || 'RB-001',
+        merchantName: getCachedCompanySettings()?.CompanyName || 'REDBAY CAR WASH',
+      });
+      if (validSgQr) {
+        setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(validSgQr)}`);
+      } else {
+        setQrCodeUrl('');
+      }
+    } else {
+      // In YeahPay terminal flow, the physical terminal displays the real PayNow QR on its own screen
+      setQrCodeUrl('');
     }
 
     setCountdownSeconds(180);
@@ -157,7 +169,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
     setTerminalMessage(
       isCard
         ? 'Please present and tap or insert your card on the terminal...'
-        : 'Please scan the PayNow QR code displayed above...'
+        : 'Please scan the PayNow QR code on the payment terminal screen...'
     );
 
     try {
@@ -530,7 +542,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                     Present your Visa, Mastercard, NETS FlashPay card, or mobile phone (Apple Pay / Google Pay) and tap on the terminal.
                   </Text>
                 </View>
-              ) : (
+              ) : qrCodeUrl ? (
                 <View style={styles.payNowQrBox}>
                   {/* Official PayNow Top Banner */}
                   <View style={styles.payNowBrandHeader}>
@@ -541,16 +553,14 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                       </View>
                     </View>
                     <Text style={styles.payNowUenSub}>
-                      UEN: {getCachedCompanySettings()?.GSTNo || '202409012345'} • {(getCachedCompanySettings()?.CompanyName || 'RED BAY CAR WASH').toUpperCase()}
+                      UEN: {getCachedCompanySettings()?.GSTNo || 'REGISTERED UEN'} • {(getCachedCompanySettings()?.CompanyName || 'REDBAY CAR WASH').toUpperCase()}
                     </Text>
                   </View>
 
-                  {/* Clean, authentic High-Resolution PayNow QR Code (Clean & Professional, No Logo Badge Obstruction) */}
+                  {/* Clean, authentic High-Resolution PayNow QR Code */}
                   <View style={[styles.qrCodeWrapper, { width: qrDimension, height: qrDimension }]}>
                     <Image
-                      source={{ 
-                        uri: qrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(`00020101021226500009SG.PAYNOW01012021620240901234567803010520458125303702540${total.toFixed(2)}5802SG5915RED BAY CARWASH6009SINGAPORE62190115${orderNo || savedOrder?.orderNo || 'RB-001'}6304`)}` 
-                      }}
+                      source={{ uri: qrCodeUrl }}
                       style={styles.qrCodeImage}
                       resizeMode="contain"
                     />
@@ -562,6 +572,22 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                   </Text>
 
                   {/* Supported Banks Row */}
+                  <View style={styles.supportedBanksRow}>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>PayLah!</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>OCBC</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>UOB</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>GrabPay</Text></View>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.terminalIllustrationBox}>
+                  <View style={[styles.terminalIconCircle, { backgroundColor: '#FEE2E2' }]}>
+                    <Ionicons name="qr-code" size={44} color="#ED0712" />
+                  </View>
+                  <Text style={styles.terminalInstructTitle}>Scan PayNow QR on the Terminal</Text>
+                  <Text style={styles.terminalInstructBody}>
+                    Look at the screen on your payment terminal. The terminal is displaying the dynamic PayNow / SGQR code. Scan with DBS PayLah!, OCBC, UOB, or your banking app.
+                  </Text>
                   <View style={styles.supportedBanksRow}>
                     <View style={styles.bankPill}><Text style={styles.bankPillText}>PayLah!</Text></View>
                     <View style={styles.bankPill}><Text style={styles.bankPillText}>OCBC</Text></View>

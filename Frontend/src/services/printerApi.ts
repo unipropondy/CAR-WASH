@@ -476,7 +476,7 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
         <div class="center" style="margin-top: 8px;">
           <div class="bold">THANK YOU FOR CHOOSING US!</div>
           <div style="font-size: 11px; margin-top: 2px;">Please retain receipt for vehicle collection.</div>
-          <div class="bold" style="font-size: 12px; margin-top: 4px;">CAR-POS BY UNIPROSG</div>
+          <div class="bold" style="font-size: 12px; margin-top: 4px;">CAR WASH-POS BY UNIPROSG</div>
         </div>
         <div style="height: 30px;"></div>
       </body>

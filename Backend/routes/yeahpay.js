@@ -174,15 +174,16 @@ router.post('/paynow-payment', async (req, res) => {
             appId: FIXED_APP_ID
         });
         
-        // Extract or construct dynamic PayNow SGQR data
+        // Extract gateway-provided PayNow SGQR data if present
         const qrCodeData = result.data?.tradeScanPaymentResponse?.qrCode 
             || result.data?.tradeScanPaymentResponse?.codeUrl 
             || result.data?.qrCode 
-            || result.data?.codeUrl
-            || `00020101021226500009SG.PAYNOW01012021620240901234567803010520458125303702540${parseFloat(amount).toFixed(2)}5802SG5915RED BAY CARWASH6009SINGAPORE62190115${result.bizOrderId}6304`;
+            || result.data?.codeUrl;
             
-        result.qrCode = qrCodeData;
-        result.qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(qrCodeData)}`;
+        if (qrCodeData) {
+            result.qrCode = qrCodeData;
+            result.qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(qrCodeData)}`;
+        }
 
         console.log('📤 YeahPay PayNow Result:', result);
         

@@ -8,7 +8,7 @@ function buildEscPosReceipt(order, printerName, company = {}) {
   const ESC = '\x1b';
   const GS = '\x1d';
   const LF = '\x0a';
-  const WIDTH = 38;
+  const WIDTH = 48;
 
   const padLine = (left, right) => {
     const l = String(left || '');
@@ -129,7 +129,7 @@ function buildEscPosReceipt(order, printerName, company = {}) {
   text += ESC + 'E' + '\x00';
   text += 'Please retain receipt for vehicle collection.' + LF;
   text += ESC + 'E' + '\x01';
-  text += 'CAR-POS BY UNIPROSG' + LF;
+  text += 'CAR WASH-POS BY UNIPROSG' + LF;
   text += ESC + 'E' + '\x00';
 
   // Paper cut immediately after brand line (1 line clearance, no extra empty lines)
@@ -543,7 +543,7 @@ async function testPrinter(req, res) {
     const ESC = '\x1b';
     const GS = '\x1d';
     const LF = '\x0a';
-    const WIDTH = 38;
+    const WIDTH = 48;
     let testBufferText = ESC + '@';
     testBufferText += LF;
     testBufferText += ESC + 'a' + '\x01'; // Center
