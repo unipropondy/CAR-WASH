@@ -49,7 +49,10 @@ async function getPaymodes(req, res) {
         Description, 
         Active,
         ExtraCharges,
-        Commission
+        Commission,
+        ISNULL(YeahPayEnabled, 0) AS YeahPayEnabled,
+        DeviceSN,
+        DeviceSalt
       FROM dbo.Paymode
       WHERE Active = 1
       ORDER BY Position ASC;
@@ -62,6 +65,9 @@ async function getPaymodes(req, res) {
       active: Boolean(row.Active),
       extraCharges: row.ExtraCharges ? Number(row.ExtraCharges) : 0,
       commission: row.Commission ? Number(row.Commission) : 0,
+      yeahPayEnabled: Boolean(row.YeahPayEnabled),
+      deviceSN: (row.DeviceSN || '').trim(),
+      deviceSalt: (row.DeviceSalt || '').trim(),
     }));
 
     return res.status(200).json({
@@ -139,7 +145,9 @@ async function createOrder(req, res) {
       });
     }
 
-    const activeDayId = dayCheckRes.recordset[0].DayId;
+    const activeDayRecord = dayCheckRes.recordset[0];
+    const activeDayId = activeDayRecord.DayId;
+    const activeBusinessDate = activeDayRecord.BusinessDate;
 
     // 1. Fetch official package details from ServicePackageMaster (DO NOT trust client prices)
     const pkgReq = new sql.Request(transaction);
@@ -177,29 +185,28 @@ async function createOrder(req, res) {
       });
     }
 
-    // Official pricing calculations
+    // 1b. Fetch active GST percentage from Settings (dbo.CompanySettings)
+    const settingsReq = new sql.Request(transaction);
+    const settingsResult = await settingsReq.query(`
+      SELECT TOP 1 ISNULL(GSTPercentage, 0) AS GSTPercentage FROM dbo.CompanySettings;
+    `);
+    const gstPercent = settingsResult.recordset.length
+      ? Number(settingsResult.recordset[0].GSTPercentage || 0)
+      : 0;
+
+    // Official pricing calculations - All prices are treated as GST Exclusive by default
     const price = Number(officialPkg.Price);
-    const gstPercent = officialPkg.GSTPercent ? Number(officialPkg.GSTPercent) : 9;
-    const isTaxInclusive = Boolean(officialPkg.IsTaxInclusive);
     const currencyCode = (officialPkg.CurrencyCode || 'SGD').trim();
 
-    let totalAmount = 0;
-    let packagePrice = 0;
-    let gstAmount = 0;
-
-    if (isTaxInclusive) {
-      totalAmount = Number(price.toFixed(2));
-      // GST is already included in total
-      gstAmount = Number(((totalAmount * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
-      packagePrice = Number((totalAmount - gstAmount).toFixed(2));
-    } else {
-      packagePrice = Number(price.toFixed(2));
-      gstAmount = Number((packagePrice * (gstPercent / 100)).toFixed(2));
-      totalAmount = Number((packagePrice + gstAmount).toFixed(2));
-    }
+    const packagePrice = Number(price.toFixed(2));
+    const extraAmount = Number(additionalAmount) || 0;
+    const baseAmount = Number((packagePrice + extraAmount).toFixed(2));
+    const gstAmount = Number(((baseAmount * (gstPercent / 100))).toFixed(2));
+    const finalTotalAmount = Number((baseAmount + gstAmount).toFixed(2));
 
     // 2. Generate Unique OrderNo (guaranteed collision-proof across day resets & multiple orders)
-    const dateObj = new Date();
+    // Uses the active Business Date rather than calendar system date
+    const dateObj = activeBusinessDate ? new Date(activeBusinessDate) : new Date();
     const yyyy = dateObj.getFullYear();
     const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
     const dd = String(dateObj.getDate()).padStart(2, '0');
@@ -251,8 +258,6 @@ async function createOrder(req, res) {
       (safeCustomerName && (safeCustomerName.toUpperCase() === 'UNIPRO' || safeCustomerName.toUpperCase().includes('DEALER')));
     const isCreditOrder = (payMode && String(payMode).trim().toUpperCase() === 'CREDIT') || isDealerByInfo;
     const finalDealerId = dealerId ? parseInt(dealerId, 10) : (isDealerByInfo ? 1 : null);
-    const extraAmount = Number(additionalAmount) || 0;
-    const finalTotalAmount = Number((totalAmount + extraAmount).toFixed(2));
     const finalPaidAmount = 0;
     const finalOutstandingAmount = isCreditOrder ? finalTotalAmount : null;
     const finalCreditStatus = isCreditOrder ? 'PENDING' : null;
@@ -263,6 +268,7 @@ async function createOrder(req, res) {
     // 3. Insert into dbo.CarWashOrder
     const orderInsertReq = new sql.Request(transaction);
     orderInsertReq.input('dayId', sql.Int, activeDayId);
+    orderInsertReq.input('businessDate', sql.Date, activeBusinessDate);
     orderInsertReq.input('orderNo', sql.NVarChar(30), orderNo);
     orderInsertReq.input('customerName', sql.NVarChar(150), safeCustomerName);
     orderInsertReq.input('vehicleNumber', sql.NVarChar(30), safeVehicleNumber);
@@ -286,7 +292,7 @@ async function createOrder(req, res) {
 
     const insertResult = await orderInsertReq.query(`
       INSERT INTO dbo.CarWashOrder (
-        DayId, OrderNo, CustomerName, VehicleNumber, MobileNumber,
+        DayId, BusinessDate, OrderNo, CustomerName, VehicleNumber, MobileNumber,
         VehicleTypeId, ServiceCategoryId, PackageId,
         PackagePrice, GSTPercent, GSTAmount, TotalAmount, CurrencyCode,
         PayMode, PaymentStatus, StatusCode,
@@ -297,9 +303,10 @@ async function createOrder(req, res) {
         INSERTED.OrderId, 
         INSERTED.OrderNo, 
         INSERTED.DayId,
+        INSERTED.BusinessDate,
         INSERTED.CreatedDate
       VALUES (
-        @dayId, @orderNo, @customerName, @vehicleNumber, @mobileNumber,
+        @dayId, @businessDate, @orderNo, @customerName, @vehicleNumber, @mobileNumber,
         @vehicleTypeId, @serviceCategoryId, @packageId,
         @packagePrice, @gstPercent, @gstAmount, @totalAmount, @currencyCode,
         @payMode, @paymentStatus, @statusCode,
@@ -339,7 +346,7 @@ async function createOrder(req, res) {
         txnReq.input('txnType', sql.VarChar(20), 'CREDIT');
         txnReq.input('amount', sql.Decimal(18, 2), finalTotalAmount);
         txnReq.input('gstAmount', sql.Decimal(18, 2), gstAmount);
-        txnReq.input('netAmount', sql.Decimal(18, 2), packagePrice);
+        txnReq.input('netAmount', sql.Decimal(18, 2), baseAmount);
         txnReq.input('currencyCode', sql.NVarChar(10), currencyCode);
         txnReq.input('paymentStatus', sql.VarChar(20), 'CREDIT');
         txnReq.input('processedBy', sql.NVarChar(100), safeCustomerName);
@@ -444,21 +451,18 @@ async function updatePayment(req, res) {
 
     const trimmedPayMode = payMode.trim().toUpperCase();
 
-    await transaction.begin();
-
-    // 1. Fetch current order
-    const checkReq = new sql.Request(transaction);
+    // 1. Fetch current order with NOLOCK before opening transaction
+    const checkReq = pool.request();
     checkReq.input('orderId', sql.Int, orderId);
     const checkResult = await checkReq.query(`
       SELECT 
         OrderId, OrderNo, CustomerName, VehicleNumber, TotalAmount, GSTAmount, CurrencyCode,
         PayMode, PaymentStatus, StatusCode, DayId
-      FROM dbo.CarWashOrder
+      FROM dbo.CarWashOrder WITH (NOLOCK)
       WHERE OrderId = @orderId;
     `);
 
     if (!checkResult.recordset.length) {
-      await transaction.rollback();
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
@@ -466,10 +470,10 @@ async function updatePayment(req, res) {
     const oldStatusCode = currentOrder.StatusCode;
 
     // Check active business day
-    const activeDayReq = new sql.Request(transaction);
+    const activeDayReq = pool.request();
     const activeDayRes = await activeDayReq.query(`
       SELECT TOP 1 DayId, BusinessDate, DayStatus 
-      FROM dbo.CarWashDayMaster WITH (UPDLOCK, ROWLOCK)
+      FROM dbo.CarWashDayMaster WITH (NOLOCK)
       WHERE DayStatus = 'OPEN';
     `);
     const activeDay = activeDayRes.recordset[0] || null;
@@ -479,7 +483,6 @@ async function updatePayment(req, res) {
 
     // If day is closed and this is a new cash/card confirmation not linked to an open day
     if (!targetDayId && (confirmPaid || !isCash)) {
-      await transaction.rollback();
       return res.status(403).json({
         success: false,
         dayClosed: true,
@@ -489,7 +492,6 @@ async function updatePayment(req, res) {
 
     // Prevent duplicate payment confirmation
     if (confirmPaid && currentOrder.PaymentStatus === 'PAID') {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'This order has already been paid.',
@@ -497,10 +499,6 @@ async function updatePayment(req, res) {
     }
 
     // Determine new payment status and status code
-    // Rules:
-    // 1. CASH: Payment status is PENDING (StatusCode 20) until staff/cashier manually confirms.
-    // 2. Non-CASH (Card, PayNow, Online, Member, Credit, etc.): Automatically marked as PAID (StatusCode 30).
-    // 3. If confirmPaid is true, order is marked as PAID (StatusCode 30).
     const isCash = trimmedPayMode === 'CASH';
     let newPaymentStatus = currentOrder.PaymentStatus || 'PENDING';
     let newStatusCode = oldStatusCode;
@@ -519,13 +517,15 @@ async function updatePayment(req, res) {
     if (oldStatusCode !== newStatusCode) {
       const allowed = ALLOWED_TRANSITIONS[oldStatusCode] || [];
       if (!allowed.includes(newStatusCode)) {
-        await transaction.rollback();
         return res.status(400).json({
           success: false,
           message: `Invalid status transition from ${STATUS_NAMES[oldStatusCode] || oldStatusCode} to ${STATUS_NAMES[newStatusCode] || newStatusCode}`,
         });
       }
     }
+
+    // Begin short write transaction for atomic update
+    await transaction.begin();
 
     // Update dbo.CarWashOrder
     const updReq = new sql.Request(transaction);
@@ -564,9 +564,10 @@ async function updatePayment(req, res) {
       txReq.input('dayId', sql.Int, targetDayId);
       txReq.input('payMode', sql.Char(10), trimmedPayMode);
       txReq.input('txType', sql.VarChar(20), 'PAYMENT');
+      const netAmountVal = Number((Number(currentOrder.TotalAmount) - Number(currentOrder.GSTAmount || 0)).toFixed(2));
       txReq.input('amount', sql.Decimal(18, 2), currentOrder.TotalAmount);
       txReq.input('gstAmount', sql.Decimal(18, 2), currentOrder.GSTAmount != null ? currentOrder.GSTAmount : 0);
-      txReq.input('netAmount', sql.Decimal(18, 2), currentOrder.TotalAmount);
+      txReq.input('netAmount', sql.Decimal(18, 2), netAmountVal);
       txReq.input('currCode', sql.NVarChar(10), currentOrder.CurrencyCode || 'SGD');
       txReq.input('paymentStatus', sql.VarChar(20), 'PAID');
       txReq.input('payRef', sql.NVarChar(150), paymentReference || null);
@@ -680,22 +681,19 @@ async function updateStatus(req, res) {
       });
     }
 
-    await transaction.begin();
-
-    // 1. Fetch current order
-    const checkReq = new sql.Request(transaction);
+    // 1. Fetch current order with NOLOCK before acquiring transaction lock
+    const checkReq = pool.request();
     checkReq.input('orderId', sql.Int, orderId);
     const checkResult = await checkReq.query(`
       SELECT 
         OrderId, OrderNo, CustomerName, VehicleNumber, TotalAmount,
         PayMode, PaymentStatus, StatusCode, BayId,
         PaidDate, StartedDate, CompletedDate, ClosedDate
-      FROM dbo.CarWashOrder
+      FROM dbo.CarWashOrder WITH (NOLOCK)
       WHERE OrderId = @orderId;
     `);
 
     if (!checkResult.recordset.length) {
-      await transaction.rollback();
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
@@ -704,7 +702,6 @@ async function updateStatus(req, res) {
 
     // Validate transition
     if (oldStatusCode === targetStatusCode) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: `Order is already in status ${STATUS_NAMES[targetStatusCode]} (${targetStatusCode}).`,
@@ -713,7 +710,6 @@ async function updateStatus(req, res) {
 
     const allowedNext = ALLOWED_TRANSITIONS[oldStatusCode] || [];
     if (!allowedNext.includes(targetStatusCode)) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: `Invalid status transition: cannot change from ${STATUS_NAMES[oldStatusCode] || oldStatusCode} to ${STATUS_NAMES[targetStatusCode]} (${targetStatusCode}).`,
@@ -724,7 +720,6 @@ async function updateStatus(req, res) {
     const targetBayNum = bayId ? parseInt(bayId, 10) : (currentOrder.BayId ? parseInt(currentOrder.BayId, 10) : null);
 
     if (targetStatusCode === STATUS_CODES.BAY_ASSIGNED && !targetBayNum) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'Bay ID is required when assigning a wash bay.',
@@ -732,7 +727,6 @@ async function updateStatus(req, res) {
     }
 
     if (targetStatusCode === STATUS_CODES.IN_SERVICE && !targetBayNum) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'A wash bay must be selected before starting service.',
@@ -742,18 +736,17 @@ async function updateStatus(req, res) {
     // Verify bay availability from database and prevent two active orders in the same bay
     if ((targetStatusCode === STATUS_CODES.BAY_ASSIGNED || targetStatusCode === STATUS_CODES.IN_SERVICE) && targetBayNum) {
       // 1. Check BayMaster table status
-      const bayCheckReq = new sql.Request(transaction);
+      const bayCheckReq = pool.request();
       bayCheckReq.input('checkBayNum', sql.Int, targetBayNum);
       const bayMasterCheck = await bayCheckReq.query(`
         SELECT BayNumber, BayName, BayStatus 
-        FROM dbo.BayMaster 
+        FROM dbo.BayMaster WITH (NOLOCK)
         WHERE BayNumber = @checkBayNum;
       `);
 
       if (bayMasterCheck.recordset.length > 0) {
         const bStatus = (bayMasterCheck.recordset[0].BayStatus || '').toUpperCase();
         if (bStatus === 'MAINTENANCE' || bStatus === 'CLEANING') {
-          await transaction.rollback();
           return res.status(400).json({
             success: false,
             message: `Bay ${targetBayNum} is currently under ${bStatus} and cannot be assigned.`,
@@ -762,13 +755,13 @@ async function updateStatus(req, res) {
       }
 
       // 2. Prevent two active orders from being assigned to the same bay in dbo.CarWashOrder
-      const conflictReq = new sql.Request(transaction);
+      const conflictReq = pool.request();
       conflictReq.input('conflictBayNum', sql.Int, targetBayNum);
       conflictReq.input('currOrderId', sql.Int, orderId);
       const conflictCheck = await conflictReq.query(`
         SELECT TOP 1 o.OrderId, o.OrderNo, o.VehicleNumber 
-        FROM dbo.CarWashOrder o
-        INNER JOIN dbo.BayMaster bm ON bm.BayNumber = @conflictBayNum
+        FROM dbo.CarWashOrder o WITH (NOLOCK)
+        INNER JOIN dbo.BayMaster bm WITH (NOLOCK) ON bm.BayNumber = @conflictBayNum
         WHERE o.BayId = @conflictBayNum 
           AND o.StatusCode IN (40, 50) 
           AND o.OrderId != @currOrderId
@@ -783,13 +776,15 @@ async function updateStatus(req, res) {
 
       if (conflictCheck.recordset.length > 0) {
         const busy = conflictCheck.recordset[0];
-        await transaction.rollback();
         return res.status(409).json({
           success: false,
           message: `Bay ${targetBayNum} is currently occupied by active order ${busy.OrderNo} (${busy.VehicleNumber}). Please select an available bay.`,
         });
       }
     }
+
+    // Begin short write transaction only for atomic update
+    await transaction.begin();
 
     // Construct update query
     const updReq = new sql.Request(transaction);
@@ -1009,10 +1004,10 @@ async function getOrders(req, res) {
       request.input('activeStartedDate', sql.DateTime, activeDay.StartedDate || activeDay.BusinessDate);
       whereConditions.push(`(o.DayId = @activeDayId OR (o.DayId IS NULL AND o.CreatedDate >= @activeStartedDate))`);
     } else if (date === 'today') {
-      whereConditions.push(`CAST(o.CreatedDate AS DATE) = CAST(GETDATE() AS DATE)`);
+      whereConditions.push(`COALESCE(o.BusinessDate, CAST(o.CreatedDate AS DATE)) = CAST(GETDATE() AS DATE)`);
     } else if (date && date !== 'all') {
       request.input('filterDate', sql.Date, date);
-      whereConditions.push(`CAST(o.CreatedDate AS DATE) = @filterDate`);
+      whereConditions.push(`COALESCE(o.BusinessDate, CAST(o.CreatedDate AS DATE)) = @filterDate`);
     }
 
     // Filter by Status
@@ -1094,11 +1089,11 @@ async function getOrders(req, res) {
           ELSE 
             DATEDIFF(MINUTE, o.CreatedDate, GETDATE())
         END AS WaitMinutes
-      FROM dbo.CarWashOrder o
-      LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
-      LEFT JOIN dbo.ServiceCategoryMaster sc ON o.ServiceCategoryId = sc.ServiceCategoryId
-      LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
-      LEFT JOIN dbo.DealerMaster dm ON o.DealerId = dm.DealerId
+      FROM dbo.CarWashOrder o WITH (NOLOCK)
+      LEFT JOIN dbo.VehicleTypeMaster vt WITH (NOLOCK) ON o.VehicleTypeId = vt.VehicleTypeId
+      LEFT JOIN dbo.ServiceCategoryMaster sc WITH (NOLOCK) ON o.ServiceCategoryId = sc.ServiceCategoryId
+      LEFT JOIN dbo.ServicePackageMaster sp WITH (NOLOCK) ON o.PackageId = sp.PackageId
+      LEFT JOIN dbo.DealerMaster dm WITH (NOLOCK) ON o.DealerId = dm.DealerId
       ${whereClause}
       ORDER BY 
         CASE 
@@ -1143,7 +1138,7 @@ async function getOrders(req, res) {
         packageCode: row.PackageCode || '',
         durationMinutes: row.DurationMinutes,
         packagePrice: Number(row.PackagePrice),
-        gstPercent: row.GSTPercent ? Number(row.GSTPercent) : 9,
+        gstPercent: row.GSTPercent != null ? Number(row.GSTPercent) : 0,
         gstAmount: row.GSTAmount ? Number(row.GSTAmount) : 0,
         totalAmount: Number(row.TotalAmount),
         currencyCode: row.CurrencyCode || 'SGD',
@@ -1250,11 +1245,11 @@ async function getOrderById(req, res) {
           ELSE 
             DATEDIFF(MINUTE, o.CreatedDate, GETDATE())
         END AS WaitMinutes
-      FROM dbo.CarWashOrder o
-      LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
-      LEFT JOIN dbo.ServiceCategoryMaster sc ON o.ServiceCategoryId = sc.ServiceCategoryId
-      LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
-      LEFT JOIN dbo.DealerMaster dm ON o.DealerId = dm.DealerId
+      FROM dbo.CarWashOrder o WITH (NOLOCK)
+      LEFT JOIN dbo.VehicleTypeMaster vt WITH (NOLOCK) ON o.VehicleTypeId = vt.VehicleTypeId
+      LEFT JOIN dbo.ServiceCategoryMaster sc WITH (NOLOCK) ON o.ServiceCategoryId = sc.ServiceCategoryId
+      LEFT JOIN dbo.ServicePackageMaster sp WITH (NOLOCK) ON o.PackageId = sp.PackageId
+      LEFT JOIN dbo.DealerMaster dm WITH (NOLOCK) ON o.DealerId = dm.DealerId
       WHERE o.OrderId = @orderId;
     `;
 
@@ -1286,7 +1281,7 @@ async function getOrderById(req, res) {
         packageCode: row.PackageCode,
         durationMinutes: row.DurationMinutes,
         packagePrice: Number(row.PackagePrice),
-        gstPercent: row.GSTPercent ? Number(row.GSTPercent) : 9,
+        gstPercent: row.GSTPercent != null ? Number(row.GSTPercent) : 0,
         gstAmount: row.GSTAmount ? Number(row.GSTAmount) : 0,
         totalAmount: Number(row.TotalAmount),
         currencyCode: row.CurrencyCode || 'SGD',
@@ -1348,7 +1343,7 @@ async function getOrderHistory(req, res) {
         Remarks,
         ChangedBy,
         ChangedDate
-      FROM dbo.CarWashOrderStatusHistory
+      FROM dbo.CarWashOrderStatusHistory WITH (NOLOCK)
       WHERE OrderId = @orderId
       ORDER BY ChangedDate ASC, HistoryId ASC;
     `;
@@ -1418,9 +1413,9 @@ async function getAllOrderAuditLogs(req, res) {
         h.Remarks,
         h.ChangedBy,
         h.ChangedDate
-      FROM dbo.CarWashOrderStatusHistory h
-      LEFT JOIN dbo.CarWashOrder o ON h.OrderId = o.OrderId
-      LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+      FROM dbo.CarWashOrderStatusHistory h WITH (NOLOCK)
+      LEFT JOIN dbo.CarWashOrder o WITH (NOLOCK) ON h.OrderId = o.OrderId
+      LEFT JOIN dbo.ServicePackageMaster p WITH (NOLOCK) ON o.PackageId = p.PackageId
       WHERE 1=1
     `;
 
@@ -1531,10 +1526,10 @@ async function exportCarWashData(req, res) {
         o.StartedDate,
         o.CompletedDate,
         o.ClosedDate
-      FROM dbo.CarWashOrder o
-      LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
-      LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
-      LEFT JOIN dbo.ServiceCategoryMaster c ON o.ServiceCategoryId = c.ServiceCategoryId
+      FROM dbo.CarWashOrder o WITH (NOLOCK)
+      LEFT JOIN dbo.VehicleTypeMaster vt WITH (NOLOCK) ON o.VehicleTypeId = vt.VehicleTypeId
+      LEFT JOIN dbo.ServicePackageMaster p WITH (NOLOCK) ON o.PackageId = p.PackageId
+      LEFT JOIN dbo.ServiceCategoryMaster c WITH (NOLOCK) ON o.ServiceCategoryId = c.ServiceCategoryId
       WHERE 1=1
     `;
 

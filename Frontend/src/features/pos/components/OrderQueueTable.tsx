@@ -37,6 +37,7 @@ interface OrderQueueTableProps {
   onStartOrder?: (order: PosOrder) => void;
   onCompleteOrder?: (order: PosOrder) => void;
   onCloseOrder?: (order: PosOrder) => void;
+  onCancelOrder?: (order: PosOrder) => void;
   onViewHistory?: (order: PosOrder) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
@@ -83,6 +84,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   onStartOrder,
   onCompleteOrder,
   onCloseOrder,
+  onCancelOrder,
   onViewHistory,
 }) => {
   const { width } = useWindowDimensions();
@@ -110,6 +112,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   // 2. CASH: Payment status is PENDING until cashier collects payment
   // 3. Non-CASH (Card, PayNow, Online, Member, Credit): Automatically Paid / Waiting
   const isOrderPendingPayment = (o: PosOrder) => {
+    if (o.statusCode === 80 || o.status === 'CANCELLED' || o.paymentStatus === 'CANCELLED') return false;
     if (isDealerOrder(o)) return false;
     if (o.paymentStatus === 'PAID') return false;
     return (
@@ -172,6 +175,136 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
     if (activeFilter === 'CANCELLED') return o.statusCode === 80 || o.status === 'CANCELLED';
     return true;
   });
+
+  // Pagination State & Slice (10 orders per page, no scroll)
+  const PAGE_SIZE = 10;
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Reset page to 1 whenever filter tab or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilter, searchQuery]);
+
+  const totalOrders = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalOrders / PAGE_SIZE));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, totalOrders);
+  const pagedOrders = filteredOrders.slice(startIndex, endIndex);
+
+  const renderPagination = () => {
+    if (totalOrders === 0) return null;
+
+    return (
+      <View style={styles.paginationContainer}>
+        <View style={styles.paginationLeft}>
+          <Text style={styles.paginationInfoText}>
+            Showing <Text style={styles.paginationInfoBold}>{startIndex + 1}–{endIndex}</Text> of{' '}
+            <Text style={styles.paginationInfoBold}>{totalOrders}</Text> orders
+          </Text>
+        </View>
+
+        <View style={styles.paginationRight}>
+          {/* Previous Button */}
+          <TouchableOpacity
+            style={[styles.pageNavBtn, currentPage === 1 && styles.pageNavBtnDisabled]}
+            onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Previous page"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={15}
+              color={currentPage === 1 ? '#94A3B8' : '#0F172A'}
+            />
+            <Text
+              style={[
+                styles.pageNavBtnText,
+                currentPage === 1 && styles.pageNavBtnTextDisabled,
+              ]}
+            >
+              Previous
+            </Text>
+          </TouchableOpacity>
+
+          {/* Page Number Pills */}
+          <View style={styles.pagePillsRow}>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+              if (
+                totalPages > 6 &&
+                Math.abs(page - currentPage) > 2 &&
+                page !== 1 &&
+                page !== totalPages
+              ) {
+                if (Math.abs(page - currentPage) === 3) {
+                  return (
+                    <Text key={`ellipsis-${page}`} style={styles.pageEllipsis}>
+                      …
+                    </Text>
+                  );
+                }
+                return null;
+              }
+
+              const isActive = page === currentPage;
+              return (
+                <TouchableOpacity
+                  key={page}
+                  style={[
+                    styles.pageNumberBtn,
+                    isActive && styles.pageNumberBtnActive,
+                  ]}
+                  onPress={() => setCurrentPage(page)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.pageNumberText,
+                      isActive && styles.pageNumberTextActive,
+                    ]}
+                  >
+                    {page}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Next Button */}
+          <TouchableOpacity
+            style={[styles.pageNavBtn, currentPage === totalPages && styles.pageNavBtnDisabled]}
+            onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Next page"
+          >
+            <Text
+              style={[
+                styles.pageNavBtnText,
+                currentPage === totalPages && styles.pageNavBtnTextDisabled,
+              ]}
+            >
+              Next
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={15}
+              color={currentPage === totalPages ? '#94A3B8' : '#0F172A'}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const getPackageBadgeStyle = (packageName: string) => {
     const lower = (packageName || '').toLowerCase();
@@ -466,7 +599,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
               </Text>
             </View>
           ) : (
-            filteredOrders.map((order, idx) => {
+            pagedOrders.map((order, idx) => {
               const code =
                 order.statusCode ??
                 (order.status === 'WAITING_ASSIGN'
@@ -475,8 +608,9 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   ? 50
                   : 20);
               const isDealer = isDealerOrder(order);
-              const isPending = isOrderPendingPayment(order);
-              const isPaid = isDealer || (!isPending && (order.paymentStatus === 'PAID' || code >= 30));
+              const isCancelled = order.statusCode === 80 || order.status === 'CANCELLED' || order.paymentStatus === 'CANCELLED' || code === 80;
+              const isPending = !isCancelled && isOrderPendingPayment(order);
+              const isPaid = !isCancelled && (isDealer || (!isPending && (order.paymentStatus === 'PAID' || (code >= 30 && code < 80))));
               const pkgStyle = getPackageBadgeStyle(order.packageName);
               const { text: waitTextDisplay, minutes: waitMins } = getOrderWaitTime(order, now);
 
@@ -493,7 +627,11 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      {isDealer ? (
+                      {isCancelled ? (
+                        <View style={styles.cancelledBadge}>
+                          <Text style={styles.cancelledBadgeText}>✕ Cancelled</Text>
+                        </View>
+                      ) : isDealer ? (
                         <View style={styles.creditBadge}>
                           <Text style={styles.creditBadgeIcon}>🏢</Text>
                           <Text style={styles.creditBadgeText}>Credit</Text>
@@ -565,12 +703,33 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           <Text style={styles.selectBayWaterDrop}>💧</Text>
                           <Text style={styles.selectBayBtnText}>Select Bay</Text>
                         </TouchableOpacity>
+                      ) : isPending ? (
+                        <TouchableOpacity
+                          style={[styles.selectBayBtn, { backgroundColor: '#DC2626', borderColor: '#B91C1C' }]}
+                          onPress={() => onPayOrder(order)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Collect Payment"
+                        >
+                          <Text style={{ fontSize: 11, marginRight: 3 }}>💳</Text>
+                          <Text style={styles.selectBayBtnText}>Pay</Text>
+                        </TouchableOpacity>
                       ) : (
                         <Text style={styles.unassignedText}>—</Text>
                       )}
                     </View>
 
                     <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                      {onCancelOrder && isPending && (
+                        <TouchableOpacity
+                          style={styles.cancelActionBtn}
+                          onPress={() => onCancelOrder(order)}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Cancel Order"
+                        >
+                          <Ionicons name="close" size={15} color="#DC2626" />
+                        </TouchableOpacity>
+                      )}
                       {onViewHistory && (
                         <TouchableOpacity
                           style={styles.historyBtn}
@@ -593,6 +752,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
               );
             })
           )}
+          {renderPagination()}
         </View>
       ) : (
         <ScrollView
@@ -616,14 +776,8 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
               <Text style={[styles.th, { width: '8%', textAlign: 'center' }]}>ACTION</Text>
             </View>
 
-            {/* Table Body Rows - Fixed to show records with inner scroll */}
-            <ScrollView
-              style={styles.tableBody}
-              nestedScrollEnabled={true}
-              showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps="handled"
-              scrollEventThrottle={16}
-            >
+            {/* Table Body Rows - 10 orders per page without inner scroll */}
+            <View style={styles.tableBody}>
               {filteredOrders.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyTitle}>No matching orders</Text>
@@ -632,7 +786,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   </Text>
                 </View>
               ) : (
-                filteredOrders.map((order, idx) => {
+                pagedOrders.map((order, idx) => {
                   const code =
                     order.statusCode ??
                     (order.status === 'WAITING_ASSIGN'
@@ -641,8 +795,9 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                       ? 50
                       : 20);
                   const isDealer = isDealerOrder(order);
-                  const isPending = isOrderPendingPayment(order);
-                  const isPaid = isDealer || (!isPending && (order.paymentStatus === 'PAID' || code >= 30));
+                  const isCancelled = order.statusCode === 80 || order.status === 'CANCELLED' || order.paymentStatus === 'CANCELLED' || code === 80;
+                  const isPending = !isCancelled && isOrderPendingPayment(order);
+                  const isPaid = !isCancelled && (isDealer || (!isPending && (order.paymentStatus === 'PAID' || (code >= 30 && code < 80))));
                   const pkgStyle = getPackageBadgeStyle(order.packageName);
                   const isHovered = hoveredRow === order.id;
                   const { text: waitTextDisplay, minutes: waitMins } = getOrderWaitTime(order, now);
@@ -730,9 +885,13 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         </Text>
                       </View>
 
-                      {/* 6. PAYMENT: Credit Badge or Green Paid Badge or Amber Pending Badge */}
+                      {/* 6. PAYMENT: Cancelled / Credit / Paid / Pending Badge */}
                       <View style={{ width: '11%', justifyContent: 'center' }}>
-                        {isDealer ? (
+                        {isCancelled ? (
+                          <View style={styles.cancelledBadge}>
+                            <Text style={styles.cancelledBadgeText}>✕ Cancelled</Text>
+                          </View>
+                        ) : isDealer ? (
                           <View style={styles.creditBadge}>
                             <Text style={styles.creditBadgeIcon}>🏢</Text>
                             <Text style={styles.creditBadgeText}>Credit</Text>
@@ -759,7 +918,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                               {order.assignedBayName || `Bay ${order.assignedBayId}`}
                             </Text>
                           </View>
-                        ) : ((isPaid || isDealer) && code < 50) ? (
+                        ) : (!isCancelled && (isPaid || isDealer) && code < 50) ? (
                           <TouchableOpacity
                             style={styles.selectBayBtn}
                             onPress={() => onAssignOrder(order)}
@@ -769,6 +928,17 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           >
                             <Text style={styles.selectBayWaterDrop}>💧</Text>
                             <Text style={styles.selectBayBtnText}>Select Bay</Text>
+                          </TouchableOpacity>
+                        ) : isPending ? (
+                          <TouchableOpacity
+                            style={[styles.selectBayBtn, { backgroundColor: '#DC2626', borderColor: '#B91C1C' }]}
+                            onPress={() => onPayOrder(order)}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Collect Payment"
+                          >
+                            <Text style={{ fontSize: 11, marginRight: 3 }}>💳</Text>
+                            <Text style={styles.selectBayBtnText}>Pay</Text>
                           </TouchableOpacity>
                         ) : (
                           <Text style={styles.unassignedText}>—</Text>
@@ -791,7 +961,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         </Text>
                       </View>
 
-                      {/* 9. ACTION: View Button + Clock */}
+                      {/* 9. ACTION: View Button + Cancel + Clock */}
                       <View style={[styles.actionCell, { width: '8%' }]}>
                         <TouchableOpacity
                           style={styles.viewBtn}
@@ -800,6 +970,17 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         >
                           <Text style={styles.viewBtnText}>View</Text>
                         </TouchableOpacity>
+
+                        {onCancelOrder && isPending && (
+                          <TouchableOpacity
+                            style={styles.cancelActionBtn}
+                            onPress={() => onCancelOrder(order)}
+                            activeOpacity={0.7}
+                            accessibilityLabel="Cancel Order"
+                          >
+                            <Ionicons name="close" size={14} color="#DC2626" />
+                          </TouchableOpacity>
+                        )}
 
                         {onViewHistory && (
                           <TouchableOpacity
@@ -815,7 +996,10 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   );
                 })
               )}
-            </ScrollView>
+            </View>
+
+            {/* Pagination Controls */}
+            {renderPagination()}
           </View>
         </ScrollView>
       )}
@@ -963,20 +1147,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   tableBody: {
-    height: 428,
-    maxHeight: 428,
-    ...(Platform.OS === 'web'
-      ? ({
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          scrollbarWidth: 'thin',
-        } as any)
-      : {}),
+    minHeight: 180,
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -990,6 +1166,96 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF5F5',
     borderLeftWidth: 4,
     borderLeftColor: '#ED0712',
+  },
+  // Pagination Controls
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    paddingBottom: 4,
+    paddingHorizontal: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 8,
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  paginationLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paginationInfoText: {
+    fontSize: 12.5,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  paginationInfoBold: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  paginationRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pageNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+  },
+  pageNavBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#F1F5F9',
+    opacity: 0.5,
+  },
+  pageNavBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  pageNavBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  pagePillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pageNumberBtn: {
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  pageNumberBtnActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  pageNumberText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  pageNumberTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  pageEllipsis: {
+    fontSize: 13,
+    color: '#94A3B8',
+    paddingHorizontal: 4,
   },
   // ORDER Column
   orderIdChip: {
@@ -1155,6 +1421,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#047857',
+  },
+  cancelledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  cancelledBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
   },
   pendingBadge: {
     flexDirection: 'row',
@@ -1326,6 +1609,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  cancelActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   // Empty

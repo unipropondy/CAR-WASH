@@ -4,18 +4,23 @@ import {
   Text, 
   TouchableOpacity, 
   StyleSheet, 
-  Modal 
+  Modal,
+  ActivityIndicator,
+  Alert 
 } from 'react-native';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { PosOrder, PaymentMethodType } from '../../../types/pos.types';
+import { processYeahPayPayment } from '../../../services/yeahpayApi';
+import { updateOrderPayment } from '../../../services/carwashOrderApi';
 
 interface PaymentModalProps {
   visible: boolean;
   order: PosOrder | null;
   onClose: () => void;
   onConfirmPayment: (orderId: string, method: PaymentMethodType) => void;
-  currentLanguage: 'EN' | 'ZH';
+  currentLanguage?: 'EN' | 'ZH';
+  cashierName?: string;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -23,24 +28,59 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   order,
   onClose,
   onConfirmPayment,
-  currentLanguage,
+  currentLanguage = 'EN',
+  cashierName = 'Cashier',
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('YEAHPAY_QR');
   const [cashTendered, setCashTendered] = useState<number>(50.00);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [statusPrompt, setStatusPrompt] = useState<string>('');
 
   if (!order) return null;
 
   const total = order.totalAmount;
   const changeDue = Math.max(0, cashTendered - total);
+  const numericOrderId = order.orderId || parseInt(order.id, 10);
 
-  const handlePay = () => {
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
+  const handlePay = async () => {
+    try {
+      setIsProcessing(true);
+
+      if (selectedMethod === 'CASH') {
+        setStatusPrompt('Confirming Cash payment...');
+        await updateOrderPayment(numericOrderId, {
+          payMode: 'CASH',
+          confirmPaid: true,
+          changedBy: cashierName,
+          remarks: `Cash tendered $${cashTendered.toFixed(2)}, change $${changeDue.toFixed(2)}`,
+        });
+      } else {
+        // YeahPay Terminal Flow
+        setStatusPrompt(
+          selectedMethod === 'YEAHPAY_QR'
+            ? '📱 Scan PayNow QR on terminal...'
+            : '💳 Tap or Insert Card on terminal...'
+        );
+
+        await processYeahPayPayment({
+          orderId: numericOrderId,
+          payMode: selectedMethod as 'YEAHPAY_QR' | 'YEAHPAY_CARD',
+          cashierName,
+        });
+      }
+
       onConfirmPayment(order.id, selectedMethod);
       onClose();
-    }, 1200);
+    } catch (err: any) {
+      console.error('[Payment Error]:', err);
+      Alert.alert(
+        currentLanguage === 'EN' ? 'Payment Unsuccessful' : '支付未完成',
+        err.message || 'Transaction could not be completed on the terminal.'
+      );
+    } finally {
+      setIsProcessing(false);
+      setStatusPrompt('');
+    }
   };
 
   return (
@@ -60,9 +100,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
+            {!isProcessing && (
+              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Payment Method Selector */}
@@ -71,8 +113,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {/* YeahPay PayNow QR */}
               <TouchableOpacity
                 style={[styles.methodCard, selectedMethod === 'YEAHPAY_QR' && styles.methodCardActive]}
-                onPress={() => setSelectedMethod('YEAHPAY_QR')}
+                onPress={() => !isProcessing && setSelectedMethod('YEAHPAY_QR')}
                 activeOpacity={0.8}
+                disabled={isProcessing}
               >
                 <Text style={styles.methodIcon}>📱</Text>
                 <Text style={[styles.methodTitle, selectedMethod === 'YEAHPAY_QR' && styles.methodTitleActive]}>
@@ -84,8 +127,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {/* YeahPay Card Terminal */}
               <TouchableOpacity
                 style={[styles.methodCard, selectedMethod === 'YEAHPAY_CARD' && styles.methodCardActive]}
-                onPress={() => setSelectedMethod('YEAHPAY_CARD')}
+                onPress={() => !isProcessing && setSelectedMethod('YEAHPAY_CARD')}
                 activeOpacity={0.8}
+                disabled={isProcessing}
               >
                 <Text style={styles.methodIcon}>💳</Text>
                 <Text style={[styles.methodTitle, selectedMethod === 'YEAHPAY_CARD' && styles.methodTitleActive]}>
@@ -97,8 +141,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {/* Cash */}
               <TouchableOpacity
                 style={[styles.methodCard, selectedMethod === 'CASH' && styles.methodCardActive]}
-                onPress={() => setSelectedMethod('CASH')}
+                onPress={() => !isProcessing && setSelectedMethod('CASH')}
                 activeOpacity={0.8}
+                disabled={isProcessing}
               >
                 <Text style={styles.methodIcon}>💵</Text>
                 <Text style={[styles.methodTitle, selectedMethod === 'CASH' && styles.methodTitleActive]}>
@@ -108,11 +153,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </TouchableOpacity>
             </View>
 
+            {/* In-Flight Terminal Notification */}
+            {isProcessing && (
+              <View style={styles.terminalProcessingBanner}>
+                <ActivityIndicator size="small" color="#DC2626" style={{ marginRight: 10 }} />
+                <Text style={styles.terminalProcessingText}>{statusPrompt}</Text>
+              </View>
+            )}
+
             {/* Method Specific Display */}
             {selectedMethod === 'YEAHPAY_QR' && (
               <View style={styles.qrDisplayBox}>
                 <View style={styles.qrPlaceholder}>
-                  {/* Visual simulated QR */}
                   <View style={styles.simulatedQr}>
                     <View style={styles.qrCornerTL} />
                     <View style={styles.qrCornerTR} />
@@ -123,10 +175,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <View style={styles.qrInstructions}>
                   <Text style={styles.qrInstructHeading}>Dynamic Singapore PayNow QR</Text>
                   <Text style={styles.qrInstructText}>
-                    Scan using DBS PayLah!, OCBC, UOB, or any Singapore PayNow banking app.
+                    Dispatches $ {order.totalAmount.toFixed(2)} prompt directly to YeahPay Smart Terminal.
                   </Text>
                   <View style={styles.qrTimerBadge}>
-                    <Text style={styles.qrTimerText}>⏱ Auto-verifying Gateway Status...</Text>
+                    <Text style={styles.qrTimerText}>⏱ Terminal Connection Ready</Text>
                   </View>
                 </View>
               </View>
@@ -137,10 +189,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <Text style={styles.terminalIcon}>📟</Text>
                 <Text style={styles.terminalHeading}>YeahPay Smart Terminal Ready</Text>
                 <Text style={styles.terminalSub}>
-                  Present terminal to customer for Visa, Mastercard, NETS FlashPay, or Apple Pay.
+                  Present terminal to customer for Visa, Mastercard, NETS FlashPay, or Mobile NFC Pay.
                 </Text>
                 <View style={styles.terminalStatusPill}>
-                  <Text style={styles.terminalStatusText}>Terminal #01: CONNECTED</Text>
+                  <Text style={styles.terminalStatusText}>Terminal: ONLINE & READY</Text>
                 </View>
               </View>
             )}
@@ -154,6 +206,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       key={idx}
                       style={[styles.quickCashBtn, cashTendered === amt && styles.quickCashBtnActive]}
                       onPress={() => setCashTendered(amt)}
+                      disabled={isProcessing}
                     >
                       <Text style={[styles.quickCashText, cashTendered === amt && styles.quickCashTextActive]}>
                         ${amt.toFixed(0)}
@@ -172,13 +225,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Price Breakdown */}
             <View style={styles.breakdownBox}>
               <View style={styles.breakdownRow}>
-                <Text style={styles.breakdownLabel}>Subtotal</Text>
-                <Text style={styles.breakdownVal}>$ {order.subtotal.toFixed(2)}</Text>
+                <Text style={styles.breakdownLabel}>Base Amount</Text>
+                <Text style={styles.breakdownVal}>$ {(order.subtotal || order.totalAmount).toFixed(2)}</Text>
               </View>
-              <View style={styles.breakdownRow}>
-                <Text style={styles.breakdownLabel}>Singapore GST (9.0%)</Text>
-                <Text style={styles.breakdownVal}>$ {order.gstAmount.toFixed(2)}</Text>
-              </View>
+              {(order.gstRate > 0 || order.gstAmount > 0) && (
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>GST ({order.gstRate ?? 0}%)</Text>
+                  <Text style={styles.breakdownVal}>$ {order.gstAmount.toFixed(2)}</Text>
+                </View>
+              )}
               <View style={[styles.breakdownRow, styles.grandTotalRow]}>
                 <Text style={styles.grandTotalLabel}>TOTAL</Text>
                 <Text style={styles.grandTotalVal}>$ {order.totalAmount.toFixed(2)}</Text>
@@ -188,7 +243,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
           {/* Footer Actions */}
           <View style={styles.footer}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+            <TouchableOpacity 
+              style={styles.cancelBtn} 
+              onPress={onClose}
+              disabled={isProcessing}
+            >
               <Text style={styles.cancelBtnText}>
                 {currentLanguage === 'EN' ? 'Back' : '返回'}
               </Text>
@@ -199,7 +258,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               disabled={isProcessing}
             >
               <Text style={styles.confirmPayBtnText}>
-                {isProcessing ? 'VERIFYING...' : `CONFIRM $ ${order.totalAmount.toFixed(2)}`}
+                {isProcessing ? 'COMMUNICATING...' : `CONFIRM $ ${order.totalAmount.toFixed(2)}`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -247,52 +306,52 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
   },
   headerTitle: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
+    color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   headerSubtitle: {
-    color: '#A1A1AA',
     fontSize: 11,
-    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 2,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#1F1F23',
-    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   closeBtnText: {
-    color: '#A1A1AA',
+    color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   body: {
     padding: 20,
+    gap: 16,
   },
   methodsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
+    gap: 10,
   },
   methodCard: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 14,
+    borderRadius: 12,
+    padding: 12,
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#E2E8F0',
   },
   methodCardActive: {
+    backgroundColor: '#FEF2F2',
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FFF1F2',
   },
   methodIcon: {
-    fontSize: 24,
+    fontSize: 26,
     marginBottom: 6,
   },
   methodTitle: {
@@ -307,114 +366,123 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748B',
     marginTop: 2,
+    textAlign: 'center',
+  },
+  terminalProcessingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  terminalProcessingText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
   },
   qrDisplayBox: {
     flexDirection: 'row',
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
+    borderRadius: 12,
+    padding: 14,
     gap: 16,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 20,
   },
   qrPlaceholder: {
-    width: 110,
-    height: 110,
+    width: 100,
+    height: 100,
     backgroundColor: '#FFFFFF',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    alignItems: 'center',
     justifyContent: 'center',
-    padding: 8,
+    alignItems: 'center',
   },
   simulatedQr: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#080808',
+    width: 80,
+    height: 80,
+    borderWidth: 2,
+    borderColor: '#080808',
     borderRadius: 4,
     position: 'relative',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   qrCornerTL: {
     position: 'absolute',
-    top: 6,
-    left: 6,
-    width: 18,
-    height: 18,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    backgroundColor: RED_BAY_COLORS.primary,
+    top: 4,
+    left: 4,
+    width: 16,
+    height: 16,
+    backgroundColor: '#080808',
   },
   qrCornerTR: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 18,
-    height: 18,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    backgroundColor: RED_BAY_COLORS.primary,
+    top: 4,
+    right: 4,
+    width: 16,
+    height: 16,
+    backgroundColor: '#080808',
   },
   qrCornerBL: {
     position: 'absolute',
-    bottom: 6,
-    left: 6,
-    width: 18,
-    height: 18,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    backgroundColor: RED_BAY_COLORS.primary,
+    bottom: 4,
+    left: 4,
+    width: 16,
+    height: 16,
+    backgroundColor: '#080808',
   },
   qrCenterLogo: {
-    color: '#FFFFFF',
     fontSize: 8,
     fontWeight: '900',
-    backgroundColor: '#080808',
+    color: RED_BAY_COLORS.primary,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 2,
   },
   qrInstructions: {
     flex: 1,
+    gap: 6,
   },
   qrInstructHeading: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     color: '#080808',
-    marginBottom: 4,
   },
   qrInstructText: {
     fontSize: 11,
-    color: '#64748B',
+    color: '#475569',
     lineHeight: 16,
   },
   qrTimerBadge: {
+    alignSelf: 'flex-start',
     backgroundColor: '#FEF3C7',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginTop: 8,
+    borderRadius: 6,
+    marginTop: 4,
   },
   qrTimerText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#D97706',
+    color: '#92400E',
   },
   cardTerminalBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 20,
+    gap: 6,
   },
   terminalIcon: {
-    fontSize: 36,
-    marginBottom: 8,
+    fontSize: 32,
   },
   terminalHeading: {
     fontSize: 14,
@@ -425,52 +493,49 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748B',
     textAlign: 'center',
-    marginTop: 4,
-    maxWidth: 320,
+    maxWidth: 360,
   },
   terminalStatusPill: {
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 10,
+    borderRadius: 6,
+    marginTop: 6,
   },
   terminalStatusText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#15803D',
+    color: '#166534',
   },
   cashBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 12,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 20,
+    gap: 10,
   },
   cashSectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
   },
   quickCashButtons: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 14,
   },
   quickCashBtn: {
     flex: 1,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 6,
-    paddingVertical: 8,
+    borderRadius: 8,
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
   },
   quickCashBtnActive: {
-    borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: RED_BAY_COLORS.primary,
+    backgroundColor: '#059669',
+    borderColor: '#059669',
   },
   quickCashText: {
     fontSize: 13,
@@ -484,16 +549,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
   },
   changeDueLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#475569',
   },
   changeDueAmount: {
     fontSize: 16,
@@ -572,4 +635,3 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
-

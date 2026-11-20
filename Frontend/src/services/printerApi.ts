@@ -356,13 +356,26 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
   const billNo = order.billNumber || order.orderNo || order.OrderNo || 'RB-0001';
+  const queueNo = (() => {
+    const match = String(billNo).match(/\d+$/);
+    if (match && match[0]) {
+      return match[0].slice(-4).padStart(4, '0');
+    }
+    const raw = String(billNo).replace(/\D/g, '');
+    return raw.length >= 4 ? raw.slice(-4) : (String(billNo).length > 4 ? String(billNo).slice(-4) : String(billNo));
+  })();
   const custName = order.customerDetails?.customerName || order.customerName || order.CustomerName || 'Walk-in Customer';
   const plate = order.customerDetails?.vehicleNumber || order.vehicleNumber || order.VehicleNo || order.VehicleNumber || 'WALK-IN';
   const mobile = order.customerDetails?.mobileNumber || order.mobileNumber || order.Phone || order.ContactNo || '-';
   const pkgName = order.selectedPackage?.name || order.packageName || order.PackageName || 'Express Foam Wash';
-  const total = Number(order.totalAmount || order.TotalAmount || 0).toFixed(2);
-  const gst = Number(order.gstAmount || order.TaxAmount || 0).toFixed(2);
-  const net = (Number(total) - Number(gst)).toFixed(2);
+  const gstRate = Number(company?.GSTPercentage ?? 0);
+  const rawBase = order.packagePrice ?? order.PackagePrice ?? order.subtotal ?? order.baseAmount ?? (order.totalAmount != null && order.gstAmount != null ? Number(order.totalAmount) - Number(order.gstAmount) : undefined);
+  const baseNum = rawBase != null ? Number(rawBase) : Number(order.totalAmount || order.TotalAmount || 0);
+  const gstNum = Number(order.gstAmount ?? order.GSTAmount ?? ((baseNum * gstRate) / 100));
+  const totalNum = Number(order.totalAmount ?? order.TotalAmount ?? (baseNum + gstNum));
+  const base = baseNum.toFixed(2);
+  const gst = gstNum.toFixed(2);
+  const total = totalNum.toFixed(2);
   const payMode = (order.paymentMode || order.payMode || order.PaymentMode || 'CASH').toUpperCase();
   const payStatus = (order.paymentStatus || (payMode === 'CASH' ? 'PENDING' : 'PAID')).toUpperCase();
   const timeStr = order.createdAt ? formatSgTime(order.createdAt) : formatSgTime(order.createdDate || getDbTime());
@@ -414,8 +427,8 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
         ${email ? `<div class="center" style="font-size: 10px;">${email}</div>` : ''}
         <div class="double-divider"></div>
         <div class="bill-box">
-          <div style="font-size: 11px; font-weight: bold; letter-spacing: 1px;">OFFICIAL RECEIPT</div>
-          <div class="bill-num">${billNo}</div>
+          <div style="font-size: 11px; font-weight: bold; letter-spacing: 1px;">OFFICIAL QUEUE TICKET</div>
+          <div class="bill-num">#${queueNo}</div>
         </div>
         <div class="double-divider"></div>
         <div class="section">
@@ -426,7 +439,7 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
         </div>
         <div class="divider"></div>
         <div class="row bold" style="font-size: 12px;">
-          <span>ITEM / SERVICE</span>
+          <span>SERVICE DESCRIPTION</span>
           <span>AMOUNT</span>
         </div>
         <div class="divider"></div>
@@ -434,19 +447,20 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
           <div class="bold">${pkgName}</div>
           <div class="row">
             <span style="color: #444; font-size: 11px;">  Vehicle Care Service</span>
-            <span class="bold">${currencySymbol}${total}</span>
+            <span class="bold">${currencySymbol}${base}</span>
           </div>
         </div>
         <div class="divider"></div>
         <div class="section">
           <div class="row">
-            <span>Subtotal (Net):</span>
-            <span>${currencySymbol}${net}</span>
+            <span>Base Amount:</span>
+            <span>${currencySymbol}${base}</span>
           </div>
+          ${(gstRate > 0 || Number(gst) > 0) ? `
           <div class="row">
-            <span>GST (${company?.GSTPercentage ?? 9}% Included):</span>
+            <span>GST (${gstRate}%):</span>
             <span>${currencySymbol}${gst}</span>
-          </div>
+          </div>` : ''}
         </div>
         <div class="divider"></div>
         <div class="row bold" style="font-size: 14px; margin: 6px 0;">
@@ -459,9 +473,11 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
           <span>${payMode} [${payStatus}]</span>
         </div>
         <div class="double-divider"></div>
-        <div class="center" style="margin-top: 8px;">Please watch bay monitors for your queue</div>
-        <div class="center bold" style="margin-top: 4px; font-size: 13px;">DRIVE IN. SHINE OUT.</div>
-        <div class="center" style="font-size: 11px; margin-top: 2px;">Thank you for your visit!</div>
+        <div class="center" style="margin-top: 8px;">
+          <div class="bold">THANK YOU FOR CHOOSING US!</div>
+          <div style="font-size: 11px; margin-top: 2px;">Please retain receipt for vehicle collection.</div>
+          <div class="bold" style="font-size: 12px; margin-top: 4px;">CAR-POS BY UNIPROSG</div>
+        </div>
         <div style="height: 30px;"></div>
       </body>
     </html>

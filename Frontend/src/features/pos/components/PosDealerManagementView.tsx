@@ -22,39 +22,8 @@ export const PosDealerManagementView: React.FC<PosDealerManagementViewProps> = (
 
   return (
     <View style={styles.container}>
-      {/* ── TOP CONTROL & SUB-TAB HEADER ── */}
+      {/* ── SUB-TABS: PAY FLOW VS LEDGER VS FLEET ── */}
       <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.titleWithIcon}>
-            <View style={styles.headerIconBox}>
-              <Ionicons name="business" size={20} color="#ED0712" />
-            </View>
-            <View>
-              <View style={styles.titleRow}>
-                <Text style={styles.pageTitle}>Dealer Management</Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>COMMERCIAL CREDIT</Text>
-                </View>
-              </View>
-              <Text style={styles.pageSubtitle}>
-                Manage commercial dealer credit accounts, track unpaid balances, and process payment settlements.
-              </Text>
-            </View>
-          </View>
-
-          {onBackToOrders && (
-            <TouchableOpacity
-              style={styles.backOrdersBtn}
-              onPress={onBackToOrders}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="arrow-back" size={14} color="#FFFFFF" />
-              <Text style={styles.backOrdersBtnText}>Back to Orders</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* ── SUB-TABS: PAY FLOW VS LEDGER VS FLEET ── */}
         <View style={styles.tabsRow}>
           <TouchableOpacity
             style={[styles.tabBtn, activeSubTab === 'SETTLEMENT' && styles.tabBtnActive]}
@@ -123,90 +92,20 @@ const styles = StyleSheet.create({
   },
   headerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 16,
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     ...(Platform.OS === 'web'
-      ? ({ boxShadow: '0 4px 16px rgba(15, 23, 42, 0.04)' } as any)
+      ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' } as any)
       : { elevation: 2 }),
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  titleWithIcon: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  pageTitle: {
-    fontSize: 19,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
-  badge: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  badgeText: {
-    fontSize: 9.5,
-    fontWeight: '900',
-    color: '#1D4ED8',
-    letterSpacing: 0.5,
-  },
-  pageSubtitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  backOrdersBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#ED0712',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  backOrdersBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
   tabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
-    paddingTop: 2,
   },
   tabBtn: {
     flexDirection: 'row',

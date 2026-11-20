@@ -1,6 +1,12 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  CompanySettings,
+  getCachedCompanySettings,
+  fetchCompanySettings,
+  subscribeCompanySettings,
+} from '../../../services/companySettingsApi';
 
 export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'DEALERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
 
@@ -161,6 +167,81 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
   onSwitchToKiosk,
   onClose,
 }) => {
+  const [companySettings, setCompanySettings] = React.useState<CompanySettings | null>(() => getCachedCompanySettings());
+
+  React.useEffect(() => {
+    // 1. Subscribe to live changes when updated from POS Settings or Backoffice
+    const unsubscribe = subscribeCompanySettings((settings) => {
+      if (settings) {
+        setCompanySettings(settings);
+      }
+    });
+
+    // 2. Refresh from API to guarantee latest database settings
+    fetchCompanySettings()
+      .then((data) => {
+        if (data) setCompanySettings(data);
+      })
+      .catch(() => {});
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const renderStationAddress = () => {
+    const rawAddress = companySettings?.Address?.trim();
+    if (!rawAddress) {
+      return (
+        <>
+          <Text style={styles.locationText} numberOfLines={2}>48 Toh Guan Rd East</Text>
+          <Text style={styles.subText} numberOfLines={1}>Singapore 608586</Text>
+        </>
+      );
+    }
+
+    // 1. Explicit line breaks (newlines)
+    if (rawAddress.includes('\n')) {
+      const lines = rawAddress.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      return (
+        <>
+          <Text style={styles.locationText} numberOfLines={2}>
+            {lines[0]}
+          </Text>
+          {lines.slice(1).map((line, idx) => (
+            <Text key={idx} style={styles.subText} numberOfLines={1}>
+              {line}
+            </Text>
+          ))}
+        </>
+      );
+    }
+
+    // 2. Comma-separated address (e.g. "Blk 48 Toh Guan Rd E , #01-121 Enterprise Hub, Singapore 608586")
+    const parts = rawAddress.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1];
+      const mainPart = parts.slice(0, parts.length - 1).join(', ');
+      return (
+        <>
+          <Text style={styles.locationText} numberOfLines={2}>
+            {mainPart}
+          </Text>
+          <Text style={styles.subText} numberOfLines={1}>
+            {lastPart}
+          </Text>
+        </>
+      );
+    }
+
+    // 3. Fallback single-line address
+    return (
+      <Text style={styles.locationText} numberOfLines={3}>
+        {rawAddress}
+      </Text>
+    );
+  };
+
   const navItems: { id: PosNavTab; label: string }[] = [
     { id: 'ORDERS', label: 'Orders' },
     { id: 'BAYS', label: 'Bays' },
@@ -308,10 +389,11 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
           <View style={styles.stationInfoLeft}>
             <View style={styles.stationBadge}>
               <View style={styles.greenDot} />
-              <Text style={styles.stationText}>Station #01</Text>
+              <Text style={styles.stationText} numberOfLines={1} ellipsizeMode="tail">
+                {companySettings?.CompanyName || 'Station #01'}
+              </Text>
             </View>
-            <Text style={styles.locationText}>48 Toh Guan Rd East</Text>
-            <Text style={styles.subText}>Singapore 608586</Text>
+            {renderStationAddress()}
           </View>
 
           <View style={styles.stationCarBox}>
@@ -550,6 +632,7 @@ const styles = StyleSheet.create({
   },
   stationInfoLeft: {
     flex: 1,
+    marginRight: 6,
   },
   stationBadge: {
     flexDirection: 'row',
@@ -572,12 +655,14 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontSize: 9,
     fontWeight: '500',
+    lineHeight: 12,
   },
   subText: {
     color: '#6B7280',
     fontSize: 8.5,
     marginTop: 1,
     fontWeight: '500',
+    lineHeight: 11,
   },
   stationCarBox: {
     alignItems: 'center',

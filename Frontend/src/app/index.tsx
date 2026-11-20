@@ -22,8 +22,6 @@ import { initTimeSync } from '../services/timeService';
 
 export type AppMode = 'LOGIN' | 'POS' | 'KIOSK';
 
-const Router = Platform.OS === 'web' ? BrowserRouter : MemoryRouter;
-
 export const KIOSK_ROUTES = [
   '/customer-login',
   '/kiosk',
@@ -77,15 +75,22 @@ function AppContent() {
       if (typeof window !== 'undefined' && window.location?.search?.includes('mode=login')) {
         navigate('/login', { replace: true });
       } else if (typeof window !== 'undefined' && window.location?.search?.includes('mode=pos')) {
-        navigate('/dashboard', { replace: true });
+        navigate(isAuthenticated ? '/dashboard' : '/login', { replace: true });
       } else if (isAuthenticated) {
         const dest = getRouteForUserGroup(user);
         navigate(dest, { replace: true });
       } else {
-        navigate('/customer-login', { replace: true });
+        navigate('/login', { replace: true });
       }
     }
   }, [location.pathname, isAuthenticated, navigate, user]);
+
+  // Prevent unauthorized access to internal protected pages
+  useEffect(() => {
+    if (!isAuthenticated && location.pathname !== '/login') {
+      navigate('/login', { replace: true });
+    }
+  }, [isAuthenticated, location.pathname, navigate]);
 
   // KIOSK role guard: strictly restrict to Kiosk UI; do not allow POS or Backoffice
   useEffect(() => {
@@ -198,10 +203,9 @@ function AppContent() {
         return true;
       }
 
-      // Login navigation backwards
+      // Login navigation backwards: allow standard Android behavior (exit/minimize app)
       if (path === '/login') {
-        navigate('/customer-login');
-        return true;
+        return false;
       }
 
       // Root pages (/dashboard, /customer-login): allow standard Android behavior
@@ -253,8 +257,8 @@ function AppContent() {
   const kioskInitial = getKioskInitial();
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080808" />
+    <View style={[styles.container, isKioskRoute && styles.kioskContainer]}>
+      <StatusBar barStyle={isKioskRoute ? 'dark-content' : 'light-content'} backgroundColor={isKioskRoute ? '#F8FAFC' : '#080808'} />
 
       {isLoginRoute ? (
         <LoginScreen
@@ -265,9 +269,11 @@ function AppContent() {
           onQuickSwitchToKiosk={() => navigate('/customer-login')}
           onBackofficeAccess={() => navigate('/backoffice')}
         />
+      ) : !isAuthenticated ? (
+        <Navigate to="/login" replace />
       ) : isBackofficeRoute ? (
         <BackofficeScreen
-          onLogout={() => navigate('/login')}
+          onLogout={handleLogout}
         />
       ) : isPosRoute ? (
         <PosDashboardScreen
@@ -300,7 +306,7 @@ function AppContent() {
           <Route path="/day-management" element={<Navigate to="/dashboard" replace />} />
           <Route path="/day-start" element={<Navigate to="/dashboard" replace />} />
           <Route path="/day-end" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/customer-login'} replace />} />
+          <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
         </Routes>
       )}
     </View>
@@ -308,10 +314,14 @@ function AppContent() {
 }
 
 export default function App() {
-  return (
-    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+  return Platform.OS === 'web' ? (
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppContent />
-    </Router>
+    </BrowserRouter>
+  ) : (
+    <MemoryRouter initialEntries={['/login']}>
+      <AppContent />
+    </MemoryRouter>
   );
 }
 
@@ -320,14 +330,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#080808',
     position: 'relative',
+    width: '100%',
+    height: '100%',
+    margin: 0,
+    padding: 0,
     ...(Platform.OS === 'web'
       ? {
-          height: '100%' as any,
-          maxHeight: '100%' as any,
-          width: '100%' as any,
-          maxWidth: '100%' as any,
+          height: '100vh' as any,
+          maxHeight: '100vh' as any,
+          width: '100vw' as any,
+          maxWidth: '100vw' as any,
+          boxSizing: 'border-box' as any,
           overflow: 'hidden' as any,
         }
       : {}),
+  },
+  kioskContainer: {
+    backgroundColor: '#F8FAFC',
+    margin: 0,
+    padding: 0,
+    width: '100%',
+    height: '100%',
   },
 });

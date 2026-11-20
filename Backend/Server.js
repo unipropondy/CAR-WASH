@@ -30,6 +30,8 @@ const userRoutes = require('./routes/userRoutes');
 const dayManagementRoutes = require('./routes/dayManagementRoutes');
 const dealerRoutes = require('./routes/dealerRoutes');
 const accountTypeRoutes = require('./routes/accountTypeRoutes');
+const paymodeRoutes = require('./routes/paymodeRoutes');
+const yeahpayRoutes = require('./routes/yeahpay');
 const { getPool } = require('./config/db');
 
 const app = express();
@@ -74,6 +76,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/dealers', dealerRoutes);
 app.use('/api/account-types', accountTypeRoutes);
 app.use('/api/kiosk-user-types', accountTypeRoutes);
+app.use('/api/paymodes', paymodeRoutes);
+app.use('/api/yeahpay', yeahpayRoutes);
 app.use('/api/day-management', dayManagementRoutes);
 app.use('/api/carwash', carwashRoutes);
 app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login

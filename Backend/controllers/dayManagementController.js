@@ -1,4 +1,5 @@
 const { getPool, sql } = require('../config/db');
+const { sendDayEndReportEmail } = require('../services/emailService');
 
 /**
  * RedBay Car Wash POS - Day Management Controller
@@ -125,7 +126,7 @@ async function calculateDayMetrics(pool, dayId) {
       ISNULL(SUM(CASE WHEN StatusCode = 60 THEN 1 ELSE 0 END), 0) AS CompletedWashOrderCount,
       ISNULL(SUM(CASE WHEN StatusCode = 70 THEN 1 ELSE 0 END), 0) AS ClosedWashOrderCount,
       ISNULL(SUM(CASE WHEN StatusCode = 80 THEN 1 ELSE 0 END), 0) AS CancelledWashOrderCount
-    FROM dbo.CarWashOrder
+    FROM dbo.CarWashOrder WITH (NOLOCK)
     WHERE ${orderCondition};
   `);
   const ord = ordersRes.recordset[0] || {};
@@ -140,7 +141,7 @@ async function calculateDayMetrics(pool, dayId) {
       RTRIM(ISNULL(PayMode, 'UNSPECIFIED')) AS PayMode,
       COUNT(*) AS TransactionCount,
       ISNULL(SUM(TotalAmount), 0) AS TotalAmount
-    FROM dbo.CarWashOrder
+    FROM dbo.CarWashOrder WITH (NOLOCK)
     WHERE ${orderCondition} AND PaymentStatus = 'PAID'
     GROUP BY RTRIM(ISNULL(PayMode, 'UNSPECIFIED'));
   `);
@@ -180,8 +181,8 @@ async function calculateDayMetrics(pool, dayId) {
       COUNT(o.OrderId) AS OrderCount,
       ISNULL(SUM(o.TotalAmount), 0) AS TotalAmount,
       ISNULL(SUM(o.PackagePrice), 0) AS PackagePrice
-    FROM dbo.CarWashOrder o
-    LEFT JOIN dbo.ServicePackageMaster sp ON o.PackageId = sp.PackageId
+    FROM dbo.CarWashOrder o WITH (NOLOCK)
+    LEFT JOIN dbo.ServicePackageMaster sp WITH (NOLOCK) ON o.PackageId = sp.PackageId
     WHERE ${orderConditionPrefixed} AND o.PaymentStatus = 'PAID'
     GROUP BY ISNULL(sp.PackageName, 'Custom Wash')
     ORDER BY TotalAmount DESC;
@@ -745,7 +746,7 @@ async function closeDay(req, res) {
       SELECT
         ISNULL(SUM(CASE WHEN PaymentStatus = 'PENDING' AND StatusCode != 80 THEN 1 ELSE 0 END), 0) AS PendingPaymentCount,
         ISNULL(SUM(CASE WHEN StatusCode IN (10, 20, 30, 40, 50) THEN 1 ELSE 0 END), 0) AS IncompleteOrderCount
-      FROM dbo.CarWashOrder
+      FROM dbo.CarWashOrder WITH (NOLOCK)
       WHERE DayId = @dayId;
     `);
 
@@ -895,41 +896,50 @@ async function closeDay(req, res) {
 
     await transaction.commit();
 
+    const report = {
+      dayId,
+      businessDate: activeDay.BusinessDate,
+      dayStatus: 'CLOSED',
+      startedBy: activeDay.StartedBy,
+      startedDate: activeDay.StartedDate,
+      endedBy,
+      endedDate: new Date().toISOString(),
+      openingCash: Number(activeDay.OpeningCash),
+      actualClosingCash,
+      expectedCash,
+      cashDifference,
+      varianceStatus:
+        cashDifference === 0 ? 'BALANCED' : cashDifference > 0 ? 'SURPLUS' : 'SHORTAGE',
+      totalOrders: metrics.totalOrders,
+      totalSales: metrics.totalSales,
+      totalCustomerSales: metrics.totalCustomerSales,
+      totalDealerSales: metrics.totalDealerSales,
+      packageSales: metrics.packageSales,
+      addonSales: metrics.addonSales,
+      aLaCarteSales: metrics.aLaCarteSales,
+      cashSales: metrics.cashSales,
+      cardSales: metrics.cardSales,
+      onlineSales: metrics.onlineSales,
+      otherSales: metrics.otherSales,
+      totalCashIn: metrics.totalCashIn,
+      totalCashOut: metrics.totalCashOut,
+      totalRefunds: metrics.totalRefunds,
+      closingRemarks: closingRemarks || '',
+      tenders: metrics.tenders,
+      packageBreakdown: metrics.packageBreakdown,
+    };
+
+    // Send Day End Report Email (asynchronously so closing response is not delayed)
+    sendDayEndReportEmail(report).then((res) => {
+      console.log(`[DayManagement closeDay] Day #${dayId} End email dispatch result:`, res);
+    }).catch((emailErr) => {
+      console.error(`[DayManagement closeDay] Day #${dayId} End email dispatch error:`, emailErr);
+    });
+
     return res.status(200).json({
       success: true,
       message: `Business Day #${dayId} closed successfully.`,
-      report: {
-        dayId,
-        businessDate: activeDay.BusinessDate,
-        dayStatus: 'CLOSED',
-        startedBy: activeDay.StartedBy,
-        startedDate: activeDay.StartedDate,
-        endedBy,
-        endedDate: new Date().toISOString(),
-        openingCash: Number(activeDay.OpeningCash),
-        actualClosingCash,
-        expectedCash,
-        cashDifference,
-        varianceStatus:
-          cashDifference === 0 ? 'BALANCED' : cashDifference > 0 ? 'SURPLUS' : 'SHORTAGE',
-        totalOrders: metrics.totalOrders,
-        totalSales: metrics.totalSales,
-        totalCustomerSales: metrics.totalCustomerSales,
-        totalDealerSales: metrics.totalDealerSales,
-        packageSales: metrics.packageSales,
-        addonSales: metrics.addonSales,
-        aLaCarteSales: metrics.aLaCarteSales,
-        cashSales: metrics.cashSales,
-        cardSales: metrics.cardSales,
-        onlineSales: metrics.onlineSales,
-        otherSales: metrics.otherSales,
-        totalCashIn: metrics.totalCashIn,
-        totalCashOut: metrics.totalCashOut,
-        totalRefunds: metrics.totalRefunds,
-        closingRemarks: closingRemarks || '',
-        tenders: metrics.tenders,
-        packageBreakdown: metrics.packageBreakdown,
-      },
+      report,
     });
   } catch (err) {
     if (transaction) {
@@ -1234,6 +1244,96 @@ async function getDayAudit(req, res) {
   }
 }
 
+/**
+ * 10. POST /api/day-management/send-report-email
+ * Manually send or re-send Day End report email for a specific DayId (or latest closed day)
+ */
+async function sendReportEmail(req, res) {
+  try {
+    const { dayId, email } = req.body || {};
+    const pool = await getPool();
+
+    let targetDayId = dayId;
+    if (!targetDayId) {
+      // Find latest closed day or active day
+      const latestRes = await pool.request().query(`
+        SELECT TOP 1 DayId FROM dbo.CarWashDayMaster ORDER BY DayId DESC;
+      `);
+      if (latestRes.recordset.length > 0) {
+        targetDayId = latestRes.recordset[0].DayId;
+      }
+    }
+
+    if (!targetDayId) {
+      return res.status(404).json({
+        success: false,
+        message: 'No business day records found to send report.',
+      });
+    }
+
+    const metrics = await calculateDayMetrics(pool, targetDayId);
+    if (!metrics) {
+      return res.status(404).json({
+        success: false,
+        message: `Day #${targetDayId} not found.`,
+      });
+    }
+
+    const report = {
+      dayId: metrics.dayId,
+      businessDate: metrics.businessDate,
+      dayStatus: metrics.dayStatus,
+      startedBy: metrics.startedBy,
+      startedDate: metrics.startedDate,
+      endedBy: metrics.endedBy || 'Staff Cashier',
+      endedDate: metrics.endedDate || new Date(),
+      openingCash: metrics.openingCash,
+      actualClosingCash: metrics.closingCash != null ? metrics.closingCash : metrics.expectedCash,
+      expectedCash: metrics.expectedCash,
+      cashDifference: metrics.cashDifference != null ? metrics.cashDifference : 0,
+      totalOrders: metrics.totalOrders,
+      totalSales: metrics.totalSales,
+      totalCustomerSales: metrics.totalCustomerSales,
+      totalDealerSales: metrics.totalDealerSales,
+      packageSales: metrics.packageSales,
+      addonSales: metrics.addonSales,
+      aLaCarteSales: metrics.aLaCarteSales,
+      cashSales: metrics.cashSales,
+      cardSales: metrics.cardSales,
+      onlineSales: metrics.onlineSales,
+      otherSales: metrics.otherSales,
+      totalCashIn: metrics.totalCashIn,
+      totalCashOut: metrics.totalCashOut,
+      totalRefunds: metrics.totalRefunds,
+      closingRemarks: metrics.closingRemarks || '',
+      tenders: metrics.tenders,
+      packageBreakdown: metrics.packageBreakdown,
+    };
+
+    const result = await sendDayEndReportEmail(report, email || null);
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message || result.error || 'Failed to send report email',
+        result,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Report email sent successfully to ${result.recipient}`,
+      result,
+    });
+  } catch (err) {
+    console.error('[DayManagement sendReportEmail Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to send report email',
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getStatus,
   startDay,
@@ -1244,6 +1344,7 @@ module.exports = {
   getHistory,
   getDayDetails,
   getDayAudit,
+  sendReportEmail,
   getActiveDay,
   recordAuditLog,
 };

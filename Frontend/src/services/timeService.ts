@@ -63,6 +63,18 @@ export function getDbTimestampMs(): number {
 }
 
 /**
+ * Replaces Unicode whitespace (narrow no-break space \u202F, non-breaking space \u00A0, etc.)
+ * with standard ASCII space (0x20) so POS thermal printers, ESC/POS, and Sunmi print clean text.
+ */
+function normalizeAsciiWhitespace(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[\u202F\u00A0\u2000-\u200B\u2028\u2029\u205F\u3000\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Format time in Singapore Timezone (SGT, UTC+8).
  * Example: '01:15:30 PM' or '01:15 PM'
  */
@@ -76,14 +88,15 @@ export function formatSgTime(
       timeZone: SGT_TIMEZONE,
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
       hour12: true,
       ...options,
     };
-    return d.toLocaleTimeString('en-SG', defaultOptions);
+    return normalizeAsciiWhitespace(d.toLocaleTimeString('en-US', defaultOptions));
   } catch (err) {
     const d = getDbTime();
-    return d.toLocaleTimeString('en-SG', { timeZone: SGT_TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: true });
+    return normalizeAsciiWhitespace(
+      d.toLocaleTimeString('en-US', { timeZone: SGT_TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: true })
+    );
   }
 }
 
@@ -104,10 +117,10 @@ export function formatSgDate(
       year: 'numeric',
       ...options,
     };
-    return d.toLocaleDateString('en-GB', defaultOptions);
+    return normalizeAsciiWhitespace(d.toLocaleDateString('en-GB', defaultOptions));
   } catch (err) {
     const d = getDbTime();
-    return d.toLocaleDateString('en-GB', { timeZone: SGT_TIMEZONE });
+    return normalizeAsciiWhitespace(d.toLocaleDateString('en-GB', { timeZone: SGT_TIMEZONE }));
   }
 }
 
@@ -132,10 +145,10 @@ export function formatSgDateTime(
       hour12: true,
       ...options,
     };
-    return d.toLocaleString('en-SG', defaultOptions);
+    return normalizeAsciiWhitespace(d.toLocaleString('en-SG', defaultOptions));
   } catch (err) {
     const d = getDbTime();
-    return d.toLocaleString('en-SG', { timeZone: SGT_TIMEZONE });
+    return normalizeAsciiWhitespace(d.toLocaleString('en-SG', { timeZone: SGT_TIMEZONE }));
   }
 }
 

@@ -36,6 +36,7 @@ import {
   BackendHealthResult,
 } from '../../../services/apiConfig';
 import { PrinterSettingsScreen } from './PrinterSettingsScreen';
+import { sendReportEmailApi } from '../../../services/dayManagementApi';
 
 interface PosSettingsViewProps {
   cashierName?: string;
@@ -53,12 +54,15 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
   // General / Company Settings State (from dbo.CompanySettings)
   const [stationName, setStationName] = useState('Station #01 - Toh Guan Main');
   const [stationAddress, setStationAddress] = useState('48 Toh Guan Rd East, Singapore 608586');
-  const [gstRate, setGstRate] = useState('9.0');
+  const [gstRate, setGstRate] = useState('0');
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [currencyCode, setCurrencyCode] = useState('SGD');
   const [gstNo, setGstNo] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [reportEmail, setReportEmail] = useState('');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailStatus, setTestEmailStatus] = useState<{ success?: boolean; message?: string } | null>(null);
   const [loadingCompanySettings, setLoadingCompanySettings] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(true);
@@ -162,6 +166,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
         if (data.GSTNo) setGstNo(data.GSTNo);
         if (data.Phone) setPhone(data.Phone);
         if (data.Email) setEmail(data.Email);
+        if (data.ReportEmail) setReportEmail(data.ReportEmail);
       }
     } catch (err: any) {
       console.warn('Failed to load company settings from CompanySettings table:', err);
@@ -338,6 +343,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
         GSTNo: gstNo.trim(),
         Phone: phone.trim(),
         Email: email.trim(),
+        ReportEmail: reportEmail.trim(),
       });
 
       setSavedSuccess(true);
@@ -357,6 +363,52 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
       }
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleSendTestReport = async () => {
+    const target = reportEmail.trim() || email.trim();
+    if (!target) {
+      if (Platform.OS === 'web') {
+        alert('Please enter a Report Email address first.');
+      } else {
+        Alert.alert('Missing Email', 'Please enter a Report Email address first.');
+      }
+      return;
+    }
+
+    try {
+      setIsSendingTestEmail(true);
+      setTestEmailStatus(null);
+      // Ensure settings are saved with the current report email first
+      await updateCompanySettings({
+        CompanyName: stationName.trim(),
+        Address: stationAddress.trim(),
+        GSTPercentage: parseFloat(gstRate) || 0,
+        CurrencySymbol: currencySymbol.trim(),
+        Currency: currencyCode.trim(),
+        GSTNo: gstNo.trim(),
+        Phone: phone.trim(),
+        Email: email.trim(),
+        ReportEmail: reportEmail.trim(),
+      });
+
+      const res = await sendReportEmailApi({ email: target });
+      setTestEmailStatus({ success: true, message: `Report email sent to ${target}` });
+      if (Platform.OS === 'web') {
+        alert(`Test report email sent successfully to: ${target}`);
+      } else {
+        Alert.alert('Email Sent', `Test report email sent successfully to:\n${target}`);
+      }
+    } catch (err: any) {
+      setTestEmailStatus({ success: false, message: err.message || 'Failed to send email' });
+      if (Platform.OS === 'web') {
+        alert(`Failed to send test email: ${err.message}`);
+      } else {
+        Alert.alert('Email Error', err.message || 'Failed to send test email');
+      }
+    } finally {
+      setIsSendingTestEmail(false);
     }
   };
 
@@ -614,6 +666,60 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
                       keyboardType="email-address"
                     />
                   </View>
+                </View>
+
+                <View style={[styles.formGroup, { marginTop: 4 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={styles.fieldLabel}>Report Email (Daily Closing Reports)</Text>
+                    <TouchableOpacity
+                      onPress={handleSendTestReport}
+                      disabled={isSendingTestEmail}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#FEF2F2',
+                        borderWidth: 1,
+                        borderColor: '#FECACA',
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      {isSendingTestEmail ? (
+                        <ActivityIndicator size="small" color="#DC2626" style={{ marginRight: 6 }} />
+                      ) : (
+                        <Ionicons name="mail-outline" size={14} color="#DC2626" style={{ marginRight: 4 }} />
+                      )}
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#DC2626' }}>
+                        {isSendingTestEmail ? 'Sending...' : 'Send Test Report'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={styles.textInput}
+                    value={reportEmail}
+                    onChangeText={setReportEmail}
+                    placeholder="e.g. reports@uniprosg.com"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  <Text style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
+                    When the day ends, automated sales summaries and cash reconciliation reports will be emailed to this address.
+                  </Text>
+                  {testEmailStatus && (
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '500',
+                        marginTop: 4,
+                        color: testEmailStatus.success ? '#16A34A' : '#DC2626',
+                      }}
+                    >
+                      {testEmailStatus.message}
+                    </Text>
+                  )}
                 </View>
               </>
             )}

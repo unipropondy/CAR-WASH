@@ -21,10 +21,11 @@ import { PosReportsView } from '../components/PosReportsView';
 import { PosCustomerHistoryView } from '../components/PosCustomerHistoryView';
 import { PosDealerManagementView } from '../components/PosDealerManagementView';
 import { BusinessDayHistoryView } from '../components/BusinessDayHistoryView';
+import { PaymentModal } from '../components/PaymentModal';
 import { SimpleDayModal } from '../../dayManagement/components/SimpleDayModal';
 import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 import { INITIAL_BAYS } from '../../../data/mockData';
-import { PosOrder, WashingBay, PaymentStatus } from '../../../types/pos.types';
+import { PosOrder, WashingBay, PaymentStatus, PaymentMethodType } from '../../../types/pos.types';
 import { 
   fetchCarWashOrders, 
   updateOrderPayment, 
@@ -79,8 +80,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   onTabChange,
 }) => {
   const { width, height } = useWindowDimensions();
-  const isMobile = width < 680;
-  const isTablet = width >= 680 && width < 1024;
+  const isMobile = width < 768;
+  const isTablet = width >= 768 && width < 1024;
 
   const [activeTab, setActiveTab] = useState<PosNavTab>(currentTab);
 
@@ -124,6 +125,15 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [selectedOrderForView, setSelectedOrderForView] = useState<PosOrder | null>(null);
 
+  // Payment Modal State (YeahPay & Cash)
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<PosOrder | null>(null);
+
+  // Custom Cancel Order Confirmation Modal State
+  const [cancelConfirmModalVisible, setCancelConfirmModalVisible] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<PosOrder | null>(null);
+  const [isCancellingOrder, setIsCancellingOrder] = useState<boolean>(false);
+
   // Notifications Modal State
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [activeHelpAlerts, setActiveHelpAlerts] = useState<HelpRequestItem[]>([]);
@@ -133,6 +143,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [latestOrderAlert, setLatestOrderAlert] = useState<KioskOrderNotification | null>(null);
   const knownOrderKeysRef = useRef<Set<string>>(new Set());
   const isFirstLoadRef = useRef<boolean>(true);
+  const isFetchingOrdersRef = useRef<boolean>(false);
+  const vehicleTypesRef = useRef<VehicleOption[]>([]);
 
   // History Modal State
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
@@ -153,8 +165,11 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
     // Determine Pos status
     let status: any = 'IN_QUEUE';
-    const isPaid = isDealer || api.paymentStatus === 'PAID' || (api.statusCode != null && api.statusCode >= 30);
-    if (!isPaid && (api.statusCode === 10 || api.statusCode === 20 || api.paymentStatus === 'PENDING')) {
+    const isCancelled = api.statusCode === 80 || api.paymentStatus === 'CANCELLED';
+    const isPaid = !isCancelled && (isDealer || api.paymentStatus === 'PAID' || (api.statusCode != null && api.statusCode >= 30 && api.statusCode !== 80));
+    if (isCancelled) {
+      status = 'CANCELLED';
+    } else if (!isPaid && (api.statusCode === 10 || api.statusCode === 20 || api.paymentStatus === 'PENDING')) {
       status = 'IN_QUEUE'; // Pending payment
     } else if (api.statusCode === 30 || (isPaid && !api.bayId && (api.statusCode == null || api.statusCode < 50))) {
       status = 'WAITING_ASSIGN'; // Paid / Dealer Account Credit, awaiting bay
@@ -199,9 +214,9 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       gstAmount: api.gstAmount,
       totalAmount: api.totalAmount,
       payMode: isDealer ? 'CREDIT' : (api.payMode ? api.payMode.trim() : 'CASH'),
-      paymentStatus: (isDealer ? 'PAID' : api.paymentStatus) as PaymentStatus,
-      statusCode: isDealer && (api.statusCode == null || api.statusCode < 30) ? 30 : api.statusCode,
-      statusName: isDealer && (api.statusCode == null || api.statusCode < 30) ? 'PAID (CREDIT)' : api.statusName,
+      paymentStatus: (isCancelled ? 'CANCELLED' : (isDealer ? 'PAID' : api.paymentStatus)) as PaymentStatus,
+      statusCode: isCancelled ? 80 : (isDealer && (api.statusCode == null || api.statusCode < 30) ? 30 : api.statusCode),
+      statusName: isCancelled ? 'CANCELLED' : (isDealer && (api.statusCode == null || api.statusCode < 30) ? 'PAID (CREDIT)' : api.statusName),
       status,
       assignedBayId: api.bayId ? String(api.bayId) : undefined,
       assignedBayName: api.bayId ? `Bay ${api.bayId}` : undefined,
@@ -345,6 +360,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
   // Load orders and bays dynamically from dbo.BayMaster and dbo.CarWashOrder
   const loadOrders = async (silent: boolean = false, targetDayId?: number) => {
+    if (isFetchingOrdersRef.current) return;
+    isFetchingOrdersRef.current = true;
     try {
       if (!silent) setIsRefreshing(true);
       const effectiveDayId =
@@ -352,22 +369,38 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           ? targetDayId
           : (selectedHistoryDay?.dayId || (isDayOpen && activeDayId ? activeDayId : undefined));
 
+      const ordersPromise = effectiveDayId
+        ? fetchCarWashOrders('ALL', '', '', effectiveDayId)
+        : fetchCarWashOrders('ALL', '', 'today');
+
+      const baysPromise = fetchBayMasterList().catch((err) => {
+        console.warn('Failed to fetch BayMaster list:', err);
+        return [] as BayMasterRecord[];
+      });
+
+      // Fetch vehicle types only once on startup or when cache is empty
+      const vTypesPromise =
+        vehicleTypesRef.current && vehicleTypesRef.current.length > 0
+          ? Promise.resolve(vehicleTypesRef.current)
+          : fetchVehicleTypes().catch((err) => {
+              console.warn('Failed to fetch vehicle types:', err);
+              return [] as VehicleOption[];
+            });
+
       const [apiOrders, bayMasterList, vTypes] = await Promise.all([
-        effectiveDayId
-          ? fetchCarWashOrders('ALL', '', '', effectiveDayId)
-          : fetchCarWashOrders('ALL', '', 'today'),
-        fetchBayMasterList().catch((err) => {
-          console.warn('Failed to fetch BayMaster list:', err);
-          return [] as BayMasterRecord[];
-        }),
-        fetchVehicleTypes().catch((err) => {
-          console.warn('Failed to fetch vehicle types:', err);
-          return [] as VehicleOption[];
-        }),
+        ordersPromise,
+        baysPromise,
+        vTypesPromise,
       ]);
 
-      const effectiveVehicleTypes = vTypes && vTypes.length > 0 ? vTypes : vehicleTypes;
-      if (vTypes && vTypes.length > 0) {
+      const effectiveVehicleTypes =
+        vTypes && vTypes.length > 0
+          ? vTypes
+          : vehicleTypesRef.current.length > 0
+          ? vehicleTypesRef.current
+          : vehicleTypes;
+      if (vTypes && vTypes.length > 0 && vehicleTypesRef.current.length === 0) {
+        vehicleTypesRef.current = vTypes;
         setVehicleTypes(vTypes);
       }
 
@@ -421,6 +454,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         console.warn('Failed to fetch orders:', err?.message);
       }
     } finally {
+      isFetchingOrdersRef.current = false;
       setLoadingOrders(false);
       setIsRefreshing(false);
     }
@@ -506,7 +540,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           });
         })
         .catch(() => {});
-    }, 1500);
+    }, 4000);
 
     return () => {
       unsubscribeHelp();
@@ -534,41 +568,20 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
     return () => clearTimeout(hideTimer);
   }, [latestOrderAlert]);
 
-  // 1. Confirm Cash Payment Action
-  const handlePayOrder = async (order: PosOrder) => {
-    const orderId = order.orderId || parseInt(order.id, 10);
-    if (!orderId) return;
+  // 1. Open Payment Modal Action (YeahPay QR, YeahPay Card & Cash)
+  const handleOpenPaymentModal = (order: PosOrder) => {
+    setSelectedOrderForPayment(order);
+    setPaymentModalVisible(true);
+  };
 
-    // Optimistic UI update immediately
-    setOrders((prev) =>
-      prev.map((o) => {
-        const id = o.orderId || parseInt(o.id, 10);
-        if (id === orderId) {
-          return {
-            ...o,
-            paymentStatus: 'PAID',
-            statusCode: 30,
-            status: 'WAITING_ASSIGN',
-          };
-        }
-        return o;
-      })
-    );
+  const handlePayOrder = (order: PosOrder) => {
+    handleOpenPaymentModal(order);
+  };
 
-    try {
-      await updateOrderPayment(orderId, {
-        payMode: order.payMode || 'CASH',
-        confirmPaid: true,
-        changedBy: cashierName,
-        remarks: `Received $ ${order.totalAmount.toFixed(2)} at cashier counter`,
-      });
-
-      await loadOrders(false);
-    } catch (err: any) {
-      console.error('Payment Error:', err);
-      Alert.alert('Payment Error', err?.message || 'Failed to confirm payment.');
-      await loadOrders(false);
-    }
+  const handlePaymentCompleted = async (orderId: string, method: PaymentMethodType) => {
+    setPaymentModalVisible(false);
+    setSelectedOrderForPayment(null);
+    await loadOrders(false);
   };
 
   // 2. Open Assign Bay Modal (refreshes live bay statuses from DB first)
@@ -738,6 +751,62 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       console.error('Close Error:', err);
       Alert.alert('Close Error', err?.message || 'Failed to close order.');
       await loadOrders(false);
+    }
+  };
+
+  // 6b. Cancel Order Action (opens custom confirmation modal)
+  const handleCancelOrder = (order: PosOrder) => {
+    setOrderToCancel(order);
+    setCancelConfirmModalVisible(true);
+  };
+
+  // Execute Cancellation (called from custom modal confirmation)
+  const executeCancellation = async () => {
+    if (!orderToCancel) return;
+    const order = orderToCancel;
+    const orderId = order.orderId || parseInt(order.id, 10);
+    if (!orderId) return;
+    const bayNum = order.assignedBayId ? parseInt(String(order.assignedBayId), 10) : undefined;
+
+    setIsCancellingOrder(true);
+    // Optimistic UI update
+    setOrders((prev) =>
+      prev.map((o) => {
+        const id = o.orderId || parseInt(o.id, 10);
+        if (id === orderId) {
+          return {
+            ...o,
+            statusCode: 80,
+            status: 'CANCELLED',
+            paymentStatus: 'CANCELLED',
+            assignedBayId: undefined,
+            assignedBayName: undefined,
+          };
+        }
+        return o;
+      })
+    );
+
+    try {
+      await updateOrderStatus(orderId, {
+        statusCode: 80, // CANCELLED
+        changedBy: cashierName,
+        remarks: 'Order cancelled by cashier',
+      });
+      if (bayNum) {
+        await releaseBayMaster(bayNum).catch(() => {});
+      }
+      setCancelConfirmModalVisible(false);
+      setOrderToCancel(null);
+      setViewModalVisible(false);
+      setSelectedOrderForView(null);
+      await loadOrders(false);
+    } catch (err: any) {
+      console.error('Cancel Order Error:', err);
+      Alert.alert('Cancel Error', err?.message || 'Failed to cancel order.');
+      await loadOrders(false);
+    } finally {
+      setIsCancellingOrder(false);
     }
   };
 
@@ -1257,6 +1326,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               onStartOrder={handleStartOrder}
               onCompleteOrder={handleCompleteOrder}
               onCloseOrder={handleCloseOrder}
+              onCancelOrder={handleCancelOrder}
               onViewHistory={handleViewHistory}
               onRefresh={() => loadOrders(false)}
               isRefreshing={isRefreshing}
@@ -1467,34 +1537,53 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                     <Text style={[
                       styles.viewVal, 
                       { 
-                        color: isDealerForView ? '#1D4ED8' : (selectedOrderForView.paymentStatus === 'PAID' ? '#059669' : '#D97706'), 
+                        color: (selectedOrderForView.statusCode === 80 || selectedOrderForView.paymentStatus === 'CANCELLED')
+                          ? '#DC2626'
+                          : (isDealerForView ? '#1D4ED8' : (selectedOrderForView.paymentStatus === 'PAID' ? '#059669' : '#D97706')), 
                         fontWeight: '800' 
                       }
                     ]}>
-                      {isDealerForView ? 'CREDIT (AUTHORIZED)' : selectedOrderForView.paymentStatus} ($ {selectedOrderForView.totalAmount.toFixed(2)})
+                      {(selectedOrderForView.statusCode === 80 || selectedOrderForView.paymentStatus === 'CANCELLED')
+                        ? 'CANCELLED'
+                        : (isDealerForView ? 'CREDIT (AUTHORIZED)' : selectedOrderForView.paymentStatus)} ($ {selectedOrderForView.totalAmount.toFixed(2)})
                     </Text>
                   </View>
 
                   <View style={styles.viewActions}>
-                    {/* Manual Confirm Payment: ONLY displayed for unpaid CASH orders awaiting counter payment */}
+                    {/* Manual Confirm Payment & Cancel Order: displayed for unpaid orders awaiting payment */}
                     {!isDealerForView && selectedOrderForView.paymentStatus !== 'PAID' &&
-                      (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 20) &&
-                      (selectedOrderForView.payMode || '').trim().toUpperCase() === 'CASH' && (
-                      <TouchableOpacity
-                        style={[styles.completeWashBtn, { backgroundColor: '#0F172A' }]}
-                        onPress={async () => {
-                          const target = selectedOrderForView;
-                          setViewModalVisible(false);
-                          await handlePayOrder(target);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.completeWashText}>✓ Confirm Payment ($ {selectedOrderForView.totalAmount.toFixed(2)})</Text>
-                      </TouchableOpacity>
+                      selectedOrderForView.statusCode !== 80 &&
+                      selectedOrderForView.paymentStatus !== 'CANCELLED' &&
+                      (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 20) && (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.completeWashBtn, { backgroundColor: '#ED0712' }]}
+                          onPress={() => {
+                            const target = selectedOrderForView;
+                            setViewModalVisible(false);
+                            handleOpenPaymentModal(target);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="card-outline" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.completeWashText}>💳 Collect Payment / YeahPay ($ {selectedOrderForView.totalAmount.toFixed(2)})</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.cancelOrderBtn}
+                          onPress={() => handleCancelOrder(selectedOrderForView)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="close-circle-outline" size={17} color="#DC2626" style={{ marginRight: 6 }} />
+                          <Text style={styles.cancelOrderBtnText}>Cancel Order</Text>
+                        </TouchableOpacity>
+                      </>
                     )}
 
                     {/* If Dealer OR Paid & Waiting for bay assignment: Show Select Bay button */}
-                    {(isDealerForView || selectedOrderForView.paymentStatus === 'PAID' || (selectedOrderForView.statusCode != null && selectedOrderForView.statusCode >= 30)) &&
+                    {selectedOrderForView.statusCode !== 80 &&
+                      selectedOrderForView.paymentStatus !== 'CANCELLED' &&
+                      (isDealerForView || selectedOrderForView.paymentStatus === 'PAID' || (selectedOrderForView.statusCode != null && selectedOrderForView.statusCode >= 30)) &&
                       !selectedOrderForView.assignedBayId &&
                       (selectedOrderForView.statusCode == null || selectedOrderForView.statusCode <= 40) && (
                       <TouchableOpacity
@@ -1549,10 +1638,115 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                         </TouchableOpacity>
                       </View>
                     )}
+
+                    {/* If Order is Cancelled (StatusCode 80) */}
+                    {(selectedOrderForView.statusCode === 80 || selectedOrderForView.paymentStatus === 'CANCELLED') && (
+                      <View style={{ alignItems: 'center', width: '100%', marginTop: 8 }}>
+                        <View style={{ backgroundColor: '#FEF2F2', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: '#FEE2E2', marginBottom: 12 }}>
+                          <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 13 }}>✕ Order Cancelled</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.closeOrderBtn, { backgroundColor: '#64748B' }]}
+                          onPress={() => setViewModalVisible(false)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.closeOrderText}>Close Window</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 </View>
               );
             })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= MODAL: CUSTOM CANCEL ORDER CONFIRMATION ================= */}
+      <Modal
+        visible={cancelConfirmModalVisible && !!orderToCancel}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isCancellingOrder) {
+            setCancelConfirmModalVisible(false);
+            setOrderToCancel(null);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.cancelModalCard}>
+            {/* Red Warning Header Icon */}
+            <View style={styles.cancelWarningIconCircle}>
+              <Ionicons name="trash-outline" size={32} color="#DC2626" />
+            </View>
+
+            {/* Modal Title & Text */}
+            <Text style={styles.cancelModalTitle}>Cancel Order?</Text>
+            <Text style={styles.cancelModalSubtitle}>
+              Are you sure you want to cancel this order? It will be removed from the active queue and marked as Cancelled.
+            </Text>
+
+            {/* Order Preview Badge */}
+            {orderToCancel && (
+              <View style={styles.cancelOrderDetailsBox}>
+                <View style={styles.cancelDetailRow}>
+                  <Text style={styles.cancelDetailLabel}>ORDER NO</Text>
+                  <Text style={[styles.cancelDetailValue, { color: RED_BAY_COLORS.primary, fontWeight: '900' }]}>
+                    #{orderToCancel.orderNumber || orderToCancel.orderId}
+                  </Text>
+                </View>
+                <View style={styles.cancelDetailRow}>
+                  <Text style={styles.cancelDetailLabel}>CUSTOMER</Text>
+                  <Text style={styles.cancelDetailValue} numberOfLines={1}>
+                    {orderToCancel.customerName || 'Walk-in Customer'}
+                  </Text>
+                </View>
+                <View style={styles.cancelDetailRow}>
+                  <Text style={styles.cancelDetailLabel}>VEHICLE</Text>
+                  <Text style={styles.cancelDetailValue}>
+                    {orderToCancel.vehiclePlate || 'WALK-IN'}
+                  </Text>
+                </View>
+                <View style={[styles.cancelDetailRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
+                  <Text style={styles.cancelDetailLabel}>TOTAL AMOUNT</Text>
+                  <Text style={[styles.cancelDetailValue, { color: '#0F172A', fontWeight: '900', fontSize: 15 }]}>
+                    ${(orderToCancel.totalAmount || 0).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Action Buttons: Keep Order vs Yes, Cancel Order */}
+            <View style={styles.cancelModalButtonsRow}>
+              <TouchableOpacity
+                style={styles.cancelDismissButton}
+                onPress={() => {
+                  setCancelConfirmModalVisible(false);
+                  setOrderToCancel(null);
+                }}
+                disabled={isCancellingOrder}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelDismissButtonText}>No, Keep Order</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelConfirmDestructiveButton}
+                onPress={executeCancellation}
+                disabled={isCancellingOrder}
+                activeOpacity={0.85}
+              >
+                {isCancellingOrder ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="close-circle-outline" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.cancelConfirmDestructiveButtonText}>Yes, Cancel Order</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1780,6 +1974,19 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           handleSelectTab('HISTORY');
         }}
       />
+
+      {/* ================= MODAL: PAYMENT CHECKOUT (YEAHPAY & CASH) ================= */}
+      <PaymentModal
+        visible={paymentModalVisible}
+        order={selectedOrderForPayment}
+        onClose={() => {
+          setPaymentModalVisible(false);
+          setSelectedOrderForPayment(null);
+        }}
+        onConfirmPayment={handlePaymentCompleted}
+        currentLanguage="EN"
+        cashierName={cashierName}
+      />
     </View>
   );
 };
@@ -1901,6 +2108,7 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 48,
     alignItems: 'center',
+    width: '100%',
   },
   ordersContentWrapper: {
     width: '100%',
@@ -2260,6 +2468,22 @@ const styles = StyleSheet.create({
   },
   closeOrderText: {
     color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  cancelOrderBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    paddingVertical: 12,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  cancelOrderBtnText: {
+    color: '#DC2626',
     fontWeight: '800',
     fontSize: 13,
   },
@@ -2671,5 +2895,117 @@ const styles = StyleSheet.create({
           transformOrigin: 'left',
         } as any)
       : {}),
+  },
+
+  // Custom Cancel Order Confirmation Dialog Styles
+  cancelModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    width: '100%',
+    maxWidth: 420,
+    padding: 24,
+    alignItems: 'center',
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)' } as any)
+      : { elevation: 8 }),
+  },
+  cancelWarningIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  cancelModalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  cancelModalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+    paddingHorizontal: 8,
+  },
+  cancelOrderDetailsBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginTop: 18,
+    gap: 8,
+  },
+  cancelDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  cancelDetailLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+  },
+  cancelDetailValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+    maxWidth: 220,
+    textAlign: 'right',
+  },
+  cancelModalButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+    marginTop: 20,
+  },
+  cancelDismissButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  cancelDismissButtonText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  cancelConfirmDestructiveButton: {
+    flex: 1.25,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#DC2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          cursor: 'pointer',
+          boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
+        } as any)
+      : { elevation: 3 }),
+  },
+  cancelConfirmDestructiveButtonText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

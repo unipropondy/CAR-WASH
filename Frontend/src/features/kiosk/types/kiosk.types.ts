@@ -102,6 +102,8 @@ export interface KioskOrder {
   customerDetails: CustomerDetails;
   paymentMode: PaymentMode;
   paymentStatus: PaymentStatus;
+  packagePrice?: number;
+  gstPercent?: number;
   totalAmount: number;
   gstAmount: number;
   additionalServices?: string;

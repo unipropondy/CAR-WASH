@@ -842,7 +842,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     {/* Amount */}
                     <View style={{ width: 95 }}>
                       <Text style={styles.tableAmountText}>{formatCurrency(order.totalAmount)}</Text>
-                      <Text style={styles.tableGstSub}>incl. GST</Text>
+                      <Text style={styles.tableGstSub}>Total</Text>
                     </View>
 
                     {/* Payment Mode */}
@@ -1411,7 +1411,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                     </View>
                     {selectedOrder.gstAmount != null && (
                       <View style={styles.priceRow}>
-                        <Text style={styles.priceLabel}>GST ({selectedOrder.gstPercent || 9}%)</Text>
+                        <Text style={styles.priceLabel}>GST ({selectedOrder.gstPercent != null ? selectedOrder.gstPercent : 0}%)</Text>
                         <Text style={styles.priceVal}>{formatCurrency(selectedOrder.gstAmount)}</Text>
                       </View>
                     )}

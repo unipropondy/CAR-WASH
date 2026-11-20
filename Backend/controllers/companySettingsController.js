@@ -16,6 +16,7 @@ async function getCompanySettings(req, res) {
         ISNULL(GSTPercentage, 0) AS GSTPercentage,
         Phone,
         Email,
+        ReportEmail,
         CashierName,
         ISNULL(Currency, 'SGD') AS Currency,
         ISNULL(CurrencySymbol, '$') AS CurrencySymbol,
@@ -65,10 +66,14 @@ async function updateCompanySettings(req, res) {
       gstPercentage,
       phone,
       email,
+      reportEmail,
+      ReportEmail,
       currency,
       currencySymbol,
       taxMode,
     } = req.body;
+
+    const finalReportEmail = reportEmail !== undefined ? reportEmail : ReportEmail;
 
     const pool = await getPool();
 
@@ -83,14 +88,15 @@ async function updateCompanySettings(req, res) {
         .input('gstPercentage', sql.Decimal(10, 2), parseFloat(gstPercentage || 0))
         .input('phone', sql.NVarChar(50), phone || '')
         .input('email', sql.NVarChar(255), email || '')
+        .input('reportEmail', sql.NVarChar(255), finalReportEmail || '')
         .input('currency', sql.NVarChar(10), currency || 'SGD')
         .input('currencySymbol', sql.NVarChar(10), currencySymbol || '$')
         .input('taxMode', sql.NVarChar(20), taxMode || 'exclusive')
         .query(`
           INSERT INTO dbo.CompanySettings (
-            Id, CompanyName, Address, GSTNo, GSTPercentage, Phone, Email, Currency, CurrencySymbol, TaxMode, UpdatedOn
+            Id, CompanyName, Address, GSTNo, GSTPercentage, Phone, Email, ReportEmail, Currency, CurrencySymbol, TaxMode, UpdatedOn
           ) VALUES (
-            '1', @companyName, @address, @gstNo, @gstPercentage, @phone, @email, @currency, @currencySymbol, @taxMode, GETDATE()
+            '1', @companyName, @address, @gstNo, @gstPercentage, @phone, @email, @reportEmail, @currency, @currencySymbol, @taxMode, GETDATE()
           );
         `);
     } else {
@@ -103,6 +109,7 @@ async function updateCompanySettings(req, res) {
         .input('gstPercentage', sql.Decimal(10, 2), gstPercentage !== undefined ? parseFloat(gstPercentage || 0) : null)
         .input('phone', sql.NVarChar(50), phone !== undefined ? phone : null)
         .input('email', sql.NVarChar(255), email !== undefined ? email : null)
+        .input('reportEmail', sql.NVarChar(255), finalReportEmail !== undefined ? finalReportEmail : null)
         .input('currency', sql.NVarChar(10), currency !== undefined ? currency : null)
         .input('currencySymbol', sql.NVarChar(10), currencySymbol !== undefined ? currencySymbol : null)
         .input('taxMode', sql.NVarChar(20), taxMode !== undefined ? taxMode : null)
@@ -115,6 +122,7 @@ async function updateCompanySettings(req, res) {
             GSTPercentage = COALESCE(@gstPercentage, GSTPercentage),
             Phone = COALESCE(@phone, Phone),
             Email = COALESCE(@email, Email),
+            ReportEmail = COALESCE(@reportEmail, ReportEmail),
             Currency = COALESCE(@currency, Currency),
             CurrencySymbol = COALESCE(@currencySymbol, CurrencySymbol),
             TaxMode = COALESCE(@taxMode, TaxMode),
@@ -132,6 +140,7 @@ async function updateCompanySettings(req, res) {
         ISNULL(GSTPercentage, 0) AS GSTPercentage,
         Phone,
         Email,
+        ReportEmail,
         CashierName,
         ISNULL(Currency, 'SGD') AS Currency,
         ISNULL(CurrencySymbol, '$') AS CurrencySymbol,

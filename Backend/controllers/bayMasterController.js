@@ -64,7 +64,7 @@ async function getBays(req, res) {
         ModifiedBy,
         ModifiedOn,
         Status
-      FROM dbo.BayMaster
+      FROM dbo.BayMaster WITH (NOLOCK)
       WHERE Status = 1 OR Status IS NULL
       ORDER BY BayNumber ASC;
     `);
@@ -111,7 +111,7 @@ async function getBayById(req, res) {
         CustomerName, CustomerMobile, VehicleNumber,
         CurrentOrderId, TotalAmount, IsLocked, Remarks,
         CreatedBy, CreatedOn, ModifiedBy, ModifiedOn, Status
-      FROM dbo.BayMaster
+      FROM dbo.BayMaster WITH (NOLOCK)
       WHERE ${whereClause};
     `);
 
@@ -402,8 +402,8 @@ async function assignBay(req, res) {
       conflictReq.input('currentOrderNo', sql.NVarChar(50), currentOrderId ? String(currentOrderId) : '');
       const conflictResult = await conflictReq.query(`
         SELECT TOP 1 o.OrderId, o.OrderNo, o.VehicleNumber
-        FROM dbo.CarWashOrder o
-        INNER JOIN dbo.BayMaster bm ON bm.BayNumber = @targetBayNumber
+        FROM dbo.CarWashOrder o WITH (NOLOCK)
+        INNER JOIN dbo.BayMaster bm WITH (NOLOCK) ON bm.BayNumber = @targetBayNumber
         WHERE o.BayId = @targetBayNumber
           AND o.StatusCode IN (40, 50)
           AND o.OrderNo != @currentOrderNo
@@ -571,7 +571,7 @@ async function updateLayout(req, res) {
 
       // Return updated list
       const updated = await pool.request().query(`
-        SELECT * FROM dbo.BayMaster WHERE Status = 1 OR Status IS NULL ORDER BY BayNumber ASC;
+        SELECT * FROM dbo.BayMaster WITH (NOLOCK) WHERE Status = 1 OR Status IS NULL ORDER BY BayNumber ASC;
       `);
 
       return res.status(200).json({
@@ -624,7 +624,7 @@ async function deleteBay(req, res) {
     if (targetBayNumber) {
       const busyCheck = await pool.request()
         .input('bayNum', sql.Int, targetBayNumber)
-        .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WHERE BayId = @bayNum AND StatusCode IN (40, 50)`);
+        .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WITH (NOLOCK) WHERE BayId = @bayNum AND StatusCode IN (40, 50)`);
 
       if (busyCheck.recordset.length > 0) {
         return res.status(409).json({

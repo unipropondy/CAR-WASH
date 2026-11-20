@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { KioskNavButtons } from '../components/KioskNavButtons';
 import { DealerOption, VehicleOption, ServiceCategory, ServicePackage, CustomerDetails } from '../types/kiosk.types';
+import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
@@ -33,9 +35,10 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
   const isTwoCol = isLandscape && width >= 850;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const total = selectedPackage.price;
-  const gstAmount = Number(((total * 9) / 109).toFixed(2));
-  const subtotal = Number((total - gstAmount).toFixed(2));
+  const basePrice = selectedPackage.price;
+  const gstRate = getCachedGstRate();
+  const gstAmount = Number(((basePrice * (gstRate / 100))).toFixed(2));
+  const total = Number((basePrice + gstAmount).toFixed(2));
 
   const handleConfirmOrder = () => {
     if (isSubmitting) return;
@@ -50,6 +53,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 5: AUTOMATIC CREDIT BILLING"
@@ -145,18 +149,19 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
             <View style={[styles.card, isTwoCol && styles.cardFullWidth]}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardHeaderTitle}>INVOICE SUMMARY</Text>
-                <Text style={styles.taxInclusivePill}>9% GST INCLUDED</Text>
               </View>
 
               <View style={styles.row}>
-                <Text style={styles.label}>Subtotal (excl. GST):</Text>
-                <Text style={styles.val}>${subtotal.toFixed(2)}</Text>
+                <Text style={styles.label}>Base Amount:</Text>
+                <Text style={styles.val}>${basePrice.toFixed(2)}</Text>
               </View>
 
-              <View style={styles.row}>
-                <Text style={styles.label}>Singapore 9% GST:</Text>
-                <Text style={styles.val}>${gstAmount.toFixed(2)}</Text>
-              </View>
+              {gstRate > 0 && (
+                <View style={styles.row}>
+                  <Text style={styles.label}>GST ({gstRate}%):</Text>
+                  <Text style={styles.val}>${gstAmount.toFixed(2)}</Text>
+                </View>
+              )}
 
               <View style={styles.pricingDivider} />
 

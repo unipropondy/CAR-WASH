@@ -8,6 +8,7 @@ export interface CompanySettings {
   GSTPercentage: number;
   Phone?: string;
   Email?: string;
+  ReportEmail?: string;
   CashierName?: string;
   Currency: string;
   CurrencySymbol: string;
@@ -18,6 +19,74 @@ export interface CompanySettings {
   PrinterIP?: string;
   TaxMode?: string;
   UpdatedOn?: string;
+}
+
+const CACHE_STORAGE_KEY = 'redbay_company_settings_cache_v1';
+
+// In-memory cache for dynamic global settings access across all components
+let cachedSettings: CompanySettings | null = null;
+
+// Initialize cache immediately from localStorage on Web
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const stored = window.localStorage.getItem(CACHE_STORAGE_KEY);
+    if (stored) {
+      cachedSettings = JSON.parse(stored);
+    }
+  } catch (e) {
+    // Ignore storage parse errors
+  }
+}
+
+type SettingsListener = (settings: CompanySettings | null) => void;
+const listeners = new Set<SettingsListener>();
+
+export function subscribeCompanySettings(listener: SettingsListener): () => void {
+  listeners.add(listener);
+  if (cachedSettings) {
+    try {
+      listener(cachedSettings);
+    } catch (e) {
+      console.warn('Error in initial companySettings listener call:', e);
+    }
+  }
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifySettingsListeners(settings: CompanySettings | null): void {
+  listeners.forEach((listener) => {
+    try {
+      listener(settings);
+    } catch (e) {
+      console.warn('Error in companySettings listener:', e);
+    }
+  });
+}
+
+export function getCachedCompanySettings(): CompanySettings | null {
+  return cachedSettings;
+}
+
+export function getCachedGstRate(): number {
+  return cachedSettings?.GSTPercentage != null ? Number(cachedSettings.GSTPercentage) : 0;
+}
+
+export function setCachedCompanySettings(settings: CompanySettings | null): void {
+  cachedSettings = settings;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      if (settings) {
+        window.localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(settings));
+      } else {
+        window.localStorage.removeItem(CACHE_STORAGE_KEY);
+      }
+    } catch (e) {
+      // Ignore storage errors
+    }
+  }
+  notifySettingsListeners(settings);
 }
 
 /**
@@ -33,6 +102,7 @@ export async function fetchCompanySettings(): Promise<CompanySettings> {
   if (!json.success || !json.settings) {
     throw new Error(json.message || 'Error fetching company settings');
   }
+  setCachedCompanySettings(json.settings);
   return json.settings;
 }
 
@@ -51,6 +121,7 @@ export async function updateCompanySettings(data: Partial<CompanySettings>): Pro
       gstPercentage: data.GSTPercentage,
       phone: data.Phone,
       email: data.Email,
+      reportEmail: data.ReportEmail || (data as any).reportEmail,
       currency: data.Currency,
       currencySymbol: data.CurrencySymbol,
       taxMode: data.TaxMode,
@@ -66,6 +137,7 @@ export async function updateCompanySettings(data: Partial<CompanySettings>): Pro
   if (!json.success || !json.settings) {
     throw new Error(json.message || 'Error updating company settings');
   }
+  setCachedCompanySettings(json.settings);
   return json.settings;
 }
 

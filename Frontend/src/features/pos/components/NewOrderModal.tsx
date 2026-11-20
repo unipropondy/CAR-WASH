@@ -9,6 +9,7 @@ import {
   ScrollView 
 } from 'react-native';
 import { RED_BAY_COLORS } from '../../../theme/colors';
+import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { makeShadow } from '../../../theme/shadows';
 import { 
   VehicleCategoryConfig, 
@@ -55,7 +56,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     .reduce((sum, s) => sum + s.price, 0);
 
   const subtotal = basePrice + addOnsTotal;
-  const gstRate = 9.0;
+  const gstRate = getCachedGstRate();
   const gstAmount = Number(((subtotal * gstRate) / 100).toFixed(2));
   const totalAmount = Number((subtotal + gstAmount).toFixed(2));
 
@@ -227,7 +228,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <Text style={styles.priceSummaryValue}>$ {subtotal.toFixed(2)}</Text>
               </View>
               <View style={styles.priceRowItem}>
-                <Text style={styles.priceSummaryLabel}>Singapore GST (9%):</Text>
+                <Text style={styles.priceSummaryLabel}>GST ({gstRate}%):</Text>
                 <Text style={styles.priceSummaryValue}>$ {gstAmount.toFixed(2)}</Text>
               </View>
               <View style={[styles.priceRowItem, styles.totalRow]}>

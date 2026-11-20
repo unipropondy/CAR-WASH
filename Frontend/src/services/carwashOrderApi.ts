@@ -11,6 +11,9 @@ export interface PayModeOption {
   active: boolean;
   extraCharges?: number;
   commission?: number;
+  yeahPayEnabled?: boolean;
+  deviceSN?: string;
+  deviceSalt?: string;
 }
 
 export interface CreateOrderPayload {

@@ -16,6 +16,8 @@ export class EscPosBuilder {
 
   public init(): EscPosBuilder {
     this.buffer.push(ESC, 0x40); // ESC @
+    this.buffer.push(ESC, 0x52, 0x00); // ESC R 0: International Character Set USA (0x23 is '#')
+    this.buffer.push(ESC, 0x74, 0x00); // ESC t 0: Code Page PC437
     return this;
   }
 
@@ -66,12 +68,30 @@ export class EscPosBuilder {
       const code = str.charCodeAt(i);
       if (code < 128) {
         this.buffer.push(code);
+      } else if (
+        code === 0x202f ||
+        code === 0x00a0 ||
+        (code >= 0x2000 && code <= 0x200b) ||
+        code === 0x2028 ||
+        code === 0x2029 ||
+        code === 0x205f ||
+        code === 0x3000 ||
+        code === 0xfeff
+      ) {
+        // Unicode whitespace (narrow no-break space, NBSP, etc.) -> ASCII space
+        this.buffer.push(0x20);
+      } else if (str[i] === '•') {
+        this.buffer.push(0x2d); // -
+      } else if (str[i] === '✓') {
+        this.buffer.push(0x76); // v
+      } else if (str[i] === '—' || str[i] === '–') {
+        this.buffer.push(0x2d); // -
+      } else if (str[i] === '“' || str[i] === '”') {
+        this.buffer.push(0x22); // "
+      } else if (str[i] === '‘' || str[i] === '’') {
+        this.buffer.push(0x27); // '
       } else {
-        // Fallback or ASCII mapping for common symbols
-        if (str[i] === '•') this.buffer.push(0x2d); // -
-        else if (str[i] === '✓') this.buffer.push(0x76); // v
-        else if (str[i] === '—' || str[i] === '–') this.buffer.push(0x2d);
-        else this.buffer.push(0x3f); // '?'
+        this.buffer.push(0x3f); // '?'
       }
     }
     return this;
@@ -91,8 +111,7 @@ export class EscPosBuilder {
   }
 
   public cut(partial: boolean = true): EscPosBuilder {
-    this.lineFeed(3);
-    // GS V 66 0: Feed and cut
+    // GS V 66 0: Feed to cutter and cut without extra blank lines
     this.buffer.push(GS, 0x56, partial ? 0x42 : 0x41, 0x00);
     return this;
   }
@@ -211,7 +230,7 @@ export class PrinterFormatter {
     const phone = company?.Phone ? `Tel: ${company.Phone}` : '';
     const email = company?.Email ? `Email: ${company.Email}` : '';
     const gstNo = company?.GSTNo ? `GST Reg: ${company.GSTNo}` : '';
-    const gstRate = Number(company?.GSTPercentage ?? 9);
+    const gstRate = Number(company?.GSTPercentage ?? 0);
     const currency = company?.CurrencySymbol || '$';
 
     const orderNo = String(order?.billNumber || order?.orderNo || order?.OrderNo || order?.orderNumber || (order?.orderId ? `RB-${order.orderId}` : (order?.id ? `RB-${order.id}` : 'RECEIPT')));
@@ -220,15 +239,18 @@ export class PrinterFormatter {
     const mobileNo = (order?.customerDetails?.mobileNumber || order?.mobileNumber || order?.MobileNumber || '').toString();
     const bayName = (order?.bayName || order?.BayName || (order?.bayId || order?.BayId ? `Bay ${order.bayId || order.BayId}` : 'Wash Bay')).toString();
     const packageName = (order?.selectedPackage?.name || order?.packageName || order?.PackageName || 'Express Foam Wash').toString();
-    const total = Number(order?.totalAmount ?? order?.TotalAmount ?? 0);
-    const gst = Number(order?.gstAmount ?? order?.GSTAmount ?? (gstRate > 0 ? (total * gstRate) / (100 + gstRate) : 0));
-    const net = Math.max(0, total - gst);
+    
+    // All prices are strictly GST Exclusive
+    const rawBase = order?.packagePrice ?? order?.PackagePrice ?? order?.subtotal ?? order?.baseAmount ?? (order?.totalAmount != null && order?.gstAmount != null ? Number(order.totalAmount) - Number(order.gstAmount) : undefined);
+    const base = rawBase != null ? Number(rawBase) : Number(order?.totalAmount ?? order?.TotalAmount ?? 0);
+    const gst = Number(order?.gstAmount ?? order?.GSTAmount ?? ((base * gstRate) / 100));
+    const total = Number(order?.totalAmount ?? order?.TotalAmount ?? (base + gst));
     const payMode = String(order?.paymentMode || order?.payMode || order?.PayMode || 'CASH').toUpperCase();
     const isReprint = Boolean(options?.isReprint);
 
     const rawDate = order?.createdDate || order?.createdAt || order?.CreatedDate;
     let dateStr = formatSgDate(rawDate || getDbTime());
-    let timeStr = formatSgTime(rawDate || getDbTime(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    let timeStr = formatSgTime(rawDate || getDbTime(), { hour: '2-digit', minute: '2-digit', hour12: true });
 
     // 1. REPRINT WATERMARK (If applicable)
     if (isReprint) {
@@ -265,15 +287,23 @@ export class PrinterFormatter {
     // Double Divider
     builder.textLine(this.formatDivider('=', width));
 
-    // 3. QUEUE NUMBER / TICKET BOX
+    // 3. QUEUE NUMBER / TICKET BOX (Show last 4 digits only, e.g. 0009)
+    const queueNo = (() => {
+      const match = orderNo.match(/\d+$/);
+      if (match && match[0]) {
+        return match[0].slice(-4).padStart(4, '0');
+      }
+      const raw = orderNo.replace(/\D/g, '');
+      return raw.length >= 4 ? raw.slice(-4) : (orderNo.length > 4 ? orderNo.slice(-4) : orderNo);
+    })();
+
     builder
       .alignCenter()
       .bold(true)
       .textLine('OFFICIAL QUEUE TICKET')
       .setTextSize(2, 2)
-      .textLine(orderNo)
+      .textLine(`#${queueNo}`)
       .resetTextSize()
-      .textLine(`ALLOCATED: ${bayName.toUpperCase()}`)
       .bold(false);
 
     builder.textLine(this.formatDivider('=', width));
@@ -293,13 +323,13 @@ export class PrinterFormatter {
 
     // 5. SERVICES & PACKAGES
     builder.bold(true);
-    builder.textLine(this.formatTwoCol('ITEM / SERVICE DESCRIPTION', `AMOUNT (${currency})`, width));
+    builder.textLine(this.formatTwoCol('SERVICE DESCRIPTION', `AMOUNT (${currency})`, width));
     builder.bold(false);
     builder.textLine(this.formatDivider('-', width));
 
-    // Primary package
+    // Primary package - Base Price
     builder.bold(true).textLine(packageName).bold(false);
-    builder.textLine(this.formatTwoCol(`  1x Bay Service (${bayName})`, `${currency}${total.toFixed(2)}`, width));
+    builder.textLine(this.formatTwoCol(`  1x Bay Service (${bayName})`, `${currency}${base.toFixed(2)}`, width));
 
     // Additional add-ons if present
     if (Array.isArray(order?.items) && order.items.length > 0) {
@@ -313,19 +343,19 @@ export class PrinterFormatter {
 
     builder.textLine(this.formatDivider('-', width));
 
-    // 6. TOTALS & TAX BREAKDOWN
-    builder.textLine(this.formatTwoCol('Subtotal (Net):', `${currency}${net.toFixed(2)}`, width));
-    if (gstRate > 0) {
-      builder.textLine(this.formatTwoCol(`GST (${gstRate}% Included):`, `${currency}${gst.toFixed(2)}`, width));
+    // 6. TOTALS & TAX BREAKDOWN - Base Amount, GST Amount, and Final Payable Amount
+    builder.textLine(this.formatTwoCol('Base Amount:', `${currency}${base.toFixed(2)}`, width));
+    if (gstRate > 0 || gst > 0) {
+      builder.textLine(this.formatTwoCol(`GST (${gstRate}%):`, `${currency}${gst.toFixed(2)}`, width));
     }
 
     builder.textLine(this.formatDivider('-', width));
 
-    // TOTAL AMOUNT IN LARGE BOLD
+    // TOTAL AMOUNT IN LARGE BOLD (Aligned to right edge)
     builder
       .bold(true)
       .setTextSize(1, 2)
-      .textLine(this.formatTwoCol('TOTAL PAID:', `${currency}${total.toFixed(2)}`, paperWidth === '58mm' ? 24 : 36))
+      .textLine(this.formatTwoCol('TOTAL PAID:', `${currency}${total.toFixed(2)}`, width))
       .resetTextSize()
       .bold(false);
 
@@ -337,24 +367,16 @@ export class PrinterFormatter {
 
     builder.textLine(this.formatDivider('=', width));
 
-    // 7. BARCODE & QR CODE
+    // 7. DYNAMIC FOOTER (No extra empty lines, single line notice, bold brand signature)
     builder.alignCenter();
-    builder.textLine('Scan for Live Wash Status:');
-    builder.qrCode(`https://redbaycarwash.com/status?order=${encodeURIComponent(orderNo)}`, paperWidth === '58mm' ? 4 : 5);
-    builder.lineFeed(1);
-
-    builder.barcode128(orderNo, 50);
-
-    // 8. DYNAMIC FOOTER
-    builder.lineFeed(1);
     builder.bold(true).textLine('THANK YOU FOR CHOOSING US!').bold(false);
-    builder.textLine('Please retain this receipt for vehicle collection.');
-    builder.textLine('System by Red Bay POS');
+    builder.textLine('Please retain receipt for vehicle collection.');
+    builder.bold(true).textLine('CAR-POS BY UNIPROSG').bold(false);
 
     if (options?.autoCut ?? true) {
       builder.cut(true);
     } else {
-      builder.lineFeed(3);
+      builder.lineFeed(1);
     }
 
     if (options?.openDrawer) {

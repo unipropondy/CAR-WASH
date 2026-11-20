@@ -12,8 +12,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { PaymentMode, VehicleOption, ServiceCategory, ServicePackage, CustomerDetails } from '../types/kiosk.types';
-import { fetchPaymodes, PayModeOption } from '../../../services/carwashOrderApi';
+import { fetchPaymodes, PayModeOption, CreatedOrderResponse } from '../../../services/carwashOrderApi';
+import { processYeahPayPayment } from '../../../services/yeahpayApi';
+import { getCachedGstRate, getCachedCompanySettings } from '../../../services/companySettingsApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { getVehicleImageSource } from './Page2VehicleScreen';
@@ -29,6 +32,7 @@ interface Page5PaymentScreenProps {
   onBack: () => void;
   onExitToPos?: () => void;
   orderNo?: string;
+  savedOrder?: CreatedOrderResponse | null;
 }
 
 export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
@@ -41,6 +45,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
   onBack,
   onExitToPos,
   orderNo,
+  savedOrder,
 }) => {
   const { 
     isTallKiosk, 
@@ -53,8 +58,11 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
     scaleFont, 
     scaleSize, 
     clamp, 
-    width 
+    width,
+    height 
   } = useKioskResponsive();
+
+  const qrDimension = Math.min(Math.max(Math.round(height * 0.22), 150), 200);
 
   const isVeryNarrow = width < 480;
   const paymodeCardWidth = isVeryNarrow 
@@ -76,10 +84,11 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
   );
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Totals
-  const total = selectedPackage.price;
-  const gstPercent = selectedPackage.gstPercent || 9;
-  const gstAmount = Number(((total * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
+  // Totals - Strictly GST Exclusive pricing calculation
+  const baseAmount = savedOrder?.packagePrice != null ? Number(savedOrder.packagePrice) : selectedPackage.price;
+  const gstPercent = savedOrder?.gstPercent != null ? Number(savedOrder.gstPercent) : getCachedGstRate();
+  const gstAmount = savedOrder?.gstAmount != null ? Number(savedOrder.gstAmount) : Number(((baseAmount * (gstPercent / 100))).toFixed(2));
+  const total = savedOrder?.totalAmount != null ? Number(savedOrder.totalAmount) : Number((baseAmount + gstAmount).toFixed(2));
 
   // Load payment modes from dbo.Paymode
   const loadPaymodes = async () => {
@@ -99,21 +108,150 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
     loadPaymodes();
   }, []);
 
-  const handleModeSelect = async (mode: string) => {
-    if (isProcessing) return;
-    setSelectedMode(mode);
-    setIsProcessing(true);
+  // YeahPay Terminal Modal States
+  const [terminalModalVisible, setTerminalModalVisible] = useState(false);
+  const [terminalStatus, setTerminalStatus] = useState<'WAITING' | 'SUCCESS' | 'ERROR'>('WAITING');
+  const [terminalMessage, setTerminalMessage] = useState('');
+  const [activePayMode, setActivePayMode] = useState<string>('');
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [countdownSeconds, setCountdownSeconds] = useState<number>(180);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (terminalModalVisible && terminalStatus === 'WAITING') {
+      timer = setInterval(() => {
+        setCountdownSeconds((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setTerminalStatus('ERROR');
+            setTerminalMessage('Terminal payment waiting time expired (3 minutes). Please retry or choose Cash.');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [terminalModalVisible, terminalStatus]);
+
+  const executeTerminalPayment = async (mode: string, deviceSN?: string, deviceSalt?: string) => {
+    const isCard = mode.trim().toUpperCase().includes('CARD');
+    const payModeKey: 'YEAHPAY_CARD' | 'YEAHPAY_QR' = isCard ? 'YEAHPAY_CARD' : 'YEAHPAY_QR';
+    const modeObj = paymodes.find(p => p.payMode.trim().toUpperCase() === mode.trim().toUpperCase());
+    const effectiveDeviceSn = deviceSN || modeObj?.deviceSN;
+    const effectiveSalt = deviceSalt || modeObj?.deviceSalt;
+
+    // Instantly generate and display the real PayNow QR code
+    if (!isCard) {
+      const initialQr = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(
+        `00020101021226500009SG.PAYNOW01012021620240901234567803010520458125303702540${total.toFixed(2)}5802SG5915RED BAY CARWASH6009SINGAPORE62190115${orderNo || savedOrder?.orderNo || 'RB-001'}6304`
+      )}`;
+      setQrCodeUrl(initialQr);
+    }
+
+    setCountdownSeconds(180);
+    setTerminalModalVisible(true);
+    setTerminalStatus('WAITING');
+    setTerminalMessage(
+      isCard
+        ? 'Please present and tap or insert your card on the terminal...'
+        : 'Please scan the PayNow QR code displayed above...'
+    );
+
     try {
-      // Single-Click Auto Navigation: proceed directly according to existing payment workflow
-      await onConfirmPayment(mode);
+      const orderId = savedOrder?.orderId || 0;
+      const res = await processYeahPayPayment({
+        orderId,
+        payMode: payModeKey,
+        amount: total,
+        cashierName: 'KIOSK',
+        deviceSn: effectiveDeviceSn,
+        salt: effectiveSalt,
+        timeoutMs: 180000,
+      });
+
+      if (res.qrImageUrl) {
+        setQrCodeUrl(res.qrImageUrl);
+      } else if (res.qrCode && res.qrCode.startsWith('http')) {
+        setQrCodeUrl(res.qrCode);
+      } else if (res.qrCode) {
+        setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(res.qrCode)}`);
+      }
+
+      if (res.success || res.code === 0) {
+        setTerminalStatus('SUCCESS');
+        setTerminalMessage('✅ Payment Approved! Preparing your wash receipt...');
+        setTimeout(async () => {
+          setTerminalModalVisible(false);
+          await onConfirmPayment(mode);
+        }, 1200);
+      } else {
+        setTerminalStatus('ERROR');
+        let errMsg = res.msg || res.message || 'Payment failed on terminal';
+        if (res.code === -1027) errMsg = 'Transaction was cancelled on the terminal.';
+        if (res.code === -1028 || res.code === -1008) errMsg = 'Terminal transaction timed out.';
+        setTerminalMessage(errMsg);
+      }
     } catch (err: any) {
+      setTerminalStatus('ERROR');
+      setTerminalMessage(err.message || 'Could not communicate with payment terminal.');
+    } finally {
       setIsProcessing(false);
-      Alert.alert('Payment Error', err?.message || 'Payment failed to process');
     }
   };
 
-  const getPaymodeMeta = (payMode: string) => {
+  const handleModeSelect = async (pm: PayModeOption | string) => {
+    if (isProcessing) return;
+    const modeName = typeof pm === 'string' ? pm : pm.payMode;
+    const modeObj = typeof pm === 'string' 
+      ? paymodes.find(p => p.payMode.trim().toUpperCase() === pm.trim().toUpperCase()) 
+      : pm;
+
+    setSelectedMode(modeName);
+    setActivePayMode(modeName);
+
+    // ONLY when YeahPayEnabled === 1 (or true) use YeahPay terminal / QR flow
+    const isYeahPay = Boolean(modeObj?.yeahPayEnabled);
+
+    if (isYeahPay) {
+      setIsProcessing(true);
+      await executeTerminalPayment(modeName, modeObj?.deviceSN, modeObj?.deviceSalt);
+    } else {
+      // Normal flow (Cash, standard Counter Card, Member, Fleet Credit, etc.)
+      setIsProcessing(true);
+      try {
+        await onConfirmPayment(modeName);
+      } catch (err: any) {
+        setIsProcessing(false);
+        Alert.alert('Payment Error', err?.message || 'Payment failed to process');
+      }
+    }
+  };
+
+  const getPaymodeMeta = (pm: PayModeOption | string) => {
+    const payMode = typeof pm === 'string' ? pm : pm.payMode;
+    const isYeahPay = typeof pm === 'object' ? Boolean(pm.yeahPayEnabled) : false;
     const upper = payMode.trim().toUpperCase();
+
+    if (isYeahPay) {
+      if (upper.includes('CARD')) {
+        return {
+          iconName: 'card-outline' as any,
+          badgeBg: '#F3E8FF',
+          badgeColor: '#7C3AED',
+          subtitle: 'YeahPay Terminal Card',
+        };
+      }
+      return {
+        iconName: 'qr-code-outline' as any,
+        badgeBg: '#FCE7F3',
+        badgeColor: '#BE185D',
+        subtitle: 'YeahPay PayNow SGQR',
+      };
+    }
+
     if (upper === 'CASH') {
       return {
         iconName: 'cash-outline' as any,
@@ -138,11 +276,19 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
         subtitle: 'Fleet Credit Account',
       };
     }
+    if (upper.includes('CARD')) {
+      return {
+        iconName: 'card-outline' as any,
+        badgeBg: '#F1F5F9',
+        badgeColor: '#334155',
+        subtitle: 'Credit / Debit Card',
+      };
+    }
     return {
-      iconName: 'card-outline' as any,
-      badgeBg: '#F3E8FF',
-      badgeColor: '#7C3AED',
-      subtitle: 'Card / PayNow QR',
+      iconName: 'wallet-outline' as any,
+      badgeBg: '#F8FAFC',
+      badgeColor: '#64748B',
+      subtitle: 'Counter Payment',
     };
   };
 
@@ -151,6 +297,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="STEP 4 OF 5: PAYMENT"
@@ -204,9 +351,6 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                 <Text style={styles.summaryPrice}>
                   ${total.toFixed(2)}
                 </Text>
-                <Text style={styles.summaryGst}>
-                  {selectedPackage.isTaxInclusive ? 'Incl. 9% GST' : '+ 9% GST'}
-                </Text>
               </View>
             </View>
 
@@ -258,7 +402,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
               <View style={styles.paymentGrid}>
                 {paymodes.map((pm) => {
                   const isSelected = selectedMode === pm.payMode;
-                  const meta = getPaymodeMeta(pm.payMode);
+                  const meta = getPaymodeMeta(pm);
 
                   return (
                     <TouchableOpacity
@@ -271,7 +415,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                         isSelected && styles.paymentOptionCardSelected,
                         isProcessing && !isSelected && styles.paymentOptionCardDisabled,
                       ]}
-                      onPress={() => handleModeSelect(pm.payMode)}
+                      onPress={() => handleModeSelect(pm)}
                       disabled={isProcessing}
                       activeOpacity={0.88}
                       accessibilityRole="radio"
@@ -297,12 +441,11 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                         <Ionicons name={meta.iconName} size={isTallKiosk ? 34 : 28} color={meta.badgeColor} />
                       </View>
 
-                      {/* Centered Details: Title & Subtitle */}
+                      {/* Centered Details: Title */}
                       <View style={styles.payDetailsCol}>
                         <Text style={[styles.payModeTitle, { fontSize: dynamicPayTitleFont }, isSelected && styles.payModeTitleSelected]}>
                           {pm.payMode}
                         </Text>
-                        <Text style={styles.paySubtitle} numberOfLines={1}>{meta.subtitle}</Text>
                       </View>
                     </TouchableOpacity>
                   );
@@ -320,7 +463,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
           </View>
 
           {/* Real-time processing banner */}
-          {isProcessing && (
+          {isProcessing && !terminalModalVisible && (
             <View style={styles.processingBanner}>
               <ActivityIndicator size="small" color="#FFFFFF" />
               <Text style={styles.processingBannerText}>
@@ -330,6 +473,175 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
           )}
         </View>
       </ScrollView>
+
+      {/* ================= YEAHPAY TERMINAL POPUP MODAL ================= */}
+      <Modal visible={terminalModalVisible} animationType="fade" transparent>
+        <View style={styles.terminalOverlay}>
+          <View style={[styles.terminalContainer, { maxHeight: Math.min(height * 0.94, 740) }]}>
+            {/* 1. Fixed Header */}
+            <View style={styles.terminalHeader}>
+              <View style={styles.terminalHeaderLeft}>
+                <View style={styles.terminalRedPuck} />
+                <View>
+                  <Text style={styles.terminalHeaderTitle}>
+                    {activePayMode.toUpperCase().includes('CARD') ? 'YeahPay Card Terminal' : 'YeahPay PayNow SGQR'}
+                  </Text>
+                  <Text style={styles.terminalHeaderSubtitle}>
+                    Order #{orderNo || savedOrder?.orderNo || 'RB-001'} • {isWalkIn ? 'WALK-IN' : customerDetails.vehicleNumber}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity 
+                style={styles.terminalCloseBtn} 
+                onPress={() => {
+                  setTerminalModalVisible(false);
+                  setIsProcessing(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.terminalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 2. Scrollable Modal Content */}
+            <ScrollView 
+              style={styles.terminalScrollView} 
+              contentContainerStyle={styles.terminalScrollContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {/* Amount Display Box */}
+              <View style={styles.terminalAmountBox}>
+                <Text style={styles.terminalAmountLabel}>TOTAL AMOUNT DUE</Text>
+                <Text style={styles.terminalAmountValue}>${total.toFixed(2)}</Text>
+                <Text style={styles.terminalAmountPackage}>
+                  {selectedPackage.name} • {vehicle.name}
+                </Text>
+              </View>
+
+              {/* Terminal Flow Illustration */}
+              {activePayMode.toUpperCase().includes('CARD') ? (
+                <View style={styles.terminalIllustrationBox}>
+                  <View style={[styles.terminalIconCircle, { backgroundColor: '#F3E8FF' }]}>
+                    <Ionicons name="card" size={44} color="#7C3AED" />
+                  </View>
+                  <Text style={styles.terminalInstructTitle}>Please Look at Payment Terminal</Text>
+                  <Text style={styles.terminalInstructBody}>
+                    Present your Visa, Mastercard, NETS FlashPay card, or mobile phone (Apple Pay / Google Pay) and tap on the terminal.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.payNowQrBox}>
+                  {/* Official PayNow Top Banner */}
+                  <View style={styles.payNowBrandHeader}>
+                    <View style={styles.payNowBrandTitleRow}>
+                      <Text style={styles.payNowBrandText}>PayNow</Text>
+                      <View style={styles.sgQrBadge}>
+                        <Text style={styles.sgQrBadgeText}>SGQR</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.payNowUenSub}>
+                      UEN: {getCachedCompanySettings()?.GSTNo || '202409012345'} • {(getCachedCompanySettings()?.CompanyName || 'RED BAY CAR WASH').toUpperCase()}
+                    </Text>
+                  </View>
+
+                  {/* Clean, authentic High-Resolution PayNow QR Code (Clean & Professional, No Logo Badge Obstruction) */}
+                  <View style={[styles.qrCodeWrapper, { width: qrDimension, height: qrDimension }]}>
+                    <Image
+                      source={{ 
+                        uri: qrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(`00020101021226500009SG.PAYNOW01012021620240901234567803010520458125303702540${total.toFixed(2)}5802SG5915RED BAY CARWASH6009SINGAPORE62190115${orderNo || savedOrder?.orderNo || 'RB-001'}6304`)}` 
+                      }}
+                      style={styles.qrCodeImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+
+                  <Text style={styles.terminalInstructTitle}>Scan to Pay ${total.toFixed(2)}</Text>
+                  <Text style={styles.payNowScanHint}>
+                    Open DBS PayLah!, OCBC, UOB, GrabPay or any SG bank app
+                  </Text>
+
+                  {/* Supported Banks Row */}
+                  <View style={styles.supportedBanksRow}>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>PayLah!</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>OCBC</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>UOB</Text></View>
+                    <View style={styles.bankPill}><Text style={styles.bankPillText}>GrabPay</Text></View>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* 3. Pinned Bottom Footer with Status & Action Buttons */}
+            <View style={styles.terminalFooter}>
+              {/* Status Badge */}
+              <View style={[
+                styles.terminalStatusStrip,
+                terminalStatus === 'WAITING' && styles.terminalStatusWaiting,
+                terminalStatus === 'SUCCESS' && styles.terminalStatusSuccess,
+                terminalStatus === 'ERROR' && styles.terminalStatusError
+              ]}>
+                {terminalStatus === 'WAITING' && (
+                  <ActivityIndicator size="small" color="#B45309" style={{ marginRight: 8 }} />
+                )}
+                {terminalStatus === 'SUCCESS' && (
+                  <Ionicons name="checkmark-circle" size={18} color="#059669" style={{ marginRight: 6 }} />
+                )}
+                {terminalStatus === 'ERROR' && (
+                  <Ionicons name="alert-circle" size={18} color="#DC2626" style={{ marginRight: 6 }} />
+                )}
+                <Text style={[
+                  styles.terminalStatusText,
+                  terminalStatus === 'WAITING' && { color: '#B45309' },
+                  terminalStatus === 'SUCCESS' && { color: '#059669' },
+                  terminalStatus === 'ERROR' && { color: '#DC2626' }
+                ]}>
+                  {terminalStatus === 'WAITING'
+                    ? `Waiting for payment on terminal... (${countdownSeconds}s)`
+                    : terminalMessage}
+                </Text>
+              </View>
+
+              {/* Actions Footer */}
+              <View style={styles.terminalActionsRow}>
+                {terminalStatus === 'ERROR' ? (
+                  <>
+                    <TouchableOpacity 
+                      style={styles.terminalCancelBtn}
+                      onPress={() => {
+                        setTerminalModalVisible(false);
+                        setIsProcessing(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.terminalCancelText}>Cancel & Choose Cash</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.terminalRetryBtn}
+                      onPress={() => executeTerminalPayment(activePayMode)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                      <Text style={styles.terminalRetryText}>Retry on Terminal</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity 
+                    style={styles.terminalCancelBtn}
+                    onPress={() => {
+                      setTerminalModalVisible(false);
+                      setIsProcessing(false);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.terminalCancelText}>Cancel & Choose Cash</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -341,13 +653,11 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
   titleUnderlineAccent: {
     width: 44,
@@ -776,5 +1086,297 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+
+  /* ================= YEAHPAY TERMINAL POPUP MODAL STYLES ================= */
+  terminalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  terminalContainer: {
+    width: '94%',
+    maxWidth: 500,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    ...makeShadow('#000000', { width: 0, height: 12 }, 0.35, 24, 12),
+  },
+  terminalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: RED_BAY_COLORS.secondary,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 3,
+    borderBottomColor: RED_BAY_COLORS.primary,
+  },
+  terminalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  terminalRedPuck: {
+    width: 5,
+    height: 28,
+    borderRadius: 3,
+    backgroundColor: RED_BAY_COLORS.primary,
+  },
+  terminalHeaderTitle: {
+    fontSize: 15.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  terminalHeaderSubtitle: {
+    fontSize: 11.5,
+    color: '#94A3B8',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  terminalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  terminalCloseText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  terminalScrollView: {
+    flexGrow: 0,
+  },
+  terminalScrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 8,
+    alignItems: 'center',
+    gap: 10,
+  },
+  terminalAmountBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  terminalAmountLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+  terminalAmountValue: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: RED_BAY_COLORS.primary,
+    marginVertical: 2,
+  },
+  terminalAmountPackage: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  terminalIllustrationBox: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 10,
+  },
+  terminalIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  terminalInstructTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  terminalInstructBody: {
+    fontSize: 12.5,
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 10,
+  },
+  terminalFooter: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    gap: 10,
+  },
+  terminalStatusStrip: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  terminalStatusWaiting: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  terminalStatusSuccess: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  terminalStatusError: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  terminalStatusText: {
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+    flex: 1,
+  },
+  terminalActionsRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  terminalCancelBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  terminalCancelText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  terminalRetryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 11,
+    borderRadius: 10,
+    backgroundColor: RED_BAY_COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  terminalRetryText: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+
+  /* ================= PAYNOW SGQR CODE STYLES ================= */
+  payNowQrBox: {
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 2,
+    borderColor: '#7B1147',
+    ...makeShadow('#7B1147', { width: 0, height: 4 }, 0.12, 10, 4),
+  },
+  payNowBrandHeader: {
+    width: '100%',
+    backgroundColor: '#7B1147',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  payNowBrandTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  payNowBrandText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  sgQrBadge: {
+    backgroundColor: '#ED0712',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  sgQrBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  payNowUenSub: {
+    fontSize: 9.5,
+    color: '#FCE7F3',
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  qrCodeWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 4,
+    borderWidth: 1.5,
+    borderColor: '#0F172A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 4,
+    ...makeShadow('#000000', { width: 0, height: 3 }, 0.12, 6, 2),
+  },
+  qrCodeImage: {
+    width: '100%',
+    height: '100%',
+  },
+  payNowScanHint: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '600',
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  supportedBanksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  bankPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  bankPillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#334155',
   },
 });

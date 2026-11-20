@@ -425,7 +425,7 @@ export const DealerVehicleHistoryView: React.FC<DealerVehicleHistoryViewProps> =
 const getStyles = (isLight: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    padding: 14,
+    padding: isLight ? 0 : 14,
     backgroundColor: isLight ? 'transparent' : '#0A0A0A',
     display: 'flex',
     flexDirection: 'column',

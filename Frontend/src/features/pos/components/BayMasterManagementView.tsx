@@ -19,6 +19,7 @@ import {
   updateBayMasterLayout,
 } from '../../../services/carwashOrderApi';
 import { RED_BAY_COLORS } from '../../../theme/colors';
+import { Ionicons } from '@expo/vector-icons';
 import {
   IconCarWashBay,
   IconCheck,
@@ -27,6 +28,14 @@ import {
   IconGrid,
   IconAutomobile,
 } from '../../../components/common/AppIcons';
+
+interface PendingBayAction {
+  bayNumber: number;
+  bayName: string;
+  actionType: 'STATUS' | 'RELEASE';
+  targetStatus: 'MAINTENANCE' | 'CLEANING' | 'AVAILABLE';
+  currentStatus?: string;
+}
 
 interface BayMasterManagementViewProps {
   bays: BayMasterRecord[];
@@ -47,6 +56,93 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
   const [editXSize, setEditXSize] = useState('150');
   const [editYSize, setEditYSize] = useState('200');
   const [savingLayout, setSavingLayout] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingBayAction | null>(null);
+  const [isExecutingAction, setIsExecutingAction] = useState(false);
+
+  const getConfirmActionDetails = (act: PendingBayAction | null) => {
+    if (!act) {
+      return {
+        title: 'Confirm Action',
+        subtitle: 'Are you sure you want to proceed?',
+        confirmText: 'Confirm',
+        confirmColor: '#0F172A',
+        iconBg: '#F1F5F9',
+        iconBorder: '#E2E8F0',
+        iconName: 'help-circle-outline' as const,
+        iconColor: '#64748B',
+      };
+    }
+
+    if (act.actionType === 'RELEASE') {
+      return {
+        title: `Release ${act.bayName || `Bay ${act.bayNumber}`}?`,
+        subtitle: `Are you sure you want to release ${act.bayName || `Bay ${act.bayNumber}`}? Current vehicle assignment will be cleared and the bay returned to Available status.`,
+        confirmText: 'Yes, Release Bay',
+        confirmColor: '#DC2626',
+        iconBg: '#FEF2F2',
+        iconBorder: '#FECACA',
+        iconName: 'log-out-outline' as const,
+        iconColor: '#DC2626',
+      };
+    }
+
+    if (act.targetStatus === 'MAINTENANCE') {
+      return {
+        title: `Set ${act.bayName || `Bay ${act.bayNumber}`} to Maintenance?`,
+        subtitle: `Are you sure you want to set ${act.bayName || `Bay ${act.bayNumber}`} to Maintenance? Active wash orders cannot be assigned while maintenance is in progress.`,
+        confirmText: 'Yes, Set Maintenance',
+        confirmColor: '#D97706',
+        iconBg: '#FFFBEB',
+        iconBorder: '#FDE68A',
+        iconName: 'construct-outline' as const,
+        iconColor: '#D97706',
+      };
+    }
+
+    if (act.targetStatus === 'CLEANING') {
+      return {
+        title: `Set ${act.bayName || `Bay ${act.bayNumber}`} to Cleaning?`,
+        subtitle: `Are you sure you want to set ${act.bayName || `Bay ${act.bayNumber}`} to Cleaning? New wash orders will be blocked from this bay until cleaning is finished.`,
+        confirmText: 'Yes, Set Cleaning',
+        confirmColor: '#7E22CE',
+        iconBg: '#F3E8FF',
+        iconBorder: '#E9D5FF',
+        iconName: 'sparkles-outline' as const,
+        iconColor: '#7E22CE',
+      };
+    }
+
+    return {
+      title: `Set ${act.bayName || `Bay ${act.bayNumber}`} to Available?`,
+      subtitle: `Are you sure you want to mark ${act.bayName || `Bay ${act.bayNumber}`} as Available for incoming washes?`,
+      confirmText: 'Yes, Set Available',
+      confirmColor: '#059669',
+      iconBg: '#ECFDF5',
+      iconBorder: '#A7F3D0',
+      iconName: 'checkmark-circle-outline' as const,
+      iconColor: '#059669',
+    };
+  };
+
+  const executeConfirmedAction = async () => {
+    if (!pendingAction) return;
+    try {
+      setIsExecutingAction(true);
+      setLoadingAction(pendingAction.bayNumber);
+      if (pendingAction.actionType === 'RELEASE') {
+        await releaseBayMaster(pendingAction.bayNumber);
+      } else if (pendingAction.targetStatus) {
+        await updateBayMasterStatus(pendingAction.bayNumber, pendingAction.targetStatus);
+      }
+      setPendingAction(null);
+      await onRefresh();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to update bay');
+    } finally {
+      setIsExecutingAction(false);
+      setLoadingAction(null);
+    }
+  };
 
   const filteredBays = bays.filter((b) => {
     if (filter === 'ALL') return true;
@@ -223,7 +319,15 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
                     {bay.bayStatus !== 'AVAILABLE' && (
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.btnAvailable]}
-                        onPress={() => handleStatusChange(bay.bayNumber, 'AVAILABLE')}
+                        onPress={() =>
+                          setPendingAction({
+                            bayNumber: bay.bayNumber,
+                            bayName: bay.bayName,
+                            actionType: 'STATUS',
+                            targetStatus: 'AVAILABLE',
+                            currentStatus: bay.bayStatus,
+                          })
+                        }
                       >
                         <Text style={styles.btnAvailableText}>Set Available</Text>
                       </TouchableOpacity>
@@ -232,7 +336,15 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
                     {hasVehicle && (
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.btnRelease]}
-                        onPress={() => handleRelease(bay.bayNumber)}
+                        onPress={() =>
+                          setPendingAction({
+                            bayNumber: bay.bayNumber,
+                            bayName: bay.bayName,
+                            actionType: 'RELEASE',
+                            targetStatus: 'AVAILABLE',
+                            currentStatus: bay.bayStatus,
+                          })
+                        }
                       >
                         <Text style={styles.btnReleaseText}>Release Bay</Text>
                       </TouchableOpacity>
@@ -241,7 +353,15 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
                     {bay.bayStatus !== 'MAINTENANCE' && (
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.btnMaintenance]}
-                        onPress={() => handleStatusChange(bay.bayNumber, 'MAINTENANCE')}
+                        onPress={() =>
+                          setPendingAction({
+                            bayNumber: bay.bayNumber,
+                            bayName: bay.bayName,
+                            actionType: 'STATUS',
+                            targetStatus: 'MAINTENANCE',
+                            currentStatus: bay.bayStatus,
+                          })
+                        }
                       >
                         <Text style={styles.btnMaintenanceText}>Maintenance</Text>
                       </TouchableOpacity>
@@ -250,7 +370,15 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
                     {bay.bayStatus !== 'CLEANING' && (
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.btnCleaning]}
-                        onPress={() => handleStatusChange(bay.bayNumber, 'CLEANING')}
+                        onPress={() =>
+                          setPendingAction({
+                            bayNumber: bay.bayNumber,
+                            bayName: bay.bayName,
+                            actionType: 'STATUS',
+                            targetStatus: 'CLEANING',
+                            currentStatus: bay.bayStatus,
+                          })
+                        }
                       >
                         <Text style={styles.btnCleaningText}>Cleaning</Text>
                       </TouchableOpacity>
@@ -320,6 +448,86 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Action Confirmation Alert Modal */}
+      <Modal
+        visible={!!pendingAction}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isExecutingAction) setPendingAction(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          {(() => {
+            const details = getConfirmActionDetails(pendingAction);
+            return (
+              <View style={styles.confirmModalBox}>
+                {/* Action Icon Circle */}
+                <View
+                  style={[
+                    styles.confirmIconCircle,
+                    { backgroundColor: details.iconBg, borderColor: details.iconBorder },
+                  ]}
+                >
+                  <Ionicons name={details.iconName} size={30} color={details.iconColor} />
+                </View>
+
+                {/* Modal Title & Subtitle */}
+                <Text style={styles.confirmModalTitle}>{details.title}</Text>
+                <Text style={styles.confirmModalSubtitle}>{details.subtitle}</Text>
+
+                {/* Bay Target Info Badge */}
+                {pendingAction && (
+                  <View style={styles.confirmBayBadge}>
+                    <Text style={styles.confirmBayBadgeName}>
+                      {pendingAction.bayName || `Bay ${pendingAction.bayNumber}`}
+                    </Text>
+                    <View style={styles.confirmBayArrow}>
+                      <Text style={styles.confirmBayArrowText}>→</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.confirmTargetPill,
+                        { backgroundColor: details.iconBg, borderColor: details.iconBorder },
+                      ]}
+                    >
+                      <Text style={[styles.confirmTargetPillText, { color: details.iconColor }]}>
+                        {pendingAction.actionType === 'RELEASE' ? 'AVAILABLE' : pendingAction.targetStatus}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Modal Action Buttons */}
+                <View style={styles.confirmBtnRow}>
+                  <TouchableOpacity
+                    style={styles.confirmCancelBtn}
+                    onPress={() => !isExecutingAction && setPendingAction(null)}
+                    disabled={isExecutingAction}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.confirmExecuteBtn, { backgroundColor: details.confirmColor }]}
+                    onPress={executeConfirmedAction}
+                    disabled={isExecutingAction}
+                    activeOpacity={0.85}
+                  >
+                    {isExecutingAction ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.confirmExecuteBtnText}>{details.confirmText}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
         </View>
       </Modal>
     </View>
@@ -692,6 +900,119 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 12,
+  },
+  // Confirm Modal
+  confirmModalBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 420,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  confirmIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  confirmModalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 18,
+    paddingHorizontal: 8,
+  },
+  confirmBayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginBottom: 20,
+    gap: 8,
+  },
+  confirmBayBadgeName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  confirmBayArrow: {
+    paddingHorizontal: 2,
+  },
+  confirmBayArrowText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  confirmTargetPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  confirmTargetPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  confirmBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCancelBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  confirmExecuteBtn: {
+    flex: 1.3,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  confirmExecuteBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
 });
 

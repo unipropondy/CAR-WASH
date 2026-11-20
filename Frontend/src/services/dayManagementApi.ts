@@ -234,6 +234,25 @@ export async function closeBusinessDay(payload: {
 }
 
 /**
+ * 6b. POST /api/day-management/send-report-email
+ */
+export async function sendReportEmailApi(payload?: {
+  dayId?: number;
+  email?: string;
+}): Promise<{ success: boolean; message: string; result?: any }> {
+  const res = await apiFetch('/api/day-management/send-report-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || `Failed to send report email: HTTP ${res.status}`);
+  }
+  return json;
+}
+
+/**
  * 7. GET /api/day-management/history
  */
 export async function fetchDayHistory(params?: {

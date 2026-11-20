@@ -28,13 +28,12 @@ function buildEscPosReceipt(order, printerName, company = {}) {
 
   let text = '';
 
-  // 1. Initialize printer
+  // 1. Initialize printer and enforce USA character set so 0x23 is strictly '#'
   text += ESC + '@';
+  text += ESC + 'R' + '\x00';
+  text += ESC + 't' + '\x00';
 
-  // Single top feed
-  text += LF;
-
-  // 2. Center alignment for Brand Header
+  // 2. Center alignment for Brand Header (No top empty space)
   text += ESC + 'a' + '\x01';
 
   // Double width & height for brand title
@@ -50,20 +49,30 @@ function buildEscPosReceipt(order, printerName, company = {}) {
   const companyGst = company.GSTNo ? `GST: ${company.GSTNo}` : 'GST: M90382711';
   text += `${companyPhone} | ${companyGst}` + LF;
 
-  // 3. Compact Queue Ticket Box
+  // 3. Compact Queue Ticket Box (Show last 4 digits only, e.g. 0009)
   text += '='.repeat(WIDTH) + LF;
   text += 'OFFICIAL QUEUE TICKET' + LF;
   text += ESC + '!' + '\x38';
   const billNo = String(order.billNumber || order.orderNo || 'RB-0001').trim();
-  text += billNo + LF;
+  const queueNo = (() => {
+    const match = billNo.match(/\d+$/);
+    if (match && match[0]) {
+      return match[0].slice(-4).padStart(4, '0');
+    }
+    const raw = billNo.replace(/\D/g, '');
+    return raw.length >= 4 ? raw.slice(-4) : (billNo.length > 4 ? billNo.slice(-4) : billNo);
+  })();
+  text += '#' + queueNo + LF;
   text += ESC + '!' + '\x00';
   text += '='.repeat(WIDTH) + LF;
 
-  // 4. Order & Customer Details (Left aligned, compact single-spaced)
+  // 4. Order & Customer Details (Singapore Time SGT, UTC+8 - 12h format e.g. 08:37 PM)
   text += ESC + 'a' + '\x00';
 
-  const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const timeStr = order.createdAt || new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' });
+  const sgDate = new Date();
+  const dateStr = sgDate.toLocaleDateString('en-GB', { timeZone: 'Asia/Singapore', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = sgDate.toLocaleTimeString('en-US', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: true })
+    .replace(/[\u202F\u00A0\u2000-\u200B\uFEFF]/g, ' ');
   text += padLine(`Date: ${dateStr}`, `Time: ${timeStr}`) + LF;
 
   const custName = order.customerDetails?.customerName || order.customerName || 'Walk-in Customer';
@@ -82,27 +91,30 @@ function buildEscPosReceipt(order, printerName, company = {}) {
 
   // 5. Service Package
   text += '-'.repeat(WIDTH) + LF;
-  text += padLine('ITEM / SERVICE', 'AMOUNT') + LF;
+  text += padLine('SERVICE DESCRIPTION', 'AMOUNT') + LF;
   text += '-'.repeat(WIDTH) + LF;
 
   const fullPkgName = String(order.selectedPackage?.name || order.packageName || 'Express Foam Wash').trim();
-  const totalVal = Number(order.totalAmount || 0);
+  const gstRate = Number(company.GSTPercentage || 0);
+  const rawBase = order.packagePrice ?? (order.totalAmount != null && order.gstAmount != null ? (Number(order.totalAmount) - Number(order.gstAmount)) : order.totalAmount);
+  const baseVal = Number(rawBase || 0);
+  const gstVal = Number(order.gstAmount != null ? order.gstAmount : ((baseVal * gstRate) / 100).toFixed(2));
+  const finalTotal = Number(order.totalAmount != null ? order.totalAmount : (baseVal + gstVal).toFixed(2));
 
   text += fullPkgName + LF;
-  text += padLine(`  Vehicle: ${vehicleName}`, formatAmt(totalVal)) + LF;
+  text += padLine(`  Vehicle: ${vehicleName}`, formatAmt(baseVal)) + LF;
   text += '-'.repeat(WIDTH) + LF;
 
-  // 6. Financial Breakdown (Strict right alignment with matching decimal points)
-  const gstVal = Number(order.gstAmount || (totalVal * 0.09 / 1.09));
-  const netVal = totalVal - gstVal;
-
-  text += padLine('Subtotal (Net):', formatAmt(netVal)) + LF;
-  text += padLine('GST (9% Included):', formatAmt(gstVal)) + LF;
+  // 6. Financial Breakdown - Base Amount, GST Amount, and Final Payable Amount
+  text += padLine('Base Amount:', formatAmt(baseVal)) + LF;
+  if (gstRate > 0 || gstVal > 0) {
+    text += padLine(`GST (${gstRate}%):`, formatAmt(gstVal)) + LF;
+  }
   text += '-'.repeat(WIDTH) + LF;
 
   // Total Paid
   text += ESC + 'E' + '\x01';
-  text += padLine('TOTAL PAID:', formatAmt(totalVal)) + LF;
+  text += padLine('TOTAL PAID:', formatAmt(finalTotal)) + LF;
   text += ESC + 'E' + '\x00';
 
   const payMode = (order.paymentMode || order.payMode || 'CASH').toUpperCase();
@@ -110,15 +122,18 @@ function buildEscPosReceipt(order, printerName, company = {}) {
   text += padLine('Payment Method:', `${payMode} [${payStatus}]`) + LF;
   text += '='.repeat(WIDTH) + LF;
 
-  // 7. Footer (Compact)
+  // 7. Footer (Compact, single line notice, bold brand signature)
   text += ESC + 'a' + '\x01';
-  text += 'Watch bay monitors for your queue' + LF;
-  text += 'DRIVE IN. SHINE OUT.' + LF;
-  text += 'Thank you for your visit!' + LF;
+  text += ESC + 'E' + '\x01';
+  text += 'THANK YOU FOR CHOOSING US!' + LF;
+  text += ESC + 'E' + '\x00';
+  text += 'Please retain receipt for vehicle collection.' + LF;
+  text += ESC + 'E' + '\x01';
+  text += 'CAR-POS BY UNIPROSG' + LF;
+  text += ESC + 'E' + '\x00';
 
-  // 8. 3-line feed and paper cut
-  text += LF + LF + LF;
-  text += GS + 'V' + '\x41' + '\x03';
+  // Paper cut immediately after brand line (1 line clearance, no extra empty lines)
+  text += GS + 'V' + '\x41' + '\x00';
 
   return Buffer.from(text, 'binary');
 }

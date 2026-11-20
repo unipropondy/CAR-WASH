@@ -41,6 +41,9 @@ router.get('/closing-preview', optionalAuth, dayManagementController.getClosingP
 // 6. POST /api/day-management/close
 router.post('/close', optionalAuth, dayManagementController.closeDay);
 
+// 6b. POST /api/day-management/send-report-email
+router.post('/send-report-email', optionalAuth, dayManagementController.sendReportEmail);
+
 // 7. GET /api/day-management/history
 router.get('/history', optionalAuth, dayManagementController.getHistory);
 

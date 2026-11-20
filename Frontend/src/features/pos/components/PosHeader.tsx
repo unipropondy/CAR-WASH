@@ -3,6 +3,12 @@ import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { RED_BAY_BRAND } from '../../../theme/theme';
 import { makeShadow } from '../../../theme/shadows';
+import {
+  CompanySettings,
+  getCachedCompanySettings,
+  fetchCompanySettings,
+  subscribeCompanySettings,
+} from '../../../services/companySettingsApi';
 
 interface PosHeaderProps {
   currentLanguage: 'EN' | 'ZH';
@@ -17,6 +23,26 @@ export const PosHeader: React.FC<PosHeaderProps> = ({
   onOpenBackoffice,
   onNewOrder,
 }) => {
+  const [companySettings, setCompanySettings] = React.useState<CompanySettings | null>(() => getCachedCompanySettings());
+
+  React.useEffect(() => {
+    const unsub = subscribeCompanySettings((settings) => {
+      if (settings) setCompanySettings(settings);
+    });
+    fetchCompanySettings().then(setCompanySettings).catch(() => {});
+    return unsub;
+  }, []);
+
+  const locationBadge = React.useMemo(() => {
+    const addr = companySettings?.Address?.trim();
+    if (!addr) return 'SG • 48 TOH GUAN';
+    const firstPart = addr.split(/[\r\n,]/)[0].trim().toUpperCase();
+    if (firstPart.startsWith('SG')) {
+      return firstPart;
+    }
+    return `SG • ${firstPart}`;
+  }, [companySettings?.Address]);
+
   return (
     <View style={styles.headerContainer}>
       {/* Brand Identity with Logo */}
@@ -28,9 +54,9 @@ export const PosHeader: React.FC<PosHeaderProps> = ({
         />
         <View style={styles.brandTextCol}>
           <View style={styles.brandTitleRow}>
-            <Text style={styles.brandTitle}>{RED_BAY_BRAND.name}</Text>
+            <Text style={styles.brandTitle}>{companySettings?.CompanyName || RED_BAY_BRAND.name}</Text>
             <View style={styles.racingStripeBadge}>
-              <Text style={styles.racingStripeText}>SG • 48 TOH GUAN</Text>
+              <Text style={styles.racingStripeText} numberOfLines={1}>{locationBadge}</Text>
             </View>
           </View>
           <Text style={styles.brandTagline}>

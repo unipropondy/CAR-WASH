@@ -29,6 +29,7 @@ const {
   resolveHelpRequest,
   clearAllHelpRequests,
 } = require('../controllers/helpNotificationController');
+const { processOrderPayment } = require('../controllers/yeahpayController');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'car-wash-secret-key-fallback';
 
@@ -61,6 +62,9 @@ router.get('/orders/:id', optionalAuth, getOrderById);
 
 // 5. PUT /api/carwash/orders/:id/payment - Update payment mode / confirm payment
 router.put('/orders/:id/payment', optionalAuth, updatePayment);
+
+// 5b. POST /api/carwash/payments/yeahpay - Process YeahPay Smart Terminal Payment
+router.post('/payments/yeahpay', optionalAuth, processOrderPayment);
 
 // 6. PUT /api/carwash/orders/:id/status - Update order status (Cashier operations)
 router.put('/orders/:id/status', optionalAuth, updateStatus);

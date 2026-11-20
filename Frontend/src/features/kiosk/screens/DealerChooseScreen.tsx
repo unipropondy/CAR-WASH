@@ -15,6 +15,7 @@ import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskBackground } from '../components/KioskBackground';
 import { DealerOption } from '../types/kiosk.types';
 import { fetchAllDealers, getCachedDealers } from '../../../services/dealerApi';
+import { resolveApiUrl } from '../../../services/apiConfig';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
@@ -183,10 +184,10 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
             <Text style={styles.loadingText}>Loading dealer accounts...</Text>
           </View>
         ) : (
-          <View style={[styles.gridContainer, { maxWidth: contentMaxWidth }, isTallKiosk && styles.gridContainerTall]}>
+          <View style={[styles.gridContainer, isTallKiosk && styles.gridContainerTall, { maxWidth: contentMaxWidth, width: '100%' }]}>
             {filteredDealers.map((dealer) => {
               const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
-              const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
+              const logoSource = dealer.logo || (dealer.logoUrl ? { uri: resolveApiUrl(dealer.logoUrl) } : null);
 
               return (
                 <TouchableOpacity
@@ -276,16 +277,15 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
   },
   promptHeaderTall: {
-    paddingVertical: 18,
+    paddingTop: 14,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   title: {
@@ -371,16 +371,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 18,
     rowGap: 20,
-    maxWidth: 840,
   },
   gridContainerTall: {
     gap: 22,
     rowGap: 22,
-    maxWidth: 880,
   },
   dealerCard: {
     width: '30.5%',
-    maxWidth: 245,
     minWidth: 160,
     aspectRatio: 0.96,
     backgroundColor: '#FFFFFF',

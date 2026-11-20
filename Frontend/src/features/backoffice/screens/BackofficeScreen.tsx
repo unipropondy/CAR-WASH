@@ -50,6 +50,7 @@ import {
   WashTrendItem,
   ReportPeriodTab,
 } from '../../../services/salesReportApi';
+import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 
 import {
   fetchBayMasterList,
@@ -125,11 +126,126 @@ import {
 } from '../../../services/accountTypeApi';
 
 import {
+  fetchAllPaymodes,
+  fetchPaymodeById,
+  createPaymode,
+  updatePaymode,
+  togglePaymodeActive,
+  deletePaymode,
+  PaymodeRecord,
+} from '../../../services/paymodeApi';
+
+import {
   fetchActiveHelpRequests,
   resolveHelpRequest,
   clearAllHelpRequests,
   HelpRequestItem,
 } from '../../../services/helpNotificationService';
+
+import { resolveApiUrl } from '../../../services/apiConfig';
+
+const VEHICLE_FALLBACKS: Record<string, any> = {
+  sedan: require('../../../../assets/images/vehicles/sedan.png'),
+  suv: require('../../../../assets/images/vehicles/suv.png'),
+  mpv: require('../../../../assets/images/vehicles/mpv.png'),
+  big_mpv: require('../../../../assets/images/vehicles/big_mpv.png'),
+  'big mpv': require('../../../../assets/images/vehicles/big_mpv.png'),
+  hatchback: require('../../../../assets/images/vehicles/hatchback.png'),
+  coupe: require('../../../../assets/images/vehicles/coupe.png'),
+};
+
+const CATEGORY_FALLBACKS: Record<string, any> = {
+  car_wash: require('../../../../assets/images/categories/car_wash.jpg'),
+  'car wash': require('../../../../assets/images/categories/car_wash.jpg'),
+  polishing: require('../../../../assets/images/categories/polishing.jpg'),
+  polish: require('../../../../assets/images/categories/polishing.jpg'),
+  alcare: require('../../../../assets/images/categories/alcare.jpg'),
+};
+
+interface BackofficeImageThumbProps {
+  uri?: string | null;
+  fallbackKey?: string;
+  type?: 'vehicle' | 'category' | 'dealer' | 'account' | 'paymode';
+  style?: any;
+  resizeMode?: 'contain' | 'cover';
+}
+
+const BackofficeImageThumb: React.FC<BackofficeImageThumbProps> = ({
+  uri,
+  fallbackKey,
+  type = 'vehicle',
+  style,
+  resizeMode = 'contain',
+}) => {
+  const [loadFailed, setLoadFailed] = useState(false);
+  const resolved = uri ? resolveApiUrl(uri) : '';
+
+  useEffect(() => {
+    setLoadFailed(false);
+  }, [uri]);
+
+  const normKey = (fallbackKey || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  let localAsset: any = null;
+  if (type === 'vehicle') {
+    localAsset = VEHICLE_FALLBACKS[normKey] || null;
+    if (!localAsset) {
+      for (const [k, v] of Object.entries(VEHICLE_FALLBACKS)) {
+        if (normKey.includes(k) || k.includes(normKey)) {
+          localAsset = v;
+          break;
+        }
+      }
+    }
+  } else if (type === 'category') {
+    localAsset = CATEGORY_FALLBACKS[normKey] || null;
+    if (!localAsset) {
+      if (normKey.includes('polish') || normKey.includes('wax')) localAsset = CATEGORY_FALLBACKS.polishing;
+      else if (normKey.includes('wash') || normKey.includes('foam')) localAsset = CATEGORY_FALLBACKS.car_wash;
+      else if (normKey.includes('alcare') || normKey.includes('interior')) localAsset = CATEGORY_FALLBACKS.alcare;
+    }
+  }
+
+  if (resolved && !loadFailed) {
+    return (
+      <Image
+        source={{ uri: resolved }}
+        style={style}
+        resizeMode={resizeMode}
+        onError={() => setLoadFailed(true)}
+      />
+    );
+  }
+
+  if (localAsset) {
+    return (
+      <Image
+        source={localAsset}
+        style={style}
+        resizeMode={resizeMode}
+      />
+    );
+  }
+
+  return (
+    <View style={[styles.tableThumbPlaceholder, style]}>
+      <Ionicons
+        name={
+          type === 'vehicle'
+            ? 'car-outline'
+            : type === 'category'
+            ? 'image-outline'
+            : type === 'dealer'
+            ? 'business-outline'
+            : type === 'paymode'
+            ? 'wallet-outline'
+            : 'shield-outline'
+        }
+        size={16}
+        color={C.textMuted}
+      />
+    </View>
+  );
+};
 
 const getTodayISO = () => {
   const d = new Date();
@@ -206,6 +322,7 @@ type NavId =
   | 'dealer-credit'
   | 'dealer-settlement'
   | 'dealer-history'
+  | 'paymodes'
   | 'users'
   | 'user-groups'
   | 'settings'
@@ -316,8 +433,47 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   type SalesPeriodMode = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
   const [salesPeriodMode, setSalesPeriodMode] = useState<SalesPeriodMode>('DAILY');
   const [yearlyTrendView, setYearlyTrendView] = useState<'MONTHS' | 'DAYS'>('MONTHS');
-  const [salesStartDate, setSalesStartDate] = useState<string>(getTodayISO());
-  const [salesEndDate, setSalesEndDate] = useState<string>(getTodayISO());
+
+  const storeBusinessDate = useDayManagementStore((state) => state.businessDate);
+  const activeDay = useDayManagementStore((state) => state.activeDay);
+  const lastClosedDay = useDayManagementStore((state) => state.lastClosedDay);
+  const checkDayStatus = useDayManagementStore((state) => state.checkStatus);
+
+  const activeBusinessDateStr = useMemo(() => {
+    const raw = storeBusinessDate || activeDay?.businessDate || lastClosedDay?.businessDate;
+    if (raw) return typeof raw === 'string' ? raw.split('T')[0] : null;
+    return null;
+  }, [storeBusinessDate, activeDay, lastClosedDay]);
+
+  const effectiveReferenceDate = activeBusinessDateStr || getTodayISO();
+
+  const [salesStartDate, setSalesStartDate] = useState<string>(() => {
+    const raw = useDayManagementStore.getState().businessDate || 
+                useDayManagementStore.getState().activeDay?.businessDate || 
+                useDayManagementStore.getState().lastClosedDay?.businessDate;
+    if (raw && typeof raw === 'string') return raw.split('T')[0];
+    return getTodayISO();
+  });
+  const [salesEndDate, setSalesEndDate] = useState<string>(() => {
+    const raw = useDayManagementStore.getState().businessDate || 
+                useDayManagementStore.getState().activeDay?.businessDate || 
+                useDayManagementStore.getState().lastClosedDay?.businessDate;
+    if (raw && typeof raw === 'string') return raw.split('T')[0];
+    return getTodayISO();
+  });
+
+  const [hasUserNavigatedDate, setHasUserNavigatedDate] = useState<boolean>(false);
+
+  useEffect(() => {
+    checkDayStatus();
+  }, []);
+
+  useEffect(() => {
+    if (activeBusinessDateStr && !hasUserNavigatedDate) {
+      setSalesStartDate(activeBusinessDateStr);
+      setSalesEndDate(activeBusinessDateStr);
+    }
+  }, [activeBusinessDateStr, hasUserNavigatedDate]);
 
   const [dashLoading, setDashLoading] = useState(false);
   const [summaryData, setSummaryData] = useState<SalesSummaryData | null>(null);
@@ -328,24 +484,35 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   const handleSelectPeriodMode = (mode: SalesPeriodMode) => {
     setSalesPeriodMode(mode);
-    const today = getTodayISO();
+    setHasUserNavigatedDate(false);
+    const today = effectiveReferenceDate;
     if (mode === 'DAILY') {
       setSalesStartDate(today);
       setSalesEndDate(today);
     } else if (mode === 'WEEKLY') {
-      setSalesStartDate(getWeekStartISO());
+      const parts = today.split('-').map(Number);
+      const start = new Date(parts[0], parts[1] - 1, parts[2] - 7);
+      const startISO = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      setSalesStartDate(startISO);
       setSalesEndDate(today);
     } else if (mode === 'MONTHLY') {
-      setSalesStartDate(getMonthStartISO());
+      const parts = today.split('-').map(Number);
+      const start = new Date(parts[0], parts[1] - 1, 1);
+      const startISO = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      setSalesStartDate(startISO);
       setSalesEndDate(today);
     } else if (mode === 'YEARLY') {
-      setSalesStartDate(getYearStartISO());
+      const parts = today.split('-').map(Number);
+      const start = new Date(parts[0], 0, 1);
+      const startISO = `${start.getFullYear()}-01-01`;
+      setSalesStartDate(startISO);
       setSalesEndDate(today);
     }
   };
 
   const handleStartDateChange = (val: string) => {
     if (!val) return;
+    setHasUserNavigatedDate(true);
     setSalesStartDate(val);
     if (salesPeriodMode === 'DAILY') {
       setSalesEndDate(val);
@@ -356,6 +523,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   const handleEndDateChange = (val: string) => {
     if (!val) return;
+    setHasUserNavigatedDate(true);
     setSalesEndDate(val);
     if (val < salesStartDate) {
       setSalesStartDate(val);
@@ -363,7 +531,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   };
 
   const handleStepPrevDay = () => {
-    const parts = (salesStartDate || getTodayISO()).split('-').map(Number);
+    setHasUserNavigatedDate(true);
+    const parts = (salesStartDate || effectiveReferenceDate).split('-').map(Number);
     const prev = new Date(parts[0], parts[1] - 1, parts[2]);
     prev.setDate(prev.getDate() - 1);
     const prevISO = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
@@ -372,15 +541,18 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   };
 
   const handleStepNextDay = () => {
-    const today = getTodayISO();
+    const today = effectiveReferenceDate;
     if (salesStartDate >= today) return;
-    const parts = (salesStartDate || getTodayISO()).split('-').map(Number);
+    const parts = (salesStartDate || effectiveReferenceDate).split('-').map(Number);
     const next = new Date(parts[0], parts[1] - 1, parts[2]);
     next.setDate(next.getDate() + 1);
     const nextISO = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
     if (nextISO <= today) {
       setSalesStartDate(nextISO);
       setSalesEndDate(nextISO);
+      if (nextISO >= today) {
+        setHasUserNavigatedDate(false);
+      }
     }
   };
 
@@ -879,7 +1051,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [pName, setPName] = useState('');
   const [pDesc, setPDesc] = useState('');
   const [pPrice, setPPrice] = useState('15.00');
-  const [pGst, setPGst] = useState('9.0');
   const [pDuration, setPDuration] = useState('20');
   const [pOrder, setPOrder] = useState('1');
   const [pActive, setPActive] = useState(true);
@@ -922,14 +1093,37 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [savingAccountType, setSavingAccountType] = useState(false);
   const [atModalError, setAtModalError] = useState('');
 
+  // 3e3. Payment Modes (dbo.Paymode)
+  const [paymodesList, setPaymodesList] = useState<PaymodeRecord[]>([]);
+  const [paymodeModalOpen, setPaymodeModalOpen] = useState(false);
+  const [editingPaymode, setEditingPaymode] = useState<PaymodeRecord | null>(null);
+  const [pmCode, setPmCode] = useState('');
+  const [pmDesc, setPmDesc] = useState('');
+  const [pmPosition, setPmPosition] = useState('1');
+  const [pmExtraCharges, setPmExtraCharges] = useState('0.00');
+  const [pmCommission, setPmCommission] = useState('0.00');
+  const [pmServiceCharge, setPmServiceCharge] = useState('0.00');
+  const [pmDeviceSN, setPmDeviceSN] = useState('');
+  const [pmDeviceSalt, setPmDeviceSalt] = useState('');
+  const [pmYeahPayEnabled, setPmYeahPayEnabled] = useState(false);
+  const [pmActive, setPmActive] = useState(true);
+  const [pmIsVoucher, setPmIsVoucher] = useState(false);
+  const [pmIsEntertainment, setPmIsEntertainment] = useState(false);
+  const [pmImage, setPmImage] = useState('');
+  const [pmSearch, setPmSearch] = useState('');
+  const [pmStatusFilter, setPmStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [savingPaymode, setSavingPaymode] = useState(false);
+  const [pmModalError, setPmModalError] = useState('');
+
   // 3e. Company Profile
   const [compSettings, setCompSettings] = useState<CompanySettings | null>(null);
   const [compName, setCompName] = useState('');
   const [compAddr, setCompAddr] = useState('');
   const [compPhone, setCompPhone] = useState('');
   const [compEmail, setCompEmail] = useState('');
+  const [compReportEmail, setCompReportEmail] = useState('');
   const [compGstNo, setCompGstNo] = useState('');
-  const [compGstRate, setCompGstRate] = useState('9.0');
+  const [compGstRate, setCompGstRate] = useState('0');
   const [compCurrency, setCompCurrency] = useState('SGD');
   const [compSymbol, setCompSymbol] = useState('$');
   const [savingComp, setSavingComp] = useState(false);
@@ -978,8 +1172,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           setCompAddr(data.Address || '');
           setCompPhone(data.Phone || '');
           setCompEmail(data.Email || '');
+          setCompReportEmail(data.ReportEmail || '');
           setCompGstNo(data.GSTNo || '');
-          setCompGstRate(String(data.GSTPercentage ?? 9));
+          setCompGstRate(String(data.GSTPercentage ?? 0));
           setCompCurrency(data.Currency || 'SGD');
           setCompSymbol(data.CurrencySymbol || '$');
         }
@@ -994,11 +1189,25 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     }
   }, [settingsTab, pCatId]);
 
+  const loadPaymodesData = useCallback(async () => {
+    try {
+      setSettingsLoading(true);
+      const data = await fetchAllPaymodes(true, pmSearch);
+      setPaymodesList(data);
+    } catch (err: any) {
+      console.warn('Failed to load paymodes:', err);
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [pmSearch]);
+
   useEffect(() => {
     if (activeNav === 'settings') {
       loadSettingsData();
+    } else if (activeNav === 'paymodes') {
+      loadPaymodesData();
     }
-  }, [activeNav, settingsTab, loadSettingsData]);
+  }, [activeNav, settingsTab, loadSettingsData, loadPaymodesData]);
 
   // Vehicle Type Save
   const handleSaveVehicleType = async () => {
@@ -1131,7 +1340,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           packageName: pName.trim(),
           description: pDesc.trim(),
           price: parseFloat(pPrice),
-          gstPercent: parseFloat(pGst || '9'),
+          gstPercent: 0,
+          isTaxInclusive: false,
           durationMinutes: parseInt(pDuration || '20', 10),
           displayOrder: parseInt(pOrder || '1', 10),
           isActive: pActive,
@@ -1145,7 +1355,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           packageName: pName.trim(),
           description: pDesc.trim(),
           price: parseFloat(pPrice),
-          gstPercent: parseFloat(pGst || '9'),
+          gstPercent: 0,
+          isTaxInclusive: false,
           durationMinutes: parseInt(pDuration || '20', 10),
           displayOrder: parseInt(pOrder || '1', 10),
           isActive: pActive,
@@ -1363,6 +1574,185 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     });
   };
 
+  // ── Paymode Handlers ──
+  const openAddPaymodeModal = () => {
+    setEditingPaymode(null);
+    setPmCode('');
+    setPmDesc('');
+    setPmPosition(String((paymodesList.length || 0) + 1));
+    setPmExtraCharges('0.00');
+    setPmCommission('0.00');
+    setPmServiceCharge('0.00');
+    setPmDeviceSN('');
+    setPmDeviceSalt('');
+    setPmYeahPayEnabled(false);
+    setPmActive(true);
+    setPmIsVoucher(false);
+    setPmIsEntertainment(false);
+    setPmImage('');
+    setPmModalError('');
+    setPaymodeModalOpen(true);
+  };
+
+  const openEditPaymodeModal = (pm: PaymodeRecord) => {
+    setEditingPaymode(pm);
+    setPmCode(pm.payMode);
+    setPmDesc(pm.description || '');
+    setPmPosition(String(pm.position ?? 1));
+    setPmExtraCharges(pm.extraCharges != null ? Number(pm.extraCharges).toFixed(2) : '0.00');
+    setPmCommission(pm.commission != null ? Number(pm.commission).toFixed(2) : '0.00');
+    setPmServiceCharge(pm.serviceCharge != null ? Number(pm.serviceCharge).toFixed(2) : '0.00');
+    setPmDeviceSN(pm.deviceSN || '');
+    setPmDeviceSalt(pm.deviceSalt || '');
+    setPmYeahPayEnabled(Boolean(pm.yeahPayEnabled));
+    setPmActive(pm.active);
+    setPmIsVoucher(Boolean(pm.isVoucher));
+    setPmIsEntertainment(Boolean(pm.isEntertainment));
+    setPmImage(pm.paymodeImage || '');
+    setPmModalError('');
+    setPaymodeModalOpen(true);
+  };
+
+  const handleSavePaymode = async () => {
+    if (!pmCode.trim()) {
+      setPmModalError('PayMode code is required (e.g. CASH, NETS, PAYNOW).');
+      return;
+    }
+    if (pmCode.trim().length > 10) {
+      setPmModalError('PayMode code cannot exceed 10 characters.');
+      return;
+    }
+    if (!pmDesc.trim()) {
+      setPmModalError('Description is required.');
+      return;
+    }
+    if (pmDesc.trim().length > 50) {
+      setPmModalError('Description cannot exceed 50 characters.');
+      return;
+    }
+
+    try {
+      setSavingPaymode(true);
+      setPmModalError('');
+
+      const parsedPos = parseInt(pmPosition || '1', 10);
+      const parsedExtra = parseFloat(pmExtraCharges || '0');
+      const parsedComm = parseFloat(pmCommission || '0');
+      const parsedService = parseFloat(pmServiceCharge || '0');
+
+      if (editingPaymode) {
+        await updatePaymode(editingPaymode.payMode, {
+          newPayMode: pmCode.trim().toUpperCase(),
+          description: pmDesc.trim(),
+          position: isNaN(parsedPos) ? 1 : parsedPos,
+          extraCharges: isNaN(parsedExtra) ? 0 : parsedExtra,
+          commission: isNaN(parsedComm) ? 0 : parsedComm,
+          serviceCharge: isNaN(parsedService) ? 0 : parsedService,
+          deviceSN: pmDeviceSN.trim() || undefined,
+          deviceSalt: pmDeviceSalt.trim() || undefined,
+          yeahPayEnabled: pmYeahPayEnabled,
+          active: pmActive,
+          isVoucher: pmIsVoucher,
+          isEntertainment: pmIsEntertainment,
+          paymodeImage: pmImage.trim() || null,
+        });
+        showAlert('Success', `Payment mode "${pmCode.trim().toUpperCase()}" updated successfully.`);
+      } else {
+        await createPaymode({
+          payMode: pmCode.trim().toUpperCase(),
+          description: pmDesc.trim(),
+          position: isNaN(parsedPos) ? 1 : parsedPos,
+          extraCharges: isNaN(parsedExtra) ? 0 : parsedExtra,
+          commission: isNaN(parsedComm) ? 0 : parsedComm,
+          serviceCharge: isNaN(parsedService) ? 0 : parsedService,
+          deviceSN: pmDeviceSN.trim() || undefined,
+          deviceSalt: pmDeviceSalt.trim() || undefined,
+          yeahPayEnabled: pmYeahPayEnabled,
+          active: pmActive,
+          isVoucher: pmIsVoucher,
+          isEntertainment: pmIsEntertainment,
+          paymodeImage: pmImage.trim() || null,
+        });
+        showAlert('Success', `Payment mode "${pmCode.trim().toUpperCase()}" created successfully.`);
+      }
+      setPaymodeModalOpen(false);
+      loadPaymodesData();
+    } catch (err: any) {
+      console.error('[handleSavePaymode Error]', err);
+      const errMsg = err.message || 'Failed to save payment mode.';
+      setPmModalError(errMsg);
+      showAlert('Save Failed', errMsg);
+    } finally {
+      setSavingPaymode(false);
+    }
+  };
+
+  const handleTogglePaymodeActive = async (pm: PaymodeRecord) => {
+    try {
+      const nextActive = !pm.active;
+      await togglePaymodeActive(pm.payMode, nextActive);
+      setPaymodesList((prev) =>
+        prev.map((item) => (item.payMode === pm.payMode ? { ...item, active: nextActive, isActive: nextActive } : item))
+      );
+      showAlert(
+        'Status Updated',
+        `Payment mode "${pm.payMode}" is now ${nextActive ? 'Active (Visible)' : 'Inactive (Hidden)'}.`
+      );
+    } catch (err: any) {
+      showAlert('Status Update Failed', err.message || 'Failed to update payment mode status');
+    }
+  };
+
+  const handleDeletePaymode = (pm: PaymodeRecord) => {
+    showConfirm({
+      title: 'Delete Payment Mode',
+      message: `Are you sure you want to delete "${pm.payMode}" (${pm.description}) from dbo.Paymode?`,
+      confirmText: 'Delete Permanently',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deletePaymode(pm.payMode);
+          showAlert('Success', `Payment mode "${pm.payMode}" deleted successfully.`);
+          loadPaymodesData();
+        } catch (err: any) {
+          if (err.isUsedInOrders) {
+            showConfirm({
+              title: 'Tender In Use',
+              message: `${err.message}\n\nWould you like to deactivate "${pm.payMode}" instead so it is hidden without breaking existing records?`,
+              confirmText: 'Deactivate Mode',
+              confirmButtonColor: '#F59E0B',
+              onConfirm: async () => {
+                try {
+                  await togglePaymodeActive(pm.payMode, false);
+                  showAlert('Deactivated', `Payment mode "${pm.payMode}" has been deactivated.`);
+                  loadPaymodesData();
+                } catch (deactErr: any) {
+                  showAlert('Error', deactErr.message || 'Failed to deactivate.');
+                }
+              },
+            });
+          } else {
+            showAlert('Delete Failed', err.message || 'Failed to delete payment mode');
+          }
+        }
+      },
+    });
+  };
+
+  const filteredPaymodes = useMemo(() => {
+    return paymodesList.filter((pm) => {
+      if (pmStatusFilter === 'ACTIVE' && !pm.active) return false;
+      if (pmStatusFilter === 'INACTIVE' && pm.active) return false;
+      if (pmSearch && pmSearch.trim()) {
+        const query = pmSearch.toLowerCase().trim();
+        const code = (pm.payMode || '').toLowerCase();
+        const desc = (pm.description || '').toLowerCase();
+        return code.includes(query) || desc.includes(query);
+      }
+      return true;
+    });
+  }, [paymodesList, pmStatusFilter, pmSearch]);
+
   // Company Settings Save
   const handleSaveCompanyProfile = async () => {
     try {
@@ -1372,8 +1762,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         Address: compAddr.trim(),
         Phone: compPhone.trim(),
         Email: compEmail.trim(),
+        ReportEmail: compReportEmail.trim(),
         GSTNo: compGstNo.trim(),
-        GSTPercentage: parseFloat(compGstRate || '9'),
+        GSTPercentage: parseFloat(compGstRate || '0'),
         Currency: compCurrency.trim(),
         CurrencySymbol: compSymbol.trim(),
       });
@@ -2236,6 +2627,603 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     </ScrollView>
   );
 
+  /* ── 2b. Payment Modes View (dbo.Paymode) ── */
+  const renderPaymodesView = () => {
+    const totalCount = paymodesList.length;
+    const activeCount = paymodesList.filter((p) => p.active).length;
+    const inactiveCount = totalCount - activeCount;
+
+    return (
+      <View style={styles.glassCard}>
+        {/* Card Header & Add Button */}
+        <View style={styles.cardHeaderAction}>
+          <View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="wallet-outline" size={22} color={C.accent} />
+              <Text style={styles.cardHeading}>Payment Tender Modes (dbo.Paymode)</Text>
+            </View>
+            <Text style={styles.cardSubhead}>
+              Configure POS & Kiosk payment channels, positions, surcharge extra charges, commissions, and visibility
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Pressable
+              style={styles.btnSecondary}
+              onPress={loadPaymodesData}
+            >
+              <Ionicons name="refresh" size={16} color={C.white} />
+              <Text style={styles.btnSecondaryText}>Refresh</Text>
+            </Pressable>
+            <Pressable
+              style={styles.btnPrimary}
+              onPress={openAddPaymodeModal}
+            >
+              <Ionicons name="add" size={16} color={C.white} />
+              <Text style={styles.btnPrimaryText}>Add PayMode</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Quick Filter & Stats Bar */}
+        <View style={{ flexDirection: isMid ? 'row' : 'column', justifyContent: 'space-between', alignItems: isMid ? 'center' : 'stretch', gap: 12, marginTop: 16, marginBottom: 16 }}>
+          {/* Search Box */}
+          <View style={{ flex: 1, maxWidth: isMid ? 360 : undefined, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', borderRadius: 8, paddingHorizontal: 12 }}>
+            <Ionicons name="search" size={16} color={C.textSec} style={{ marginRight: 8 }} />
+            <TextInput
+              style={{ flex: 1, height: 38, color: C.white, fontSize: 13 }}
+              placeholder="Search code or description..."
+              placeholderTextColor={C.textMuted}
+              value={pmSearch}
+              onChangeText={setPmSearch}
+            />
+            {pmSearch ? (
+              <Pressable onPress={() => setPmSearch('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={C.textSec} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Filter Pills */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Pressable
+              style={[styles.groupPill, pmStatusFilter === 'ALL' && styles.groupPillActive]}
+              onPress={() => setPmStatusFilter('ALL')}
+            >
+              <Text style={[styles.groupPillText, pmStatusFilter === 'ALL' && { color: C.white, fontWeight: '700' }]}>
+                All ({totalCount})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.groupPill, pmStatusFilter === 'ACTIVE' && styles.groupPillActive]}
+              onPress={() => setPmStatusFilter('ACTIVE')}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E', marginRight: 5 }} />
+              <Text style={[styles.groupPillText, pmStatusFilter === 'ACTIVE' && { color: C.white, fontWeight: '700' }]}>
+                Active ({activeCount})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.groupPill, pmStatusFilter === 'INACTIVE' && styles.groupPillActive]}
+              onPress={() => setPmStatusFilter('INACTIVE')}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#EF4444', marginRight: 5 }} />
+              <Text style={[styles.groupPillText, pmStatusFilter === 'INACTIVE' && { color: C.white, fontWeight: '700' }]}>
+                Inactive ({inactiveCount})
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Paymodes Table */}
+        <ScrollView horizontal showsHorizontalScrollIndicator style={{ width: '100%', marginTop: 8 }} contentContainerStyle={{ minWidth: 1420 }}>
+          <View style={{ flex: 1 }}>
+            {/* Table Header */}
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { width: 50 }]}>POS</Text>
+              <Text style={[styles.th, { width: 60 }]}>ICON</Text>
+              <Text style={[styles.th, { width: 120 }]}>PAYMODE CODE</Text>
+              <Text style={[styles.th, { width: 190 }]}>DESCRIPTION</Text>
+              <Text style={[styles.th, { width: 100 }]}>EXTRA CHG</Text>
+              <Text style={[styles.th, { width: 95 }]}>COMMISSION</Text>
+              <Text style={[styles.th, { width: 100 }]}>SERVICE CHG</Text>
+              <Text style={[styles.th, { width: 140 }]}>DEVICE SN</Text>
+              <Text style={[styles.th, { width: 140 }]}>DEVICE SALT</Text>
+              <Text style={[styles.th, { width: 115 }]}>YEAHPAY</Text>
+              <Text style={[styles.th, { width: 100 }]}>STATUS</Text>
+              <Text style={[styles.th, { width: 90 }]}>ACTIONS</Text>
+            </View>
+
+            {/* Table Rows */}
+            {filteredPaymodes.map((pm, idx) => (
+              <View key={pm.payMode || idx} style={styles.tableRow}>
+                {/* Position */}
+                <View style={{ width: 50, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textSec, { fontWeight: '700' }]}>
+                    {pm.position ?? idx + 1}
+                  </Text>
+                </View>
+
+                {/* Logo / Icon */}
+                <View style={{ width: 60, justifyContent: 'center' }}>
+                  <BackofficeImageThumb
+                    uri={pm.paymodeImage}
+                    fallbackKey={pm.payMode}
+                    type="paymode"
+                    style={styles.tableThumb}
+                    resizeMode="contain"
+                  />
+                </View>
+
+                {/* PayMode Code */}
+                <View style={{ width: 120, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textAccent, { fontWeight: '800' }]}>
+                    {pm.payMode}
+                  </Text>
+                </View>
+
+                {/* Description */}
+                <View style={{ width: 190, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textWhite, { fontWeight: '600' }]} numberOfLines={2}>
+                    {pm.description || <Text style={{ fontStyle: 'italic', color: C.textMuted }}>No description</Text>}
+                  </Text>
+                </View>
+
+                {/* Extra Charges */}
+                <View style={{ width: 100, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textSec, { fontWeight: '600' }]}>
+                    {pm.extraCharges ? `S$ ${Number(pm.extraCharges).toFixed(2)}` : 'S$ 0.00'}
+                  </Text>
+                </View>
+
+                {/* Commission */}
+                <View style={{ width: 95, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textSec, { fontWeight: '600' }]}>
+                    {pm.commission ? `${Number(pm.commission).toFixed(2)}%` : '0.00%'}
+                  </Text>
+                </View>
+
+                {/* Service Charge */}
+                <View style={{ width: 100, justifyContent: 'center' }}>
+                  <Text style={[styles.td, styles.textSec, { fontWeight: '600' }]}>
+                    {pm.serviceCharge ? `S$ ${Number(pm.serviceCharge).toFixed(2)}` : 'S$ 0.00'}
+                  </Text>
+                </View>
+
+                {/* Device SN */}
+                <View style={{ width: 140, justifyContent: 'center' }}>
+                  {pm.deviceSN ? (
+                    <View style={[styles.roleChip, { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderColor: 'rgba(59, 130, 246, 0.35)', borderWidth: 1, paddingVertical: 2 }]}>
+                      <Text style={{ color: '#93C5FD', fontSize: 11, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined, fontWeight: '700' }} numberOfLines={1}>
+                        {pm.deviceSN}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={{ color: C.textMuted, fontSize: 12 }}>-</Text>
+                  )}
+                </View>
+
+                {/* Device Salt */}
+                <View style={{ width: 140, justifyContent: 'center' }}>
+                  {pm.deviceSalt ? (
+                    <View style={[styles.roleChip, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: 'rgba(245, 158, 11, 0.35)', borderWidth: 1, paddingVertical: 2 }]}>
+                      <Text style={{ color: '#FCD34D', fontSize: 11, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined, fontWeight: '600' }} numberOfLines={1}>
+                        {pm.deviceSalt}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={{ color: C.textMuted, fontSize: 12 }}>-</Text>
+                  )}
+                </View>
+
+                {/* YeahPay Enabled */}
+                <View style={{ width: 115, justifyContent: 'center' }}>
+                  <View style={[
+                    styles.statusBadge,
+                    pm.yeahPayEnabled
+                      ? { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: '#10B981', borderWidth: 1 }
+                      : { backgroundColor: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)', borderWidth: 1 }
+                  ]}>
+                    <Text style={[
+                      styles.statusBadgeText,
+                      { color: pm.yeahPayEnabled ? '#34D399' : C.textMuted, fontWeight: '800', fontSize: 10 }
+                    ]}>
+                      {pm.yeahPayEnabled ? '✓ ENABLED' : 'DISABLED'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Status with Quick Toggle */}
+                <View style={{ width: 100, justifyContent: 'center' }}>
+                  <Pressable
+                    onPress={() => handleTogglePaymodeActive(pm)}
+                    style={[styles.statusBadge, pm.active ? styles.statusBadgeOn : styles.statusBadgeOff]}
+                  >
+                    <Text style={[styles.statusBadgeText, pm.active ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                      {pm.active ? 'Active' : 'Inactive'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Actions */}
+                <View style={[styles.actionRow, { width: 90 }]}>
+                  <Pressable
+                    style={styles.btnAction}
+                    onPress={() => openEditPaymodeModal(pm)}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                  </Pressable>
+                  <Pressable
+                    style={styles.btnAction}
+                    onPress={() => handleDeletePaymode(pm)}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+
+        {filteredPaymodes.length === 0 && !settingsLoading && (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Ionicons name="wallet-outline" size={36} color={C.textMuted} style={{ marginBottom: 8 }} />
+            <Text style={{ color: C.textMuted, fontSize: 14, fontWeight: '600' }}>
+              {pmSearch ? 'No payment modes match your search.' : 'No payment modes found in dbo.Paymode.'}
+            </Text>
+            <Pressable
+              style={[styles.btnPrimary, { marginTop: 12 }]}
+              onPress={openAddPaymodeModal}
+            >
+              <Ionicons name="add" size={16} color={C.white} />
+              <Text style={styles.btnPrimaryText}>Add PayMode</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  /* ── Paymode Modal ── */
+  const renderPaymodeModal = () => (
+    <Modal
+      visible={paymodeModalOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setPaymodeModalOpen(false)}
+    >
+      <View style={[styles.modalBackdrop, { padding: 12 }]}>
+        <View style={{
+          width: '95%',
+          maxWidth: 580,
+          maxHeight: '90%',
+          backgroundColor: '#181818',
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.14)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          ...(Platform.OS === 'web' ? { boxShadow: '0 25px 60px rgba(0,0,0,0.9)' } : {}),
+        }}>
+          {/* Fixed Header */}
+          <View style={{
+            flexShrink: 0,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 20,
+            paddingVertical: 14,
+            borderBottomWidth: 1,
+            borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+            backgroundColor: '#1F1F1F',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: 'rgba(255, 26, 26, 0.15)', justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="wallet-outline" size={18} color={C.accent} />
+              </View>
+              <View>
+                <Text style={{ color: C.white, fontSize: 15, fontWeight: '800', letterSpacing: 0.3 }}>
+                  {editingPaymode ? `Edit Payment Mode: ${editingPaymode.payMode}` : 'Add Payment Mode'}
+                </Text>
+                <Text style={{ color: C.textMuted, fontSize: 11, marginTop: 1 }}>
+                  Configure tender credentials, terminals, and pricing
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => setPaymodeModalOpen(false)}
+              hitSlop={10}
+              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.06)', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Ionicons name="close" size={18} color={C.textSec} />
+            </Pressable>
+          </View>
+
+          {/* Scrollable Body */}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 20, gap: 14 }}
+            showsVerticalScrollIndicator={true}
+          >
+            {pmModalError ? (
+              <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#EF4444', borderRadius: 8, padding: 10 }}>
+                <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '700' }}>{pmModalError}</Text>
+              </View>
+            ) : null}
+
+            {/* Section: Tender Info */}
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="card-outline" size={13} color={C.accent} />
+                <Text style={{ color: C.textSec, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>
+                  TENDER IDENTIFICATION
+                </Text>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1.2, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>PAYMODE CODE * (MAX 10 CHARS)</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pmCode}
+                    onChangeText={(val) => setPmCode(val.toUpperCase())}
+                    placeholder="e.g. CASH, NETS, PAYNOW"
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="characters"
+                    maxLength={10}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 0.8, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>POSITION / ORDER</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pmPosition}
+                    onChangeText={setPmPosition}
+                    keyboardType="numeric"
+                    placeholder="1"
+                    placeholderTextColor={C.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={[styles.formGroup, { marginBottom: 0 }]}>
+                <Text style={styles.fieldLabel}>DESCRIPTION * (MAX 50 CHARS)</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={pmDesc}
+                  onChangeText={setPmDesc}
+                  placeholder="e.g. Cash Counter Payment, DBS PayNow QR"
+                  placeholderTextColor={C.textMuted}
+                  maxLength={50}
+                />
+              </View>
+            </View>
+
+            {/* Section: Fees & Commissions */}
+            <View style={{ gap: 10, marginTop: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="cash-outline" size={13} color="#10B981" />
+                <Text style={{ color: C.textSec, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>
+                  FEES & COMMISSIONS
+                </Text>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>EXTRA CHARGE (S$)</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pmExtraCharges}
+                    onChangeText={setPmExtraCharges}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={C.textMuted}
+                  />
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Customer surcharge</Text>
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>COMMISSION (%)</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pmCommission}
+                    onChangeText={setPmCommission}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={C.textMuted}
+                  />
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Gateway deduction</Text>
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>SERVICE CHG (S$)</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pmServiceCharge}
+                    onChangeText={setPmServiceCharge}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={C.textMuted}
+                  />
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Service fee</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Section: Hardware Terminal & YeahPay */}
+            <View style={{
+              backgroundColor: pmYeahPayEnabled ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255, 255, 255, 0.02)',
+              borderWidth: 1,
+              borderColor: pmYeahPayEnabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.08)',
+              borderRadius: 12,
+              padding: 14,
+              gap: 10,
+              marginTop: 4,
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="hardware-chip-outline" size={14} color={pmYeahPayEnabled ? '#34D399' : '#60A5FA'} />
+                  <Text style={{ color: pmYeahPayEnabled ? '#34D399' : '#93C5FD', fontSize: 11, fontWeight: '800', letterSpacing: 0.8 }}>
+                    HARDWARE TERMINAL & YEAHPAY
+                  </Text>
+                </View>
+
+                {/* YeahPay Switch Button */}
+                <Pressable
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 20,
+                    backgroundColor: pmYeahPayEnabled ? '#10B981' : 'rgba(255, 255, 255, 0.08)',
+                    borderWidth: 1,
+                    borderColor: pmYeahPayEnabled ? '#059669' : 'rgba(255, 255, 255, 0.12)',
+                  }}
+                  onPress={() => setPmYeahPayEnabled(!pmYeahPayEnabled)}
+                >
+                  <Ionicons
+                    name={pmYeahPayEnabled ? 'checkmark-circle' : 'close-circle-outline'}
+                    size={14}
+                    color={pmYeahPayEnabled ? C.white : C.textSec}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={{ color: pmYeahPayEnabled ? C.white : C.textSec, fontWeight: '800', fontSize: 11 }}>
+                    {pmYeahPayEnabled ? 'YeahPay Enabled' : 'Disabled'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>DEVICE SERIAL NUMBER (DeviceSN)</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}
+                    value={pmDeviceSN}
+                    onChangeText={setPmDeviceSN}
+                    placeholder="e.g. N5-POS-98124501"
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="none"
+                  />
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Terminal serial number in dbo.Paymode</Text>
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
+                  <Text style={styles.fieldLabel}>DEVICE ENCRYPTION SALT (DeviceSalt)</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}
+                    value={pmDeviceSalt}
+                    onChangeText={setPmDeviceSalt}
+                    placeholder="e.g. 7f9a1b2c4d8e..."
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="none"
+                  />
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Terminal encryption security salt</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Section: Status */}
+            <View style={{ gap: 10, marginTop: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="checkmark-circle-outline" size={13} color="#22C55E" />
+                <Text style={{ color: C.textSec, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>
+                  VISIBILITY & STATUS
+                </Text>
+              </View>
+
+              <View style={[styles.formGroup, { marginBottom: 0 }]}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pressable
+                    style={[styles.groupPill, pmActive && { backgroundColor: 'rgba(34, 197, 94, 0.2)', borderWidth: 1, borderColor: '#22C55E' }, { paddingHorizontal: 16, paddingVertical: 8 }]}
+                    onPress={() => setPmActive(true)}
+                  >
+                    <Ionicons name="checkmark-circle" size={15} color={pmActive ? '#22C55E' : C.textSec} style={{ marginRight: 6 }} />
+                    <Text style={[styles.groupPillText, pmActive && { color: '#22C55E', fontWeight: '800' }]}>
+                      Active (Visible in POS & Kiosk)
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.groupPill, !pmActive && { backgroundColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1, borderColor: '#EF4444' }, { paddingHorizontal: 16, paddingVertical: 8 }]}
+                    onPress={() => setPmActive(false)}
+                  >
+                    <Ionicons name="close-circle" size={15} color={!pmActive ? '#EF4444' : C.textSec} style={{ marginRight: 6 }} />
+                    <Text style={[styles.groupPillText, !pmActive && { color: '#EF4444', fontWeight: '800' }]}>
+                      Inactive (Hidden)
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+
+            {/* Section: Logo */}
+            <View style={{ gap: 8, marginTop: 4 }}>
+              <Text style={styles.fieldLabel}>TENDER LOGO / BADGE (OPTIONAL)</Text>
+              <View style={styles.uploadRow}>
+                {pmImage ? (
+                  <View style={styles.previewBox}>
+                    <Image source={{ uri: resolveApiUrl(pmImage) }} style={styles.previewImg} resizeMode="contain" />
+                    <Pressable style={styles.previewRemoveBtn} onPress={() => setPmImage('')}>
+                      <Ionicons name="trash" size={12} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={[styles.previewBoxPlaceholder, { backgroundColor: '#1E293B' }]}>
+                    <Ionicons name="card-outline" size={22} color="#94A3B8" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Pressable
+                    style={styles.btnUpload}
+                    onPress={() => handlePickImage((base64) => setPmImage(base64))}
+                  >
+                    <Ionicons name="cloud-upload-outline" size={15} color={C.white} />
+                    <Text style={styles.btnUploadText}>{pmImage ? 'Change Image' : 'Upload Tender Icon'}</Text>
+                  </Pressable>
+                  <Text style={styles.uploadHint}>Used on kiosk touch buttons</Text>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* Fixed Footer */}
+          <View style={{
+            flexShrink: 0,
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 10,
+            paddingHorizontal: 20,
+            paddingVertical: 14,
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(255, 255, 255, 0.08)',
+            backgroundColor: '#161616',
+          }}>
+            <Pressable style={styles.btnSecondary} onPress={() => setPaymodeModalOpen(false)}>
+              <Text style={styles.btnSecondaryText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.btnPrimary, savingPaymode && { opacity: 0.7 }]}
+              onPress={handleSavePaymode}
+              disabled={savingPaymode}
+            >
+              {savingPaymode ? (
+                <ActivityIndicator color={C.white} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-sharp" size={15} color={C.white} style={{ marginRight: 4 }} />
+                  <Text style={styles.btnPrimaryText}>{editingPaymode ? 'Update PayMode' : 'Save PayMode'}</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   /* ── 3. Configuration & Masters View ── */
   const renderSettings = () => (
     <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
@@ -2306,16 +3294,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           {vehicles.map((v) => (
             <View key={v.vehicleTypeId} style={styles.tableRow}>
               <View style={{ flex: 0.8, justifyContent: 'center' }}>
-                {v.imageUrl ? (
-                  <Image
-                    source={{ uri: v.imageUrl }}
-                    style={styles.tableThumb}
-                  />
-                ) : (
-                  <View style={styles.tableThumbPlaceholder}>
-                    <Ionicons name="car-outline" size={16} color={C.textMuted} />
-                  </View>
-                )}
+                <BackofficeImageThumb
+                  uri={v.imageUrl}
+                  fallbackKey={v.vehicleTypeCode || v.vehicleTypeName}
+                  type="vehicle"
+                  style={styles.tableThumb}
+                  resizeMode="contain"
+                />
               </View>
               <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{v.vehicleTypeCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>{v.vehicleTypeName}</Text>
@@ -2391,30 +3376,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           {categories.map((c) => (
             <View key={c.serviceCategoryId} style={styles.tableRow}>
               <View style={{ flex: 0.9, justifyContent: 'center' }}>
-                {c.imageUrl ? (
-                  <Image
-                    source={{ uri: c.imageUrl }}
-                    style={styles.tableThumb}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.tableThumbPlaceholder}>
-                    <Ionicons name="image-outline" size={16} color={C.textMuted} />
-                  </View>
-                )}
+                <BackofficeImageThumb
+                  uri={c.imageUrl}
+                  fallbackKey={c.serviceCategoryCode || c.categoryName}
+                  type="category"
+                  style={styles.tableThumb}
+                  resizeMode="cover"
+                />
               </View>
               <View style={{ flex: 0.7, justifyContent: 'center' }}>
-                {c.iconUrl ? (
-                  <Image
-                    source={{ uri: c.iconUrl }}
-                    style={[styles.tableThumb, { width: 32, height: 32, borderRadius: 6 }]}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <View style={[styles.tableThumbPlaceholder, { width: 32, height: 32 }]}>
-                    <Ionicons name="sparkles-outline" size={14} color={C.textMuted} />
-                  </View>
-                )}
+                <BackofficeImageThumb
+                  uri={c.iconUrl}
+                  fallbackKey={c.serviceCategoryCode || c.categoryName}
+                  type="category"
+                  style={[styles.tableThumb, { width: 32, height: 32, borderRadius: 6 }]}
+                  resizeMode="contain"
+                />
               </View>
               <Text style={[styles.td, styles.textAccent, { flex: 1.1, fontWeight: '700' }]}>{c.serviceCategoryCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.4, fontWeight: '700' }]}>{c.categoryName}</Text>
@@ -2466,7 +3443,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setPName('');
                 setPDesc('');
                 setPPrice('15.00');
-                setPGst('9.0');
                 setPDuration('20');
                 setPOrder('1');
                 setPActive(true);
@@ -2482,9 +3458,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           <View style={styles.tableHeader}>
             <Text style={[styles.th, { flex: 1.5 }]}>CATEGORY</Text>
             <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 1.8 }]}>PACKAGE NAME</Text>
-            <Text style={[styles.th, { flex: 1 }]}>PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 0.8 }]}>GST %</Text>
+            <Text style={[styles.th, { flex: 2 }]}>PACKAGE NAME</Text>
+            <Text style={[styles.th, { flex: 1.2 }]}>PRICE ($)</Text>
             <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
           </View>
@@ -2493,9 +3468,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View key={pkg.packageId} style={styles.tableRow}>
               <Text style={[styles.td, styles.textSec, { flex: 1.5 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
               <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{pkg.packageCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 1.8, fontWeight: '700' }]}>{pkg.packageName}</Text>
-              <Text style={[styles.td, { flex: 1, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 0.8 }]}>{pkg.gstPercent}%</Text>
+              <Text style={[styles.td, styles.textWhite, { flex: 2, fontWeight: '700' }]}>{pkg.packageName}</Text>
+              <Text style={[styles.td, { flex: 1.2, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
               <View style={{ flex: 1 }}>
                 <View style={[styles.statusBadge, pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                   <Text style={[styles.statusBadgeText, pkg.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
@@ -2513,7 +3487,6 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setPName(pkg.packageName);
                     setPDesc(pkg.description || '');
                     setPPrice(String(pkg.price));
-                    setPGst(String(pkg.gstPercent));
                     setPDuration(String(pkg.durationMinutes || 20));
                     setPOrder(String(pkg.displayOrder));
                     setPActive(pkg.isActive);
@@ -2655,13 +3628,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View key={d.dealerId || d.uniqueCode} style={styles.tableRow}>
               {/* Logo Column */}
               <View style={{ flex: 0.8, justifyContent: 'center' }}>
-                {d.logoUrl ? (
-                  <Image source={{ uri: d.logoUrl }} style={styles.tableThumb} resizeMode="contain" />
-                ) : (
-                  <View style={styles.tableThumbPlaceholder}>
-                    <Ionicons name="business-outline" size={16} color={C.textMuted} />
-                  </View>
-                )}
+                <BackofficeImageThumb
+                  uri={d.logoUrl}
+                  fallbackKey={d.dealerName}
+                  type="dealer"
+                  style={styles.tableThumb}
+                  resizeMode="contain"
+                />
               </View>
 
               {/* Unique ID */}
@@ -2789,17 +3762,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
               {/* Logo / Icon */}
               <View style={{ flex: 0.9, justifyContent: 'center' }}>
-                {at.imageUrl ? (
-                  <Image source={{ uri: at.imageUrl }} style={styles.tableThumb} resizeMode="contain" />
-                ) : (
-                  <View style={[styles.tableThumbPlaceholder, { backgroundColor: at.code === 'DEALER' ? '#0F172A' : '#EF4444' }]}>
-                    <Ionicons 
-                      name={(at.iconName || (at.code === 'DEALER' ? 'business' : 'car-sport')) as any} 
-                      size={18} 
-                      color="#FFFFFF" 
-                    />
-                  </View>
-                )}
+                <BackofficeImageThumb
+                  uri={at.imageUrl}
+                  fallbackKey={at.code}
+                  type="account"
+                  style={styles.tableThumb}
+                  resizeMode="contain"
+                />
               </View>
 
               {/* Code */}
@@ -2896,6 +3865,18 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 <Text style={styles.fieldLabel}>EMAIL</Text>
                 <TextInput style={styles.fieldInput} value={compEmail} onChangeText={setCompEmail} />
               </View>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>REPORT EMAIL (DAY END REPORTS)</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={compReportEmail}
+                onChangeText={setCompReportEmail}
+                placeholder="e.g. reports@uniprosg.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
             </View>
 
             <View style={styles.formRow}>
@@ -3028,7 +4009,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <View style={styles.uploadRow}>
                 {vImage ? (
                   <View style={styles.previewBox}>
-                    <Image source={{ uri: vImage }} style={styles.previewImg} />
+                    <Image source={{ uri: resolveApiUrl(vImage) }} style={styles.previewImg} resizeMode="contain" />
                     <Pressable style={styles.previewRemoveBtn} onPress={() => setVImage('')}>
                       <Ionicons name="trash" size={12} color="#EF4444" />
                     </Pressable>
@@ -3083,7 +4064,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <View style={styles.uploadRow}>
                 {cImage ? (
                   <View style={styles.previewBox}>
-                    <Image source={{ uri: cImage }} style={styles.previewImg} resizeMode="cover" />
+                    <Image source={{ uri: resolveApiUrl(cImage) }} style={styles.previewImg} resizeMode="cover" />
                     <Pressable style={styles.previewRemoveBtn} onPress={() => setCImage('')}>
                       <Ionicons name="trash" size={12} color="#EF4444" />
                     </Pressable>
@@ -3111,7 +4092,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <View style={styles.uploadRow}>
                 {cIcon ? (
                   <View style={[styles.previewBox, { width: 56, height: 56, borderRadius: 12 }]}>
-                    <Image source={{ uri: cIcon }} style={[styles.previewImg, { width: 44, height: 44 }]} resizeMode="contain" />
+                    <Image source={{ uri: resolveApiUrl(cIcon) }} style={[styles.previewImg, { width: 44, height: 44 }]} resizeMode="contain" />
                     <Pressable style={styles.previewRemoveBtn} onPress={() => setCIcon('')}>
                       <Ionicons name="trash" size={12} color="#EF4444" />
                     </Pressable>
@@ -3365,7 +4346,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 <View style={styles.uploadRow}>
                   {dLogo ? (
                     <View style={styles.previewBox}>
-                      <Image source={{ uri: dLogo }} style={styles.previewImg} resizeMode="contain" />
+                      <Image source={{ uri: resolveApiUrl(dLogo) }} style={styles.previewImg} resizeMode="contain" />
                       <Pressable style={styles.previewRemoveBtn} onPress={() => setDLogo('')}>
                         <Ionicons name="trash" size={12} color="#EF4444" />
                       </Pressable>
@@ -3513,7 +4494,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 <View style={styles.uploadRow}>
                   {atImage ? (
                     <View style={styles.previewBox}>
-                      <Image source={{ uri: atImage }} style={styles.previewImg} resizeMode="contain" />
+                      <Image source={{ uri: resolveApiUrl(atImage) }} style={styles.previewImg} resizeMode="contain" />
                       <Pressable style={styles.previewRemoveBtn} onPress={() => setAtImage('')}>
                         <Ionicons name="trash" size={12} color="#EF4444" />
                       </Pressable>
@@ -3796,6 +4777,12 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         return renderUsers();
       case 'user-groups':
         return renderUserGroups();
+      case 'paymodes':
+        return (
+          <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+            {renderPaymodesView()}
+          </ScrollView>
+        );
       case 'settings':
         return renderSettings();
       case 'audit':
@@ -3864,6 +4851,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         {/* Navigation Group: SYSTEM */}
         <Text style={styles.navGroupLabel}>SYSTEM</Text>
         {[
+          { id: 'paymodes', icon: 'wallet-outline', label: 'Payment Modes' },
           { id: 'users', icon: 'people-outline', label: 'User Management' },
           { id: 'settings', icon: 'settings-outline', label: 'Configuration' },
           { id: 'audit', icon: 'shield-outline', label: 'Audit Logs' },
@@ -3933,7 +4921,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               </View>
               <Text style={styles.topbarTitle}>RedBay Backoffice</Text>
               <View style={styles.topbarSep} />
-              <Text style={styles.topbarPageName}>{activeNav.replace('-', ' ').toUpperCase()}</Text>
+              <Text style={styles.topbarPageName}>{activeNav === 'paymodes' ? 'PAYMENT MODES' : activeNav.replace('-', ' ').toUpperCase()}</Text>
               <ScreenNameBadge name="BackofficeScreen.tsx" variant="dark" style={{ marginLeft: 8 }} />
             </>
           )}
@@ -3964,6 +4952,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         )}
         <View style={styles.contentArea}>{renderActiveScreen()}</View>
       </View>
+
+      {/* Paymode Management Modal */}
+      {renderPaymodeModal()}
 
       {/* Universal In-App Popup Modal (Replaces browser window.alert & window.confirm) */}
       <Modal visible={popup.visible} transparent animationType="fade" onRequestClose={closePopup}>

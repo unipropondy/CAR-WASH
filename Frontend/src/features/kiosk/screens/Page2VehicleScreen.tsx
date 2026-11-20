@@ -263,6 +263,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
             ? "Choose the vehicle category for commercial account billing."
             : "Choose the category matching your vehicle. Pricing is tailored accordingly."}
         </Text>
+        <View style={styles.titleUnderlineAccent} />
       </View>
 
       {/* Content Area - Optimized for PORTRAIT MODE & TABLETS */}
@@ -289,7 +290,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.portraitGrid, { maxWidth: contentMaxWidth }, isTallKiosk && styles.portraitGridTall]}>
+          <View style={[styles.portraitGrid, isTallKiosk && styles.portraitGridTall, { maxWidth: contentMaxWidth, width: '100%' }]}>
             {vehicles.map((item) => {
               const isSelected = selectedVehicleTypeId === item.vehicleTypeId;
               const meta = getVehicleMeta(item.name);
@@ -390,17 +391,23 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
   },
   promptHeaderTall: {
-    paddingVertical: 18,
+    paddingTop: 14,
+    paddingBottom: 16,
     paddingHorizontal: 24,
+  },
+  titleUnderlineAccent: {
+    width: 44,
+    height: 4,
+    backgroundColor: '#E11D48',
+    borderRadius: 2,
+    marginTop: 10,
   },
   stepBadge: {
     backgroundColor: '#FEF2F2',
@@ -488,16 +495,13 @@ const styles = StyleSheet.create({
     gap: 18,
     rowGap: 20,
     width: '100%',
-    maxWidth: 840,
   },
   portraitGridTall: {
     gap: 22,
     rowGap: 22,
-    maxWidth: 880,
   },
   vehicleCard: {
     width: '30.5%',
-    maxWidth: 245,
     minWidth: 160,
     aspectRatio: 0.96,
     backgroundColor: '#FFFFFF',

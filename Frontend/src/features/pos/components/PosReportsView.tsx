@@ -50,6 +50,7 @@ import {
   RecentWashItem,
   RecentTransactionItem 
 } from '../../../services/salesReportApi';
+import { useDayManagementStore } from '../../dayManagement/store/dayManagementStore';
 
 interface PosReportsViewProps {
   orders?: PosOrder[];
@@ -159,7 +160,11 @@ const formatISOToDDMMYYYY = (isoStr: string): string => {
   return clean;
 };
 
-const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeInfo => {
+const calculatePeriodRange = (
+  tab: ReportPeriodTab,
+  anchor: Date,
+  referenceDate?: Date
+): PeriodRangeInfo => {
   const pad = (n: number) => String(n).padStart(2, '0');
   const toISO = (d: Date) => getSgDateISO(d);
   const formatFriendly = (d: Date, withWeekday = false) => {
@@ -171,7 +176,7 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
     });
   };
 
-  const today = getDbTime();
+  const today = referenceDate || getDbTime();
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
   if (tab === 'DAILY') {
@@ -202,7 +207,7 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
   if (tab === 'MONTHLY') {
     const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     const rawEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
-    // Never exceed today/present date for current month
+    // Never exceed today/present business date for current month
     const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
     return {
       startISO: toISO(start),
@@ -215,7 +220,7 @@ const calculatePeriodRange = (tab: ReportPeriodTab, anchor: Date): PeriodRangeIn
   // YEARLY
   const start = new Date(anchor.getFullYear(), 0, 1);
   const rawEnd = new Date(anchor.getFullYear(), 11, 31);
-  // Never exceed today/present date for current year
+  // Never exceed today/present business date for current year
   const end = rawEnd > todayMidnight ? todayMidnight : rawEnd;
   return {
     startISO: toISO(start),
@@ -230,11 +235,19 @@ export type DownloadPeriodType = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | 'CU
 export const getDownloadPeriodRange = (
   period: DownloadPeriodType,
   customStart?: string,
-  customEnd?: string
+  customEnd?: string,
+  referenceDateStr?: string
 ): { startISO: string; endISO: string; displayLabel: string } => {
   const pad = (n: number) => String(n).padStart(2, '0');
   const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const today = new Date();
+
+  let today = new Date();
+  if (referenceDateStr) {
+    const parts = referenceDateStr.split('-').map(Number);
+    if (parts.length === 3) {
+      today = new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+  }
   const todayISOStr = toISO(today);
 
   if (period === 'CUSTOM') {
@@ -309,12 +322,70 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   isDownloadModalOpen = false,
   onCloseDownloadModal,
 }) => {
-  const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('YEARLY');
+  const [selectedPeriodTab, setSelectedPeriodTab] = useState<ReportPeriodTab>('DAILY');
   const [yearlyTrendView, setYearlyTrendView] = useState<'MONTHS' | 'DAYS'>('MONTHS');
-  const [anchorDate, setAnchorDate] = useState<Date>(new Date());
+
+  // Day Management store connection for active Business Date
+  const storeIsOpen = useDayManagementStore((state) => state.isOpen);
+  const storeBusinessDate = useDayManagementStore((state) => state.businessDate);
+  const activeDay = useDayManagementStore((state) => state.activeDay);
+  const lastClosedDay = useDayManagementStore((state) => state.lastClosedDay);
+  const checkDayStatus = useDayManagementStore((state) => state.checkStatus);
+
+  const [dashboardData, setDashboardData] = useState<FullDashboardPayload | null>(null);
+
+  // Determine active Business Date from Day Management (or fallback to dashboard activeBusinessDate / system date)
+  const activeBusinessDateStr = useMemo(() => {
+    const raw = storeBusinessDate || activeDay?.businessDate || lastClosedDay?.businessDate || dashboardData?.activeBusinessDate;
+    if (raw) {
+      return typeof raw === 'string' ? raw.split('T')[0] : null;
+    }
+    return null;
+  }, [storeBusinessDate, activeDay, lastClosedDay, dashboardData?.activeBusinessDate]);
+
+  const activeBusinessDateObj = useMemo(() => {
+    if (activeBusinessDateStr) {
+      const parts = activeBusinessDateStr.split('-').map(Number);
+      if (parts.length === 3) {
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }, [activeBusinessDateStr]);
+
+  const [anchorDate, setAnchorDate] = useState<Date>(() => {
+    const raw = useDayManagementStore.getState().businessDate || 
+                useDayManagementStore.getState().activeDay?.businessDate || 
+                useDayManagementStore.getState().lastClosedDay?.businessDate;
+    if (raw && typeof raw === 'string') {
+      const parts = raw.split('T')[0].split('-').map(Number);
+      if (parts.length === 3) {
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+    }
+    return new Date();
+  });
+
+  const [hasUserNavigatedDate, setHasUserNavigatedDate] = useState<boolean>(false);
+
+  useEffect(() => {
+    checkDayStatus();
+  }, []);
+
+  // When active Business Date becomes known or changes (Day Start/Day End),
+  // sync anchorDate unless user has explicitly navigated to a previous historical date
+  useEffect(() => {
+    if (activeBusinessDateStr && !hasUserNavigatedDate) {
+      const parts = activeBusinessDateStr.split('-').map(Number);
+      if (parts.length === 3) {
+        setAnchorDate(new Date(parts[0], parts[1] - 1, parts[2]));
+      }
+    }
+  }, [activeBusinessDateStr, hasUserNavigatedDate]);
+
   const [customStartDate, setCustomStartDate] = useState<string | null>(null);
   const [customEndDate, setCustomEndDate] = useState<string | null>(null);
-  const [dashboardData, setDashboardData] = useState<FullDashboardPayload | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -345,8 +416,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   }, [isFilterOpen, filterSortBy, filterPaymentMode, filterShowCancelled]);
 
   const dateRange = useMemo(() => {
-    return calculatePeriodRange(selectedPeriodTab, anchorDate);
-  }, [selectedPeriodTab, anchorDate]);
+    return calculatePeriodRange(selectedPeriodTab, anchorDate, activeBusinessDateObj);
+  }, [selectedPeriodTab, anchorDate, activeBusinessDateObj]);
 
   const effectiveStartISO = customStartDate || dateRange.startISO;
   const effectiveEndISO = customEndDate || dateRange.endISO;
@@ -360,35 +431,41 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   }, [isDownloadModalOpen, selectedPeriodTab, effectiveStartISO, effectiveEndISO]);
 
   const downloadRange = useMemo(() => {
-    return getDownloadPeriodRange(downloadPeriod, customDownloadStart, customDownloadEnd);
-  }, [downloadPeriod, customDownloadStart, customDownloadEnd]);
+    return getDownloadPeriodRange(
+      downloadPeriod,
+      customDownloadStart,
+      customDownloadEnd,
+      activeBusinessDateStr || undefined
+    );
+  }, [downloadPeriod, customDownloadStart, customDownloadEnd, activeBusinessDateStr]);
 
   const todayISO = useMemo(() => {
+    if (activeBusinessDateStr) return activeBusinessDateStr;
     const today = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-  }, []);
+  }, [activeBusinessDateStr]);
 
   const isAtPresent = useMemo(() => {
-    const today = new Date();
-    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    if (selectedPeriodTab === 'DAILY') {
-      const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
-      return anchorMidnight >= todayMidnight;
-    }
-    if (selectedPeriodTab === 'WEEKLY') {
+    const todayMidnight = new Date(
+      activeBusinessDateObj.getFullYear(),
+      activeBusinessDateObj.getMonth(),
+      activeBusinessDateObj.getDate()
+    );
+    if (selectedPeriodTab === 'DAILY' || selectedPeriodTab === 'WEEKLY') {
       const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
       return anchorMidnight >= todayMidnight;
     }
     if (selectedPeriodTab === 'MONTHLY') {
       return (
-        anchorDate.getFullYear() > today.getFullYear() ||
-        (anchorDate.getFullYear() === today.getFullYear() && anchorDate.getMonth() >= today.getMonth())
+        anchorDate.getFullYear() > activeBusinessDateObj.getFullYear() ||
+        (anchorDate.getFullYear() === activeBusinessDateObj.getFullYear() &&
+          anchorDate.getMonth() >= activeBusinessDateObj.getMonth())
       );
     }
     // YEARLY
-    return anchorDate.getFullYear() >= today.getFullYear();
-  }, [selectedPeriodTab, anchorDate]);
+    return anchorDate.getFullYear() >= activeBusinessDateObj.getFullYear();
+  }, [selectedPeriodTab, anchorDate, activeBusinessDateObj]);
 
   useEffect(() => {
     if (refreshTrigger && refreshTrigger > 0) {
@@ -397,15 +474,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   }, [refreshTrigger]);
 
   const isCurrentDate = useMemo(() => {
-    const today = new Date();
     return (
-      today.getFullYear() === anchorDate.getFullYear() &&
-      today.getMonth() === anchorDate.getMonth() &&
-      today.getDate() === anchorDate.getDate()
+      activeBusinessDateObj.getFullYear() === anchorDate.getFullYear() &&
+      activeBusinessDateObj.getMonth() === anchorDate.getMonth() &&
+      activeBusinessDateObj.getDate() === anchorDate.getDate()
     );
-  }, [anchorDate]);
+  }, [anchorDate, activeBusinessDateObj]);
 
   const handlePrevious = () => {
+    setHasUserNavigatedDate(true);
     setCustomStartDate(null);
     setCustomEndDate(null);
     setAnchorDate((prev) => {
@@ -428,8 +505,11 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     setCustomStartDate(null);
     setCustomEndDate(null);
     setAnchorDate((prev) => {
-      const today = new Date();
-      const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const todayMidnight = new Date(
+        activeBusinessDateObj.getFullYear(),
+        activeBusinessDateObj.getMonth(),
+        activeBusinessDateObj.getDate()
+      );
       const next = new Date(prev);
       if (selectedPeriodTab === 'DAILY') {
         next.setDate(next.getDate() + 1);
@@ -440,14 +520,19 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       } else if (selectedPeriodTab === 'YEARLY') {
         next.setFullYear(next.getFullYear() + 1);
       }
-      return next > todayMidnight ? todayMidnight : next;
+      const capped = next > todayMidnight ? todayMidnight : next;
+      if (capped >= todayMidnight) {
+        setHasUserNavigatedDate(false);
+      }
+      return capped;
     });
   };
 
   const handleResetToCurrent = () => {
+    setHasUserNavigatedDate(false);
     setCustomStartDate(null);
     setCustomEndDate(null);
-    setAnchorDate(new Date());
+    setAnchorDate(new Date(activeBusinessDateObj));
   };
 
   const loadDashboard = useCallback(
@@ -685,9 +770,63 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
   const washTrendList = displayTrendList;
 
-  const recentWashesList = dashboardData?.recentWashes && dashboardData.recentWashes.length > 0
-    ? dashboardData.recentWashes
-    : [];
+  const getOrderSortKey = (orderId?: number | string | null, orderNo?: string | number | null): number => {
+    if (orderNo != null) {
+      const str = String(orderNo).trim();
+      const dashIdx = str.lastIndexOf('-');
+      if (dashIdx !== -1) {
+        const suffix = parseInt(str.substring(dashIdx + 1), 10);
+        if (!isNaN(suffix) && suffix > 0) return suffix;
+      }
+      const digitsOnly = str.replace(/\D/g, '');
+      if (digitsOnly) {
+        const num = parseInt(digitsOnly, 10);
+        if (!isNaN(num) && num > 0) return num;
+      }
+    }
+    if (orderId != null && !isNaN(Number(orderId))) {
+      return Number(orderId);
+    }
+    return 0;
+  };
+
+  const compareOrdersOrderWiseDesc = (
+    a: { orderId?: number | string | null; orderNo?: string | number | null; createdDate?: string | Date | null; paidDate?: string | Date | null },
+    b: { orderId?: number | string | null; orderNo?: string | number | null; createdDate?: string | Date | null; paidDate?: string | Date | null }
+  ): number => {
+    // 1. Primary: Database OrderId (strictly unique & auto-incrementing identity)
+    const idA = Number(a.orderId) || 0;
+    const idB = Number(b.orderId) || 0;
+    if (idA > 0 && idB > 0 && idA !== idB) {
+      return idB - idA;
+    }
+
+    // 2. Secondary: String OrderNo comparison with numeric sequence awareness (e.g. 'RB20261119-0013' vs 'RB20261119-0012')
+    if (a.orderNo && b.orderNo && a.orderNo !== b.orderNo) {
+      const comp = String(b.orderNo).localeCompare(String(a.orderNo), undefined, { numeric: true });
+      if (comp !== 0) return comp;
+    }
+
+    // 3. Fallback: Numerical sequence number from OrderNo
+    const seqA = getOrderSortKey(a.orderId, a.orderNo);
+    const seqB = getOrderSortKey(b.orderId, b.orderNo);
+    if (seqA > 0 && seqB > 0 && seqA !== seqB) {
+      return seqB - seqA;
+    }
+
+    // 4. Fallback: Creation / Payment Date timestamp
+    const timeA = new Date(a.createdDate || a.paidDate || 0).getTime();
+    const timeB = new Date(b.createdDate || b.paidDate || 0).getTime();
+    return timeB - timeA;
+  };
+
+  const recentWashesList = useMemo(() => {
+    const list = dashboardData?.recentWashes && dashboardData.recentWashes.length > 0
+      ? [...dashboardData.recentWashes]
+      : [];
+    list.sort((a, b) => compareOrdersOrderWiseDesc(a, b));
+    return list;
+  }, [dashboardData?.recentWashes]);
 
   const recentTransactionsList = useMemo<RecentTransactionItem[]>(() => {
     const rawTxList = dashboardData?.recentTransactions || [];
@@ -725,11 +864,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       }
     });
 
-    merged.sort((a, b) => {
-      const timeA = new Date(a.paidDate || a.createdDate || 0).getTime();
-      const timeB = new Date(b.paidDate || b.createdDate || 0).getTime();
-      return timeB - timeA || (b.orderId || 0) - (a.orderId || 0);
-    });
+    merged.sort((a, b) => compareOrdersOrderWiseDesc(a, b));
 
     return merged;
   }, [dashboardData?.recentTransactions, dashboardData?.recentWashes]);
@@ -757,14 +892,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
     // Sort by
     if (filterSortBy === 'HIGHEST_AMOUNT') {
-      list.sort((a, b) => (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0));
-    } else {
-      // NEWEST
       list.sort((a, b) => {
-        const timeA = new Date(a.completedDate || a.startedDate || a.createdDate || 0).getTime();
-        const timeB = new Date(b.completedDate || b.startedDate || b.createdDate || 0).getTime();
-        return timeB - timeA;
+        const diff = (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0);
+        if (diff !== 0) return diff;
+        return compareOrdersOrderWiseDesc(a, b);
       });
+    } else {
+      // NEWEST / ORDER-WISE (Order No / Order ID descending)
+      list.sort((a, b) => compareOrdersOrderWiseDesc(a, b));
     }
 
     return list;
@@ -783,18 +918,270 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
     // Sort by
     if (filterSortBy === 'HIGHEST_AMOUNT') {
-      list.sort((a, b) => (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0));
-    } else {
-      // NEWEST
       list.sort((a, b) => {
-        const timeA = new Date(a.paidDate || a.createdDate || 0).getTime();
-        const timeB = new Date(b.paidDate || b.createdDate || 0).getTime();
-        return timeB - timeA;
+        const diff = (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0);
+        if (diff !== 0) return diff;
+        return compareOrdersOrderWiseDesc(a, b);
       });
+    } else {
+      // NEWEST / ORDER-WISE (Order No / Order ID descending)
+      list.sort((a, b) => compareOrdersOrderWiseDesc(a, b));
     }
 
     return list;
   }, [recentTransactionsList, filterPaymentMode, filterSortBy]);
+
+  // ---------------- Pagination for Recent Washes (10 per page, no scroll) ----------------
+  const WASHES_PAGE_SIZE = 10;
+  const [washesPage, setWashesPage] = useState<number>(1);
+
+  useEffect(() => {
+    setWashesPage(1);
+  }, [selectedPeriodTab, filterShowCancelled, filterPaymentMode, filterSortBy]);
+
+  const totalWashes = filteredRecentWashes.length;
+  const totalWashesPages = Math.max(1, Math.ceil(totalWashes / WASHES_PAGE_SIZE));
+
+  useEffect(() => {
+    if (washesPage > totalWashesPages) {
+      setWashesPage(totalWashesPages);
+    }
+  }, [totalWashesPages, washesPage]);
+
+  const startWashIndex = (washesPage - 1) * WASHES_PAGE_SIZE;
+  const endWashIndex = Math.min(startWashIndex + WASHES_PAGE_SIZE, totalWashes);
+  const pagedWashes = filteredRecentWashes.slice(startWashIndex, endWashIndex);
+
+  // ---------------- Pagination for Recent Transactions (10 per page, no scroll) ----------------
+  const TX_PAGE_SIZE = 10;
+  const [txPage, setTxPage] = useState<number>(1);
+
+  useEffect(() => {
+    setTxPage(1);
+  }, [selectedPeriodTab, filterPaymentMode, filterSortBy]);
+
+  const totalTx = filteredRecentTransactions.length;
+  const totalTxPages = Math.max(1, Math.ceil(totalTx / TX_PAGE_SIZE));
+
+  useEffect(() => {
+    if (txPage > totalTxPages) {
+      setTxPage(totalTxPages);
+    }
+  }, [totalTxPages, txPage]);
+
+  const startTxIndex = (txPage - 1) * TX_PAGE_SIZE;
+  const endTxIndex = Math.min(startTxIndex + TX_PAGE_SIZE, totalTx);
+  const pagedTransactions = filteredRecentTransactions.slice(startTxIndex, endTxIndex);
+
+  // Pagination Controls for Washes Table
+  const renderWashesPagination = () => {
+    if (totalWashes === 0) return null;
+    return (
+      <View style={styles.reportsPaginationContainer}>
+        <View style={styles.reportsPaginationLeft}>
+          <Text style={styles.reportsPaginationInfoText}>
+            Showing <Text style={styles.reportsPaginationInfoBold}>{startWashIndex + 1}–{endWashIndex}</Text> of{' '}
+            <Text style={styles.reportsPaginationInfoBold}>{totalWashes}</Text> orders
+          </Text>
+        </View>
+
+        <View style={styles.reportsPaginationRight}>
+          <TouchableOpacity
+            style={[styles.reportsPageNavBtn, washesPage === 1 && styles.reportsPageNavBtnDisabled]}
+            onPress={() => setWashesPage((p) => Math.max(1, p - 1))}
+            disabled={washesPage === 1}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Previous washes page"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={15}
+              color={washesPage === 1 ? '#94A3B8' : '#0F172A'}
+            />
+            <Text
+              style={[
+                styles.reportsPageNavBtnText,
+                washesPage === 1 && styles.reportsPageNavBtnTextDisabled,
+              ]}
+            >
+              Previous
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.reportsPagePillsRow}>
+            {Array.from({ length: totalWashesPages }, (_, i) => i + 1).map((page) => {
+              if (
+                totalWashesPages > 6 &&
+                Math.abs(page - washesPage) > 2 &&
+                page !== 1 &&
+                page !== totalWashesPages
+              ) {
+                if (Math.abs(page - washesPage) === 3) {
+                  return (
+                    <Text key={`washes-ellipsis-${page}`} style={styles.reportsPageEllipsis}>
+                      …
+                    </Text>
+                  );
+                }
+                return null;
+              }
+
+              const isActive = page === washesPage;
+              return (
+                <TouchableOpacity
+                  key={page}
+                  style={[
+                    styles.reportsPageNumberBtn,
+                    isActive && styles.reportsPageNumberBtnActive,
+                  ]}
+                  onPress={() => setWashesPage(page)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.reportsPageNumberText,
+                      isActive && styles.reportsPageNumberTextActive,
+                    ]}
+                  >
+                    {page}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.reportsPageNavBtn, washesPage === totalWashesPages && styles.reportsPageNavBtnDisabled]}
+            onPress={() => setWashesPage((p) => Math.min(totalWashesPages, p + 1))}
+            disabled={washesPage === totalWashesPages}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Next washes page"
+          >
+            <Text
+              style={[
+                styles.reportsPageNavBtnText,
+                washesPage === totalWashesPages && styles.reportsPageNavBtnTextDisabled,
+              ]}
+            >
+              Next
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={15}
+              color={washesPage === totalWashesPages ? '#94A3B8' : '#0F172A'}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // Pagination Controls for Transactions Feed
+  const renderTxPagination = () => {
+    if (totalTx === 0) return null;
+    return (
+      <View style={styles.reportsPaginationContainer}>
+        <View style={styles.reportsPaginationLeft}>
+          <Text style={styles.reportsPaginationInfoText}>
+            Showing <Text style={styles.reportsPaginationInfoBold}>{startTxIndex + 1}–{endTxIndex}</Text> of{' '}
+            <Text style={styles.reportsPaginationInfoBold}>{totalTx}</Text> settled
+          </Text>
+        </View>
+
+        <View style={styles.reportsPaginationRight}>
+          <TouchableOpacity
+            style={[styles.reportsPageNavBtn, txPage === 1 && styles.reportsPageNavBtnDisabled]}
+            onPress={() => setTxPage((p) => Math.max(1, p - 1))}
+            disabled={txPage === 1}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Previous transactions page"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={15}
+              color={txPage === 1 ? '#94A3B8' : '#0F172A'}
+            />
+            <Text
+              style={[
+                styles.reportsPageNavBtnText,
+                txPage === 1 && styles.reportsPageNavBtnTextDisabled,
+              ]}
+            >
+              Previous
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.reportsPagePillsRow}>
+            {Array.from({ length: totalTxPages }, (_, i) => i + 1).map((page) => {
+              if (
+                totalTxPages > 6 &&
+                Math.abs(page - txPage) > 2 &&
+                page !== 1 &&
+                page !== totalTxPages
+              ) {
+                if (Math.abs(page - txPage) === 3) {
+                  return (
+                    <Text key={`tx-ellipsis-${page}`} style={styles.reportsPageEllipsis}>
+                      …
+                    </Text>
+                  );
+                }
+                return null;
+              }
+
+              const isActive = page === txPage;
+              return (
+                <TouchableOpacity
+                  key={page}
+                  style={[
+                    styles.reportsPageNumberBtn,
+                    isActive && styles.reportsPageNumberBtnActive,
+                  ]}
+                  onPress={() => setTxPage(page)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.reportsPageNumberText,
+                      isActive && styles.reportsPageNumberTextActive,
+                    ]}
+                  >
+                    {page}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.reportsPageNavBtn, txPage === totalTxPages && styles.reportsPageNavBtnDisabled]}
+            onPress={() => setTxPage((p) => Math.min(totalTxPages, p + 1))}
+            disabled={txPage === totalTxPages}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Next transactions page"
+          >
+            <Text
+              style={[
+                styles.reportsPageNavBtnText,
+                txPage === totalTxPages && styles.reportsPageNavBtnTextDisabled,
+              ]}
+            >
+              Next
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={15}
+              color={txPage === totalTxPages ? '#94A3B8' : '#0F172A'}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const getDownloadPayload = async (
     period: DownloadPeriodType,
@@ -1349,7 +1736,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         },
         bayName: order.bayName,
         totalAmount: order.totalAmount,
-        gstAmount: (order.totalAmount * 0.09) / 1.09,
+        packagePrice: order.packagePrice != null ? order.packagePrice : (order.totalAmount - (order.gstAmount || 0)),
+        gstPercent: order.gstPercent || 0,
+        gstAmount: order.gstAmount != null ? order.gstAmount : 0,
         paymentMode: 'CASH',
         paymentStatus: order.statusName || 'PAID',
         createdAt: order.createdDate,
@@ -1383,23 +1772,23 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     }
   };
 
-  const formatRelativeTime = (dateStr?: string | null): string => {
-    if (!dateStr) return 'Recently';
+  const formatTxSgTime = (dateStr?: string | null): string => {
+    if (!dateStr) return '—';
     try {
       const d = parseToSgDate(dateStr);
-      if (isNaN(d.getTime())) return 'Recently';
+      if (isNaN(d.getTime())) return '—';
 
-      const diffMs = getDbTimestampMs() - d.getTime();
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins}m ago`;
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours}h ago`;
-
-      return formatSgDateTime(d);
+      if (selectedPeriodTab === 'DAILY') {
+        return formatSgTime(d, { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+      return `${formatSgDate(d, { day: '2-digit', month: 'short' })} • ${formatSgTime(d, { hour: '2-digit', minute: '2-digit', hour12: true })}`;
     } catch {
-      return 'Recently';
+      return '—';
     }
+  };
+
+  const formatRelativeTime = (dateStr?: string | null): string => {
+    return formatTxSgTime(dateStr);
   };
 
   const SERVICE_THEMES = [
@@ -1478,11 +1867,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   ];
 
   const { width } = useWindowDimensions();
-  const isMobile = width < 680;
-  const isTablet = width >= 680 && width < 1024;
+  const isMobile = width < 768;
+  const isTablet = width >= 768 && width < 1024;
+  const nativeSvgHeight = isMobile
+    ? Math.max(140, Math.min(220, Math.round(((width - 72) * 270) / 560)))
+    : 270;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { width: '100%', alignSelf: 'stretch' }]}>
       {/* Optional Error Banner */}
       {loadError && (
         <View style={{ backgroundColor: '#FEF2F2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1505,7 +1897,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               style={[styles.periodTabItem, isActive && styles.periodTabItemActive]}
               onPress={() => {
                 setSelectedPeriodTab(tab);
-                setAnchorDate(new Date());
+                setHasUserNavigatedDate(false);
+                setAnchorDate(new Date(activeBusinessDateObj));
                 setCustomStartDate(null);
                 setCustomEndDate(null);
               }}
@@ -1664,9 +2057,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       {/* 3. ROW 1: 4 TOP KPI CARDS */}
       {/* ============================================================== */}
-      <View style={styles.kpiRowFour}>
+      <View style={[styles.kpiRowFour, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Card 1: Total Washes (Red Gradient) */}
-        <View style={styles.kpiCardRedGradient}>
+        <View style={[styles.kpiCardRedGradient, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleWhite}>
               <Ionicons name="car-sport" size={20} color="#ED0712" />
@@ -1683,7 +2076,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Total Revenue (White with red wave) */}
-        <View style={styles.kpiCardWhite}>
+        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="cash-outline" size={20} color="#ED0712" />
@@ -1698,7 +2091,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Total Customers (White with red wave) */}
-        <View style={styles.kpiCardWhite}>
+        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="people-outline" size={20} color="#ED0712" />
@@ -1713,7 +2106,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 4: Total Vehicles (White with red wave) */}
-        <View style={styles.kpiCardWhite}>
+        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="car-outline" size={20} color="#ED0712" />
@@ -1731,9 +2124,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       {/* 4. ROW 2: BAY UTILIZATION | WASH TREND | SERVICE DISTRIBUTION */}
       {/* ============================================================== */}
-      <View style={styles.threeCardsRow}>
+      <View style={[styles.threeCardsRow, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Card 1: Bay Utilization (Moved to Left Side) */}
-        <View style={styles.cardFlexOne}>
+        <View style={[styles.cardFlexOne, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardTitle}>Bay Utilization</Text>
@@ -1810,7 +2203,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Wash Trend (Paired Bar Chart - Elevated SaaS Design) */}
-        <View style={styles.cardFlexOnePointTwo}>
+        <View style={[styles.cardFlexOnePointTwo, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
@@ -2026,7 +2419,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Service Distribution (Elevated Segmented Donut Analytics Card) */}
-        <View style={styles.cardFlexOne}>
+        <View style={[styles.cardFlexOne, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
@@ -2232,9 +2625,16 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       {/* 5. ROW 3: PAYMENT CHANNEL MIX | KEY METRICS | PAYMENT BREAKDOWN */}
       {/* ============================================================== */}
-      <View style={styles.rowThreeContainer}>
+      <View style={[styles.rowThreeContainer, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Card 1: Payment Channel Mix (Infographic Circular Chart) */}
-        <View style={[styles.rowThreeCard, { flex: 1.35, minWidth: isMobile ? '100%' : 440 }]}>
+        <View
+          style={[
+            styles.rowThreeCard,
+            isMobile
+              ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }
+              : { flex: 1.35, minWidth: 440 },
+          ]}
+        >
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardTitle}>Payment Channel Mix</Text>
@@ -2242,10 +2642,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
           </View>
 
-          <View style={styles.channelMixBody}>
+          <View style={[styles.channelMixBody, isMobile && { flex: 0, height: 'auto' }]}>
             {/* Infographic Stepped Circular Chart (Active on Web and Android APK / Native) */}
             {payMixList.length > 0 ? (
-              <View style={styles.infographicSvgContainer}>
+              <View style={[styles.infographicSvgContainer, isMobile && { height: nativeSvgHeight, marginVertical: 4 }]}>
                 {(() => {
                   const cx = 280;
                   const cy = 135;
@@ -2445,7 +2845,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     return (
                       <svg
                         width="100%"
-                        height="270"
+                        height={isMobile ? nativeSvgHeight : 270}
                         viewBox="0 0 560 270"
                         style={{
                           display: 'block',
@@ -2769,7 +3169,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   return (
                     <Svg
                       width="100%"
-                      height={isMobile ? 240 : 270}
+                      height={nativeSvgHeight}
                       viewBox="0 0 560 270"
                       style={{ alignSelf: 'center' }}
                     >
@@ -3123,7 +3523,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Key Metrics (4 Essential KPIs - Modern 2x2 Scorecard Grid) */}
-        <View style={styles.rowThreeCard}>
+        <View style={[styles.rowThreeCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#EEF2FF' }]}>
@@ -3172,7 +3572,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   label: 'GST Collected',
                   sub: `Net: $${summary.totalNetRevenue.toFixed(2)}`,
                   val: `$${summary.totalGSTAmount.toFixed(2)}`,
-                  tag: '9% GST',
+                  tag: 'Tax',
                   icon: 'receipt',
                   iconBg: '#F0F9FF',
                   iconColor: '#0284C7',
@@ -3224,7 +3624,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Top Using Packages List (Executive Edition) */}
-        <View style={styles.rowThreeCardWide}>
+        <View style={[styles.rowThreeCardWide, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0', borderWidth: 1 }]}>
@@ -3347,51 +3747,52 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       {/* 6. ROW 4: RECENT WASHES TABLE & RECENT TRANSACTIONS FEED */}
       {/* ============================================================== */}
-      <View style={styles.bottomRow}>
+      <View style={[styles.bottomRow, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Left: Recent Washes Table matching reference design */}
-        <View style={styles.recentWashesCard}>
-          <View style={styles.cardHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <View style={styles.sectionHeaderIconBox}>
-                <Ionicons name="car-sport" size={18} color="#ED0712" />
+        <View style={[styles.recentWashesCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 }]}>
+          <View style={{ flex: 1, minHeight: 0 }}>
+            <View style={styles.cardHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={styles.sectionHeaderIconBox}>
+                  <Ionicons name="car-sport" size={18} color="#ED0712" />
+                </View>
+                <View>
+                  <Text style={styles.cardTitle}>
+                    {selectedPeriodTab === 'DAILY'
+                      ? 'Daily Washes'
+                      : selectedPeriodTab === 'WEEKLY'
+                      ? 'Weekly Washes'
+                      : selectedPeriodTab === 'MONTHLY'
+                      ? 'Monthly Washes'
+                      : 'Yearly Washes'}
+                  </Text>
+                  <Text style={styles.cardSubtitleText}>
+                    {selectedPeriodTab === 'DAILY'
+                      ? 'Today’s order tracking and fulfillment'
+                      : selectedPeriodTab === 'WEEKLY'
+                      ? 'This week’s order tracking and fulfillment'
+                      : selectedPeriodTab === 'MONTHLY'
+                      ? 'This month’s order tracking and fulfillment'
+                      : 'This year’s order tracking and fulfillment'}
+                  </Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.cardTitle}>
-                  {selectedPeriodTab === 'DAILY'
-                    ? 'Daily Washes'
-                    : selectedPeriodTab === 'WEEKLY'
-                    ? 'Weekly Washes'
-                    : selectedPeriodTab === 'MONTHLY'
-                    ? 'Monthly Washes'
-                    : 'Yearly Washes'}
-                </Text>
-                <Text style={styles.cardSubtitleText}>
-                  {selectedPeriodTab === 'DAILY'
-                    ? 'Today’s order tracking and fulfillment'
-                    : selectedPeriodTab === 'WEEKLY'
-                    ? 'This week’s order tracking and fulfillment'
-                    : selectedPeriodTab === 'MONTHLY'
-                    ? 'This month’s order tracking and fulfillment'
-                    : 'This year’s order tracking and fulfillment'}
+              <View style={styles.countBadgePill}>
+                <View style={styles.countBadgeDot} />
+                <Text style={styles.countBadgeText}>
+                  {filteredRecentWashes.length} Orders
                 </Text>
               </View>
             </View>
-            <View style={styles.countBadgePill}>
-              <View style={styles.countBadgeDot} />
-              <Text style={styles.countBadgeText}>
-                {filteredRecentWashes.length} Orders
-              </Text>
-            </View>
-          </View>
 
-          <View style={styles.tableContainer}>
-            <ScrollView 
-              horizontal 
-              nestedScrollEnabled={true}
-              showsHorizontalScrollIndicator={false} 
-              contentContainerStyle={{ minWidth: '100%' }}
-            >
-              <View style={{ width: '100%', minWidth: 620 }}>
+            <View style={styles.tableContainer}>
+              <ScrollView 
+                horizontal 
+                nestedScrollEnabled={true}
+                showsHorizontalScrollIndicator={false} 
+                contentContainerStyle={{ minWidth: '100%' }}
+              >
+                <View style={{ width: '100%', minWidth: 520 }}>
                 {/* Table Header: Exactly 5 Columns (ORDER NO, NAME, VEHICLE, AMOUNT, ACTION) */}
                 <View style={styles.tableHeaderRow}>
                   <Text style={[styles.thText, styles.tableColOrderNo]}>ORDER NO</Text>
@@ -3402,8 +3803,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </View>
 
                 {/* Table Rows */}
-                {filteredRecentWashes.length > 0 ? (
-                  filteredRecentWashes.map((row, i) => {
+                {totalWashes > 0 ? (
+                  pagedWashes.map((row, i) => {
                     const avatarGradients = [
                       { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' },
                       { bg: '#F0FDFA', text: '#0D9488', border: '#99F6E4' },
@@ -3467,10 +3868,17 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         {/* 4. AMOUNT */}
                         <View style={styles.tableColAmount}>
                           <Text style={styles.amountBoldText}>${row.totalAmount.toFixed(2)}</Text>
-                          <View style={styles.amountPaidPill}>
-                            <View style={styles.paidDotMini} />
-                            <Text style={styles.paidTextMini}>PAID</Text>
-                          </View>
+                          {row.statusCode === 80 || (row as any).paymentStatus === 'CANCELLED' ? (
+                            <View style={[styles.amountPaidPill, { backgroundColor: '#FEF2F2' }]}>
+                              <View style={[styles.paidDotMini, { backgroundColor: '#DC2626' }]} />
+                              <Text style={[styles.paidTextMini, { color: '#DC2626' }]}>CANCELLED</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.amountPaidPill}>
+                              <View style={styles.paidDotMini} />
+                              <Text style={styles.paidTextMini}>PAID</Text>
+                            </View>
+                          )}
                         </View>
 
                         {/* 5. ACTION (View Button Opening Full Order Details Modal) */}
@@ -3499,10 +3907,11 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </ScrollView>
           </View>
         </View>
-
-        {/* Right: Recent Transactions Activity Feed */}
-        <View style={styles.recentTransactionsCard}>
-          <View style={styles.cardHeaderRow}>
+        {renderWashesPagination()}
+      </View>
+        <View style={[styles.recentTransactionsCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 }]}>
+          <View style={{ flex: 1, minHeight: 0 }}>
+            <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F0FDF4' }]}>
                 <Ionicons name="flash-outline" size={18} color="#16A34A" />
@@ -3552,16 +3961,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
           </View>
 
-          <ScrollView 
-            style={styles.txFeedScrollView} 
-            contentContainerStyle={styles.txFeedContent} 
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-            keyboardShouldPersistTaps="handled"
-            scrollEventThrottle={16}
-          >
-            {filteredRecentTransactions.length > 0 ? (
-              filteredRecentTransactions.map((tx, i) => {
+          <View style={styles.txFeedContainer}>
+            {totalTx > 0 ? (
+              pagedTransactions.map((tx, i) => {
                 const modeUpper = (tx.payMode || '').toUpperCase();
                 let badge = {
                   bg: '#EFF6FF',
@@ -3605,7 +4007,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   };
                 }
 
-                const time = formatRelativeTime(tx.paidDate || tx.createdDate);
+                const time = formatTxSgTime(tx.paidDate || tx.createdDate);
 
                 return (
                   <View key={tx.orderId || i} style={styles.txCardRow}>
@@ -3626,10 +4028,17 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         <View style={[styles.txModePill, { backgroundColor: badge.bg, borderColor: badge.border }]}>
                           <Text style={[styles.txModeText, { color: badge.color }]}>{badge.label}</Text>
                         </View>
-                        <View style={styles.txPaidStatusRow}>
-                          <View style={styles.paidDotMini} />
-                          <Text style={styles.txPaidText}>Paid</Text>
-                        </View>
+                        {(tx as any).statusCode === 80 || tx.paymentStatus === 'CANCELLED' ? (
+                          <View style={styles.txPaidStatusRow}>
+                            <View style={[styles.paidDotMini, { backgroundColor: '#DC2626' }]} />
+                            <Text style={[styles.txPaidText, { color: '#DC2626' }]}>Cancelled</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.txPaidStatusRow}>
+                            <View style={styles.paidDotMini} />
+                            <Text style={styles.txPaidText}>Paid</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 
@@ -3649,8 +4058,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </Text>
               </View>
             )}
-          </ScrollView>
+          </View>
         </View>
+        {renderTxPagination()}
+      </View>
       </View>
       {/* ============================================================== */}
       {/* 7. FULL WASH DETAILS MODAL */}
@@ -3727,7 +4138,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   $ {(selectedWashOrder?.totalAmount || 0).toFixed(2)}
                 </Text>
                 <Text style={[styles.modalKeySub, { color: '#991B1B' }]}>
-                  Incl. 9% GST
+                  {selectedWashOrder?.gstPercent ? `+ ${selectedWashOrder.gstPercent}% GST` : 'GST Exclusive'}
                 </Text>
               </View>
             </View>
@@ -3777,15 +4188,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 </Text>
               </View>
               <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Net Subtotal</Text>
+                <Text style={styles.modalDetailLabel}>Base Amount</Text>
                 <Text style={styles.modalDetailVal}>
-                  $ {((selectedWashOrder?.totalAmount || 0) - ((selectedWashOrder?.totalAmount || 0) * 0.09 / 1.09)).toFixed(2)}
+                  $ {(selectedWashOrder?.packagePrice != null ? selectedWashOrder.packagePrice : ((selectedWashOrder?.totalAmount || 0) - (selectedWashOrder?.gstAmount || 0))).toFixed(2)}
                 </Text>
               </View>
               <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>GST (9% Included)</Text>
+                <Text style={styles.modalDetailLabel}>GST ({selectedWashOrder?.gstPercent != null ? selectedWashOrder.gstPercent : 0}%)</Text>
                 <Text style={styles.modalDetailVal}>
-                  $ {(((selectedWashOrder?.totalAmount || 0) * 0.09 / 1.09)).toFixed(2)}
+                  $ {(selectedWashOrder?.gstAmount != null ? selectedWashOrder.gstAmount : 0).toFixed(2)}
                 </Text>
               </View>
               <View style={[styles.modalDetailRow, { borderBottomWidth: 0 }]}>
@@ -4221,6 +4632,7 @@ const styles = StyleSheet.create({
     maxWidth: 1380,
     paddingBottom: 48,
     gap: 18,
+    alignSelf: 'stretch',
   },
 
   /* 1. TOP HEADER */
@@ -6128,7 +6540,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 18,
     width: '100%',
-    flexWrap: 'wrap',
     alignItems: 'stretch',
   },
   sectionHeaderIconBox: {
@@ -6168,13 +6579,14 @@ const styles = StyleSheet.create({
     color: '#475569',
   },
   recentWashesCard: {
-    flex: 1.55,
-    minWidth: 520,
+    flex: 1,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 22,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   tableContainer: {
@@ -6216,30 +6628,30 @@ const styles = StyleSheet.create({
   },
   // Unified Table Column Styles
   tableColOrderNo: {
-    width: 95,
+    width: 85,
     flexShrink: 0,
     justifyContent: 'center',
   },
   tableColName: {
     flex: 1,
-    minWidth: 160,
-    paddingHorizontal: 8,
+    minWidth: 140,
+    paddingHorizontal: 6,
     flexShrink: 1,
     overflow: 'hidden',
   },
   tableColVehicle: {
-    width: 140,
+    width: 125,
     flexShrink: 0,
     justifyContent: 'center',
     paddingRight: 6,
   },
   tableColAmount: {
-    width: 95,
+    width: 85,
     flexShrink: 0,
     justifyContent: 'center',
   },
   tableColAction: {
-    width: 80,
+    width: 75,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
@@ -6498,12 +6910,13 @@ const styles = StyleSheet.create({
   /* RECENT TRANSACTIONS */
   recentTransactionsCard: {
     flex: 1,
-    minWidth: 340,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 22,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   modernRefreshBtn: {
@@ -6557,7 +6970,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     backgroundColor: '#F8FAFC',
     borderRadius: 14,
@@ -7224,5 +7637,103 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  /* NO-SCROLL CONTAINER & PAGINATION FOR REPORTS (WASHES & TRANSACTIONS) */
+  txFeedContainer: {
+    marginTop: 14,
+    gap: 8,
+    paddingVertical: 2,
+  },
+  reportsPaginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 14,
+    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 'auto',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  reportsPaginationLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reportsPaginationInfoText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  reportsPaginationInfoBold: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reportsPaginationRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reportsPageNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  reportsPageNavBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#F1F5F9',
+    opacity: 0.5,
+    ...(Platform.OS === 'web' ? ({ cursor: 'default' } as any) : {}),
+  },
+  reportsPageNavBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  reportsPageNavBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  reportsPagePillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reportsPageNumberBtn: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 6,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  reportsPageNumberBtnActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  reportsPageNumberText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  reportsPageNumberTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  reportsPageEllipsis: {
+    fontSize: 12,
+    color: '#94A3B8',
+    paddingHorizontal: 3,
   },
 });

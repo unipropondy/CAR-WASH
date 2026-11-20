@@ -17,6 +17,7 @@ import { makeShadow } from '../../../theme/shadows';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
 import { RedBayAlertModal } from '../../../components/common/RedBayAlertModal';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+import { KioskBackground } from '../components/KioskBackground';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
 import { 
   fetchAccountTypes, 
@@ -24,6 +25,7 @@ import {
   AccountTypeOption, 
   FALLBACK_ACCOUNT_TYPES 
 } from '../../../services/accountTypeApi';
+import { resolveApiUrl } from '../../../services/apiConfig';
 
 interface Page1UserTypeScreenProps {
   onSelectCustomer: () => void;
@@ -103,7 +105,7 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
   const cardMinHeight = isLandscapeShort
     ? clamp(height * 0.46, 200, 300)
     : isTallKiosk
-      ? clamp(height * 0.44, 360, 640)
+      ? clamp(height * 0.36, 360, 520)
       : clamp(height * 0.38, 260, 460);
 
   const dynamicLogoWidth = scaleSize(240, 170, 340);
@@ -111,10 +113,10 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Top Red Accent Stripe */}
-      <View style={styles.topAccentBar} />
+      {/* Background Canvas with Top Red Swoosh & Bottom Racing Waves */}
+      <KioskBackground />
 
-      {/* Top Utility Header */}
+      {/* Floating Top Utility Header */}
       <View style={[styles.topBar, { maxWidth: contentMaxWidth }, isTallKiosk && styles.topBarTall]}>
         <View style={styles.topBarLeft} />
 
@@ -136,9 +138,8 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
             accessibilityRole="button"
             accessibilityLabel="Help"
           >
-            <Text style={[styles.helpBtnIcon, isTallKiosk && { fontSize: 14 }]}>{isHelpActive ? '🚨' : '❓'}</Text>
             <Text style={[styles.helpBtnText, isTallKiosk && styles.helpBtnTextTall, isHelpActive && styles.helpBtnTextActive]}>
-              {isHelpActive ? 'Help Sent' : 'Help'}
+              {isHelpActive ? '🚨 Help Sent' : '? Help'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -183,8 +184,6 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
             <View style={[styles.taglineBadge, isTallKiosk && styles.taglineBadgeTall]}>
               <Text style={[styles.taglineText, isTallKiosk && styles.taglineTextTall]}>{t.driveInShineOut}</Text>
             </View>
-
-            <ScreenNameBadge name="Page1UserTypeScreen.tsx" variant="header" style={{ marginTop: isTallKiosk ? 10 : 6 }} />
 
             <Text style={[
               styles.heroTitle, 
@@ -250,7 +249,7 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
                       isLandscapeShort && styles.emblemImageBoxShort
                     ]}>
                       <Image 
-                        source={{ uri: item.imageUrl }} 
+                        source={{ uri: resolveApiUrl(item.imageUrl) }} 
                         style={styles.emblemImageFull} 
                         resizeMode="cover" 
                       />
@@ -355,15 +354,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: 10,
+    backgroundColor: 'transparent',
     width: '100%',
     alignSelf: 'center',
-    ...makeShadow('#000000', { width: 0, height: 1 }, 0.04, 4, 1),
+    zIndex: 10,
   },
   topBarTall: {
-    height: 70,
+    height: 68,
     paddingHorizontal: 28,
   },
   topBarLeft: {
@@ -382,33 +380,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#FCA5A5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
+    ...makeShadow('#E11D48', { width: 0, height: 2 }, 0.12, 6, 2),
   },
   helpBtnTall: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 18,
+    borderRadius: 20,
     gap: 7,
   },
   helpBtnActive: {
-    backgroundColor: '#DC2626',
-    borderColor: '#B91C1C',
+    backgroundColor: '#FEF2F2',
+    borderColor: RED_BAY_COLORS.primary,
   },
   helpBtnIcon: {
     fontSize: 12,
   },
   helpBtnText: {
-    color: '#DC2626',
-    fontSize: 12,
-    fontWeight: '800',
+    color: '#E11D48',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   helpBtnTextTall: {
-    fontSize: 14,
+    fontSize: 15,
   },
   helpBtnTextActive: {
     color: '#FFFFFF',
@@ -439,17 +439,18 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   scrollContent: {
-    paddingTop: 20,
-    paddingBottom: 32,
+    paddingTop: 16,
+    paddingBottom: 28,
     paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'space-evenly',
+    justifyContent: 'flex-start',
     flexGrow: 1,
   },
   scrollContentTall: {
-    paddingTop: 36,
-    paddingBottom: 48,
+    paddingTop: 28,
+    paddingBottom: 40,
     paddingHorizontal: 32,
+    justifyContent: 'flex-start',
   },
   scrollContentShort: {
     paddingTop: 8,
@@ -461,11 +462,12 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     alignSelf: 'center',
-    justifyContent: 'space-evenly',
+    justifyContent: 'flex-start',
     flex: 1,
   },
   portraitContainerTall: {
-    justifyContent: 'space-evenly',
+    justifyContent: 'flex-start',
+    paddingTop: 18,
   },
   portraitContainerShort: {
     justifyContent: 'flex-start',
@@ -477,8 +479,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   heroSectionTall: {
-    marginTop: 12,
-    marginBottom: 36,
+    marginTop: 10,
+    marginBottom: 28,
   },
   heroSectionShort: {
     marginTop: 4,
@@ -599,9 +601,9 @@ const styles = StyleSheet.create({
   },
   kioskCardTall: {
     borderRadius: 28,
-    paddingVertical: 40,
-    paddingHorizontal: 28,
-    gap: 26,
+    paddingVertical: 34,
+    paddingHorizontal: 26,
+    gap: 20,
     ...makeShadow('#000000', { width: 0, height: 12 }, 0.10, 22, 6),
   },
   kioskCardCompact: {

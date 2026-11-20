@@ -117,7 +117,7 @@ export class UniversalPrinterService {
       CompanyName: '',
       Address: '',
       GSTNo: '',
-      GSTPercentage: 9,
+      GSTPercentage: 0,
       Phone: '',
       Email: '',
       CashierName: '',

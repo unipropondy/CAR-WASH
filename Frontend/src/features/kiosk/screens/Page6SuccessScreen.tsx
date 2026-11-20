@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { KioskOrder } from '../types/kiosk.types';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { printKioskReceipt, triggerBrowserReceiptPrint } from '../../../services/printerApi';
+import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { getVehicleImageSource } from './Page2VehicleScreen';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
 
@@ -42,8 +44,8 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
   } = useKioskResponsive();
 
   const dynamicPassMaxWidth = isLandscape 
-    ? clamp(Math.round(width * 0.75), 680, 960) 
-    : clamp(Math.round(width * 0.90), 440, 780);
+    ? clamp(Math.round(width * 0.75), 680, 1100) 
+    : clamp(Math.round(width * 0.94), 440, contentMaxWidth);
 
   const [printStatus, setPrintStatus] = useState<'IDLE' | 'PRINTING' | 'DONE' | 'ERROR'>('PRINTING');
   const [printMessage, setPrintMessage] = useState<string>('Auto-printing receipt...');
@@ -124,6 +126,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle={isDealer ? "DEALER ORDER CONFIRMED" : "ORDER CONFIRMED & QUEUED"}
@@ -282,14 +285,22 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 
               {/* Total Banner */}
               <View style={styles.totalBanner}>
-                <View>
-                  <Text style={styles.totalBannerLabel}>
-                    {isDealer ? "TOTAL BILLED TO ACCOUNT" : "TOTAL AMOUNT PAID"}
-                  </Text>
-                  <Text style={styles.totalBannerGst}>
-                    Includes Singapore 9% GST (${(order.gstAmount || 0).toFixed(2)})
-                  </Text>
-                </View>
+                {(() => {
+                  const effectiveGstRate = order.gstPercent ?? getCachedGstRate();
+                  const totalVal = Number((order.totalAmount || 0).toFixed(2));
+                  const gstVal = Number((order.gstAmount || 0).toFixed(2));
+                  const baseVal = order.packagePrice != null ? Number(order.packagePrice) : Number((totalVal - gstVal).toFixed(2));
+                  return (
+                    <View>
+                      <Text style={styles.totalBannerLabel}>
+                        {isDealer ? "TOTAL BILLED TO ACCOUNT" : "TOTAL AMOUNT PAID"}
+                      </Text>
+                      <Text style={styles.totalBannerGst}>
+                        Base: ${baseVal.toFixed(2)}{effectiveGstRate > 0 || gstVal > 0 ? ` • GST (${effectiveGstRate}%): $${gstVal.toFixed(2)}` : ''}
+                      </Text>
+                    </View>
+                  );
+                })()}
                 <Text style={styles.totalBannerPrice}>${(order.totalAmount || 0).toFixed(2)}</Text>
               </View>
 
@@ -371,13 +382,11 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
   mainTitle: {
     fontSize: 22,

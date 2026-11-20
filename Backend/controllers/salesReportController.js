@@ -1,22 +1,49 @@
 const { getPool, sql } = require('../config/db');
 
 /**
- * Helper to compute date range from presets:
- * - 'today'
- * - 'yesterday'
- * - 'thisWeek'
- * - 'thisMonth'
- * - 'thisYear'
- * - or explicit startDate & endDate ('YYYY-MM-DD')
+ * Helper to get the active or most recent Business Date from dbo.CarWashDayMaster
  */
-function resolveDateRange(query) {
+async function getEffectiveBusinessDate(pool) {
+  try {
+    const res = await pool.request().query(`
+      SELECT TOP 1 BusinessDate, DayStatus
+      FROM dbo.CarWashDayMaster
+      ORDER BY CASE WHEN DayStatus = 'OPEN' THEN 0 ELSE 1 END, DayId DESC;
+    `);
+    if (res.recordset.length && res.recordset[0].BusinessDate) {
+      const bd = res.recordset[0].BusinessDate;
+      if (bd instanceof Date) {
+        const y = bd.getFullYear();
+        const m = String(bd.getMonth() + 1).padStart(2, '0');
+        const d = String(bd.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      return String(bd).split('T')[0];
+    }
+  } catch (err) {
+    console.warn('[getEffectiveBusinessDate Warning]', err.message);
+  }
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Helper to compute date range from presets or explicit dates.
+ * Always resolves relative to the active Business Date (from Day Start / Day End)
+ * rather than system/calendar date.
+ */
+async function resolveDateRange(query, pool) {
   const { period, startDate, endDate } = query || {};
-  const today = new Date();
+  const activeBusinessDate = await getEffectiveBusinessDate(pool);
   
   if (startDate && endDate) {
     return {
       start: startDate,
       end: endDate,
+      activeBusinessDate,
     };
   }
 
@@ -24,8 +51,12 @@ function resolveDateRange(query) {
     return {
       start: startDate,
       end: startDate,
+      activeBusinessDate,
     };
   }
+
+  const parts = activeBusinessDate.split('-').map(Number);
+  const baseDate = new Date(parts[0], parts[1] - 1, parts[2]);
 
   const formatDate = (d) => {
     const y = d.getFullYear();
@@ -35,37 +66,36 @@ function resolveDateRange(query) {
   };
 
   if (period === 'today') {
-    const dt = formatDate(today);
-    return { start: dt, end: dt };
+    return { start: activeBusinessDate, end: activeBusinessDate, activeBusinessDate };
   }
 
   if (period === 'yesterday') {
-    const yest = new Date(today);
+    const yest = new Date(baseDate);
     yest.setDate(yest.getDate() - 1);
     const dt = formatDate(yest);
-    return { start: dt, end: dt };
+    return { start: dt, end: dt, activeBusinessDate };
   }
 
   if (period === 'thisWeek') {
-    const past7 = new Date(today);
+    const past7 = new Date(baseDate);
     past7.setDate(past7.getDate() - 7);
-    return { start: formatDate(past7), end: formatDate(today) };
+    return { start: formatDate(past7), end: activeBusinessDate, activeBusinessDate };
   }
 
   if (period === 'thisMonth') {
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { start: formatDate(firstDay), end: formatDate(today) };
+    const firstDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+    return { start: formatDate(firstDay), end: activeBusinessDate, activeBusinessDate };
   }
 
   if (period === 'thisYear') {
-    const firstDay = new Date(today.getFullYear(), 0, 1);
-    return { start: formatDate(firstDay), end: formatDate(today) };
+    const firstDay = new Date(baseDate.getFullYear(), 0, 1);
+    return { start: formatDate(firstDay), end: activeBusinessDate, activeBusinessDate };
   }
 
-  // Default: past 30 days
-  const past30 = new Date(today);
+  // Default: past 30 days up to activeBusinessDate
+  const past30 = new Date(baseDate);
   past30.setDate(past30.getDate() - 30);
-  return { start: formatDate(past30), end: formatDate(today) };
+  return { start: formatDate(past30), end: activeBusinessDate, activeBusinessDate };
 }
 
 /**
@@ -75,7 +105,7 @@ function resolveDateRange(query) {
 async function getSalesSummary(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
     const bayId = req.query.bayId ? parseInt(req.query.bayId, 10) : null;
     const orderSource = req.query.orderSource || null;
 
@@ -92,6 +122,7 @@ async function getSalesSummary(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       data: {
         totalWashes: totalWashesVal,
         totalCompletedWashes: totalWashesVal,
@@ -121,7 +152,7 @@ async function getSalesSummary(req, res) {
 async function getServiceWiseSales(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
 
     const result = await pool.request()
       .input('StartDate', sql.Date, start)
@@ -144,6 +175,7 @@ async function getServiceWiseSales(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -160,7 +192,7 @@ async function getServiceWiseSales(req, res) {
 async function getBayUtilization(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
 
     const result = await pool.request()
       .input('StartDate', sql.Date, start)
@@ -182,6 +214,7 @@ async function getBayUtilization(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -198,7 +231,7 @@ async function getBayUtilization(req, res) {
 async function getPaymentChannelMix(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
 
     const result = await pool.request()
       .input('StartDate', sql.Date, start)
@@ -219,6 +252,7 @@ async function getPaymentChannelMix(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -235,7 +269,7 @@ async function getPaymentChannelMix(req, res) {
 async function getDateWiseWashTrend(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
 
     const result = await pool.request()
       .input('StartDate', sql.Date, start)
@@ -255,6 +289,7 @@ async function getDateWiseWashTrend(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -271,7 +306,7 @@ async function getDateWiseWashTrend(req, res) {
 async function getRecentWashes(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
     const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
     const result = await pool.request()
@@ -301,6 +336,8 @@ async function getRecentWashes(req, res) {
 
     return res.status(200).json({
       success: true,
+      period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -317,7 +354,7 @@ async function getRecentWashes(req, res) {
 async function getRecentTransactions(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
     const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
     const result = await pool.request()
@@ -346,6 +383,8 @@ async function getRecentTransactions(req, res) {
 
     return res.status(200).json({
       success: true,
+      period: { startDate: start, endDate: end },
+      activeBusinessDate,
       count: data.length,
       data,
     });
@@ -362,18 +401,16 @@ async function getRecentTransactions(req, res) {
 async function getFullDashboard(req, res) {
   try {
     const pool = await getPool();
-    const { start, end } = resolveDateRange(req.query);
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
 
-    // Run parallel queries using connection pool
-    const [summaryRes, serviceRes, bayRes, paymentRes, trendRes, washesRes, txRes] = await Promise.all([
-      pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_SalesSummary'),
-      pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_ServiceWiseSales'),
-      pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_BayUtilization'),
-      pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_PaymentChannelMix'),
-      pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_DateWiseWashTrend'),
-      pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentWashes'),
-      pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentTransactions'),
-    ]);
+    // Execute queries using connection pool
+    const summaryRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_SalesSummary');
+    const serviceRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_ServiceWiseSales');
+    const bayRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_BayUtilization');
+    const paymentRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_PaymentChannelMix');
+    const trendRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_DateWiseWashTrend');
+    const washesRes = await pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentWashes');
+    const txRes = await pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentTransactions');
 
     const sRow = summaryRes.recordset[0] || {};
 
@@ -409,14 +446,16 @@ async function getFullDashboard(req, res) {
               o.PaymentReference,
               ISNULL(o.OrderSource, 'KIOSK') AS OrderSource,
               ISNULL(o.PaidDate, o.CreatedDate) AS PaidDate,
-              o.CreatedDate
+              o.CreatedDate,
+              COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) AS BusinessDate
           FROM dbo.CarWashOrder o
+          LEFT JOIN dbo.CarWashDayMaster dm ON o.DayId = dm.DayId
           LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
           LEFT JOIN dbo.Paymode pm ON RTRIM(o.PayMode) = RTRIM(pm.PayMode)
           WHERE (o.PaymentStatus = 'PAID' OR o.StatusCode IN (30, 40, 50, 60, 70) OR o.TotalAmount > 0)
             AND o.StatusCode != 80
-            AND (@StartDate IS NULL OR CAST(ISNULL(o.PaidDate, o.CreatedDate) AS DATE) >= @StartDate)
-            AND (@EndDate IS NULL OR CAST(ISNULL(o.PaidDate, o.CreatedDate) AS DATE) <= @EndDate)
+            AND (@StartDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) >= @StartDate)
+            AND (@EndDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) <= @EndDate)
           ORDER BY o.OrderId DESC;
         `);
       if (fullTxRes.recordset && fullTxRes.recordset.length > 0) {
@@ -455,6 +494,7 @@ async function getFullDashboard(req, res) {
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
+      activeBusinessDate,
       summary: {
         totalWashes: calculatedTotalWashes,
         totalCompletedWashes: calculatedTotalWashes,

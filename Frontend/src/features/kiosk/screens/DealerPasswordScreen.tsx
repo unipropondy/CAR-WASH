@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { DealerOption } from '../types/kiosk.types';
+import { resolveApiUrl } from '../../../services/apiConfig';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
@@ -42,7 +44,7 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
 
   const pinLength = Math.max(4, dealer.pin ? dealer.pin.length : 4);
   const pinSlots = Array.from({ length: pinLength }, (_, i) => i);
-  const logoSource = dealer.logo || (dealer.logoUrl ? { uri: dealer.logoUrl } : null);
+  const logoSource = dealer.logo || (dealer.logoUrl ? { uri: resolveApiUrl(dealer.logoUrl) } : null);
 
   const handleKeyPress = (char: string) => {
     if (isVerifying) return;
@@ -119,6 +121,7 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
 
   return (
     <View style={styles.container}>
+      <KioskBackground />
       {/* Top Center Logo & Header */}
       <KioskTopHeader
         subtitle="DEALER STEP 2: SECURITY PIN"
@@ -288,13 +291,11 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.03, 4, 1),
   },
   title: {
     fontSize: 22,

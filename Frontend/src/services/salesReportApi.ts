@@ -77,6 +77,9 @@ export interface RecentWashItem {
   serviceCategoryName: string;
   bayId: number | null;
   bayName: string;
+  packagePrice?: number;
+  gstPercent?: number;
+  gstAmount?: number;
   totalAmount: number;
   statusCode: number;
   statusName: string;
@@ -107,6 +110,7 @@ export interface RecentTransactionItem {
 export interface FullDashboardPayload {
   success: boolean;
   period: SalesReportPeriod;
+  activeBusinessDate?: string;
   summary: SalesSummaryData;
   serviceDistribution: ServiceDistributionItem[];
   bayUtilization: BayUtilizationItem[];

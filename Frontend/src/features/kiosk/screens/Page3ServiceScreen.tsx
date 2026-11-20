@@ -11,15 +11,18 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
+import { KioskBackground } from '../components/KioskBackground';
 import { ServiceCategory, ServicePackage, DealerOption, VehicleOption } from '../types/kiosk.types';
 import { fetchServiceCategories, getCachedServiceCategories } from '../../../services/categoryApi';
 import { fetchPackagesByCategory, getCachedPackages } from '../../../services/packageApi';
+import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { useKioskLanguageStore } from '../store/kioskLanguageStore';
 import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
 import { getCategoryVisualMeta } from '../data/kioskCategoryAssets';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
+import { resolveApiUrl } from '../../../services/apiConfig';
 
 export interface DealerAddonOption {
   id: string;
@@ -126,12 +129,13 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     width 
   } = useKioskResponsive();
 
+  const gstRate = getCachedGstRate();
   const isVeryNarrow = width < 480;
   const categoryCardWidth = categoryCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
   const packageCardWidth = packageCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
   const addonCardWidth = isVeryNarrow ? '47.5%' : (isLandscape && width >= 1000 ? '31.5%' : '48.5%');
 
-  const dynamicCategoryImgHeight = scaleSize(125, 95, 175);
+  const dynamicCategoryImgHeight = scaleSize(160, 125, 220);
   const dynamicPackageMinHeight = scaleSize(260, 210, 420);
 
   const initialCategoriesList = getCachedServiceCategories();
@@ -324,16 +328,17 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Top Center Logo & Header */}
+      {/* Background Canvas with Top Red Swoosh & Bottom Racing Waves */}
+      <KioskBackground />
+
+      {/* Top Floating Controls: Back Button, RedBay Logo Badge, Help Button */}
       <KioskTopHeader
-        subtitle={isDealer ? "DEALER STEP 2: PACKAGE & ADD-ONS" : (viewStep === 'CATEGORIES' ? "STEP 2 OF 5: CATEGORY" : "STEP 2 OF 5: PACKAGE")}
-        screenName="PackageSelectionScreen.tsx"
-        onExitToPos={onExitToPos}
         onBack={handleBackNavigation}
-        backLabel={isDealer ? 'Vehicles' : (viewStep === 'PACKAGES' ? 'Categories' : 'Vehicles')}
+        onExitToPos={onExitToPos}
+        subtitle={isDealer ? "Dealer Package" : (viewStep === 'CATEGORIES' ? "Category Selection" : "Package Selection")}
       />
 
-      {/* Main Title & Prompt Header */}
+      {/* Main Title & Prompt Header (Plain & Transparent) */}
       <View style={styles.promptHeader}>
         <Text style={styles.mainTitle}>
           {isDealer ? "Choose Package & Additional Services" : (viewStep === 'CATEGORIES' ? "Select a Service Category" : "Choose Your Package")}
@@ -341,7 +346,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
         <Text style={styles.subtitle}>
           {isDealer 
             ? "Select service package and optional commercial add-ons. Order will be billed automatically to credit."
-            : (viewStep === 'CATEGORIES' ? "Choose between exterior wash, paint polishing, or Alcare interior sanitization." : "Select your desired wash package.")}
+            : (viewStep === 'CATEGORIES' ? "Choose between exterior wash, paint polishing, or AlCare interior sanitization." : "Select your desired wash package.")}
         </Text>
         <View style={styles.titleUnderlineAccent} />
       </View>
@@ -356,7 +361,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth }]}>
+        <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth, width: '100%' }]}>
           {/* ================= STEP 1: CATEGORY SELECTION ================= */}
           {viewStep === 'CATEGORIES' && (
             loadingCategories && categories.length === 0 ? (
@@ -403,7 +408,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         isLandscapeShort && styles.cardImageBoxShort
                       ]}>
                         <Image
-                          source={cat.imageUrl && cat.hasImage ? { uri: cat.imageUrl } : meta.image}
+                          source={cat.imageUrl && cat.hasImage ? { uri: resolveApiUrl(cat.imageUrl) } : meta.image}
                           style={styles.cardImage}
                           resizeMode="cover"
                         />
@@ -417,12 +422,12 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             styles.cardEmblemBox,
                             {
                               backgroundColor: '#FFFFFF',
-                              borderColor: meta.accentColor,
+                              borderColor: meta.cardBorderColor,
                             }
                           ]}>
                             {cat.iconUrl && cat.hasIcon ? (
                               <Image
-                                source={{ uri: cat.iconUrl }}
+                                source={{ uri: resolveApiUrl(cat.iconUrl) }}
                                 style={styles.cardEmblemImage}
                                 resizeMode="contain"
                               />
@@ -446,7 +451,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         <View style={styles.cardBulletList}>
                           {meta.bullets.map((bullet, idx) => (
                             <View key={idx} style={styles.cardBulletRow}>
-                              <Ionicons name="checkmark-circle" size={16} color={meta.accentColor} />
+                              <Ionicons name="checkmark-circle" size={17} color={meta.accentColor} />
                               <Text style={styles.cardBulletText} numberOfLines={1}>
                                 {bullet}
                               </Text>
@@ -457,6 +462,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         {/* Bottom View Packages Action Button */}
                         <View style={[styles.cardActionBtn, { backgroundColor: meta.btnColor }]}>
                           <Text style={styles.cardActionBtnText}>View Packages</Text>
+                          <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -487,7 +493,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                   ]}>
                     {selectedCategory?.iconUrl && selectedCategory?.hasIcon ? (
                       <Image
-                        source={{ uri: selectedCategory.iconUrl }}
+                        source={{ uri: resolveApiUrl(selectedCategory.iconUrl) }}
                         style={styles.switchCatImage}
                         resizeMode="contain"
                       />
@@ -576,11 +582,6 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             <Text style={[styles.priceAmount, isSelected && styles.priceAmountSelected]}>
                               ${pkg.price.toFixed(2)}
                             </Text>
-                            <View style={styles.gstBadge}>
-                              <Text style={styles.priceGst}>
-                                {pkg.isTaxInclusive ? 'Incl. 9% GST' : '+ 9% GST'}
-                              </Text>
-                            </View>
                           </View>
                         </View>
 
@@ -754,13 +755,11 @@ const styles = StyleSheet.create({
   },
   promptHeader: {
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.7)',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
     width: '100%',
-    ...makeShadow('#000000', { width: 0, height: 2 }, 0.02, 4, 1),
   },
   stepBadge: {
     backgroundColor: '#E60012',
@@ -776,26 +775,28 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   mainTitle: {
-    fontSize: 26,
+    fontSize: 27,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.2,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 13,
-    color: '#475569',
-    marginTop: 4,
+    fontSize: 13.5,
+    color: '#64748B',
+    marginTop: 6,
     fontWeight: '500',
     textAlign: 'center',
     paddingHorizontal: 16,
+    maxWidth: 520,
+    lineHeight: 19,
   },
   titleUnderlineAccent: {
-    width: 46,
+    width: 44,
     height: 4,
     backgroundColor: '#E60012',
     borderRadius: 2,
-    marginTop: 8,
+    marginTop: 10,
   },
   centerContainer: {
     padding: 30,
@@ -852,19 +853,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 14,
-    rowGap: 16,
+    gap: 16,
+    rowGap: 18,
     width: '100%',
-    maxWidth: 960,
     alignSelf: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   categoryCard: {
     width: '48%',
-    maxWidth: 380,
+    maxWidth: 360,
     minWidth: 155,
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 2,
     position: 'relative',
     overflow: 'hidden',
@@ -872,7 +872,7 @@ const styles = StyleSheet.create({
   },
   categoryCard3Col: {
     width: '31%',
-    maxWidth: 340,
+    maxWidth: 320,
     minWidth: 150,
   },
   categoryCardTall: {
@@ -880,16 +880,18 @@ const styles = StyleSheet.create({
   },
   cardImageBox: {
     width: '100%',
-    height: 145,
+    height: 160,
     position: 'relative',
     backgroundColor: '#F1F5F9',
     overflow: 'hidden',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
   },
   cardImageBoxTall: {
-    height: 190,
+    height: 195,
   },
   cardImageBoxShort: {
-    height: 110,
+    height: 120,
   },
   cardImage: {
     width: '100%',
@@ -913,8 +915,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   cardBody: {
-    padding: 12,
-    gap: 10,
+    padding: 14,
+    gap: 12,
     flex: 1,
     justifyContent: 'space-between',
   },
@@ -927,7 +929,7 @@ const styles = StyleSheet.create({
   cardEmblemBox: {
     width: 44,
     height: 44,
-    borderRadius: 13,
+    borderRadius: 12,
     borderWidth: 1.5,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
@@ -950,10 +952,10 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   cardTitle: {
-    fontSize: 16.5,
+    fontSize: 18,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
   },
   cardSubtitle: {
     fontSize: 11,
@@ -963,32 +965,34 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   cardBulletList: {
-    gap: 6,
-    marginVertical: 2,
+    gap: 8,
+    marginVertical: 4,
   },
   cardBulletRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 8,
   },
   cardBulletText: {
-    fontSize: 11.5,
+    fontSize: 13,
     fontWeight: '600',
     color: '#1E293B',
     flex: 1,
   },
   cardActionBtn: {
     width: '100%',
-    height: 40,
-    borderRadius: 12,
+    height: 46,
+    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
-    ...makeShadow('#000000', { width: 0, height: 3 }, 0.15, 6, 2),
+    gap: 6,
+    marginTop: 6,
+    ...makeShadow('#000000', { width: 0, height: 3 }, 0.18, 6, 2),
   },
   cardActionBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '900',
     letterSpacing: 0.4,
   },

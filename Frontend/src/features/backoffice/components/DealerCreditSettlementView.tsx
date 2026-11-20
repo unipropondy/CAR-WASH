@@ -776,7 +776,7 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
 const getStyles = (isLight: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    padding: 12,
+    padding: isLight ? 0 : 12,
     backgroundColor: isLight ? 'transparent' : '#0A0A0A',
   },
   topSelectorCard: {

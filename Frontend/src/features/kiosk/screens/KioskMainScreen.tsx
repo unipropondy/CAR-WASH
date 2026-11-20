@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, Platform } from 'react-native';
 import { Page1UserTypeScreen } from './Page1UserTypeScreen';
 import { DealerChooseScreen } from './DealerChooseScreen';
 import { DealerPasswordScreen } from './DealerPasswordScreen';
@@ -20,8 +20,9 @@ import {
   PaymentMode, 
   KioskOrder 
 } from '../types/kiosk.types';
-import { createCarWashOrder, updateOrderPayment } from '../../../services/carwashOrderApi';
+import { createCarWashOrder, updateOrderPayment, CreatedOrderResponse } from '../../../services/carwashOrderApi';
 import { broadcastNewKioskOrder } from '../../../services/kioskOrderNotificationService';
+import { fetchCompanySettings, getCachedGstRate } from '../../../services/companySettingsApi';
 import { 
   saveKioskSession, 
   loadKioskSession, 
@@ -79,6 +80,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   // Completed Order State & Bill Number Counter (e.g. RB000001)
   const [billCounter, setBillCounter] = useState<number>(savedSession?.billCounter || 1);
   const [completedOrder, setCompletedOrder] = useState<KioskOrder | null>(savedSession?.completedOrder || null);
+  const [createdOrderData, setCreatedOrderData] = useState<CreatedOrderResponse | null>(null);
 
   // Staff POS Authentication Modal State
   const [isStaffLoginModalOpen, setIsStaffLoginModalOpen] = useState<boolean>(false);
@@ -106,6 +108,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           fetchVehicleTypes().catch(() => []),
           fetchServiceCategories().catch(() => []),
           fetchAllDealers(false).catch(() => []),
+          fetchCompanySettings().catch(() => ({} as any)),
         ]);
 
         if (!isMounted) return;
@@ -319,10 +322,6 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
       if (isDealerFlow) {
         // Dealer Flow: create CREDIT order directly, NEVER show paymodes to dealer
-        const totalAmt = selectedPackage?.price || 0;
-        const gstPercent = selectedPackage?.gstPercent || 9;
-        const gstAmt = Number(((totalAmt * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
-
         const saved = await createCarWashOrder({
           customerName: cName,
           vehicleNumber: vNum,
@@ -337,6 +336,12 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         const orderNo = saved.orderNo || `RB${String(billCounter).padStart(6, '0')}`;
         setActiveOrderId(saved.orderId);
         setActiveOrderNo(orderNo);
+        setCreatedOrderData(saved);
+
+        const baseAmt = saved.packagePrice != null ? Number(saved.packagePrice) : (selectedPackage?.price || 0);
+        const gstPercent = saved.gstPercent != null ? Number(saved.gstPercent) : getCachedGstRate();
+        const gstAmt = saved.gstAmount != null ? Number(saved.gstAmount) : Number(((baseAmt * (gstPercent / 100))).toFixed(2));
+        const totalAmt = saved.totalAmount != null ? Number(saved.totalAmount) : Number((baseAmt + gstAmt).toFixed(2));
 
         const newDealerOrder: KioskOrder = {
           orderId: saved.orderId,
@@ -354,6 +359,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           },
           paymentMode: 'CREDIT',
           paymentStatus: 'PAID',
+          packagePrice: baseAmt,
+          gstPercent: gstPercent,
           totalAmount: totalAmt,
           gstAmount: gstAmt,
           outstandingAmount: totalAmt,
@@ -394,6 +401,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
         setActiveOrderId(saved.orderId);
         setActiveOrderNo(saved.orderNo);
+        setCreatedOrderData(saved);
         navigateToPage('PAGE_5_PAYMENT', '/checkout');
       }
     } catch (err: any) {
@@ -415,9 +423,10 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     }
 
     const orderNo = activeOrderNo || `RB${String(billCounter).padStart(6, '0')}`;
-    const totalAmount = selectedPackage.price;
-    const gstPercent = selectedPackage.gstPercent || 9;
-    const gstAmount = Number(((totalAmount * (gstPercent / 100)) / (1 + (gstPercent / 100))).toFixed(2));
+    const baseAmount = createdOrderData?.packagePrice != null ? Number(createdOrderData.packagePrice) : selectedPackage.price;
+    const gstPercent = createdOrderData?.gstPercent != null ? Number(createdOrderData.gstPercent) : getCachedGstRate();
+    const gstAmount = createdOrderData?.gstAmount != null ? Number(createdOrderData.gstAmount) : Number(((baseAmount * (gstPercent / 100))).toFixed(2));
+    const totalAmount = createdOrderData?.totalAmount != null ? Number(createdOrderData.totalAmount) : Number((baseAmount + gstAmount).toFixed(2));
 
     // Broadcast customer order to POS with popup & chime alert IMMEDIATELY (0ms latency)
     broadcastNewKioskOrder({
@@ -460,6 +469,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
       customerDetails: customerDetails,
       paymentMode: mode,
       paymentStatus: String(mode).toUpperCase() === 'CASH' ? 'PENDING' : 'PAID',
+      packagePrice: baseAmount,
+      gstPercent,
       totalAmount,
       gstAmount,
       createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -640,6 +651,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             customerDetails={customerDetails}
             initialPaymentMode={paymentMode}
             orderNo={activeOrderNo}
+            savedOrder={createdOrderData}
             onConfirmPayment={handleConfirmCustomerPayment}
             onBack={() => navigateToPage('PAGE_4_DETAILS', '/details')}
             onExitToPos={handleOpenStaffLogin}
@@ -683,20 +695,38 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#F8FAFC',
     width: '100%',
     height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+    margin: 0,
+    padding: 0,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? {
+          width: '100vw' as any,
+          height: '100vh' as any,
+          maxWidth: '100vw' as any,
+          maxHeight: '100vh' as any,
+          boxSizing: 'border-box' as any,
+        }
+      : {}),
   },
   portraitWrapper: {
     flex: 1,
     width: '100%',
-    maxWidth: 720,
     height: '100%',
-    maxHeight: '100%',
+    margin: 0,
+    padding: 0,
     overflow: 'hidden',
     backgroundColor: '#F8FAFC',
-    alignSelf: 'center',
+    ...(Platform.OS === 'web'
+      ? {
+          width: '100%' as any,
+          height: '100%' as any,
+          maxWidth: '100%' as any,
+          maxHeight: '100%' as any,
+          boxSizing: 'border-box' as any,
+        }
+      : {}),
   },
 });
