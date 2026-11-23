@@ -109,7 +109,12 @@ async function resolveDeviceDetails(requestedDeviceSn, requestedSalt, payMode) {
                     SELECT TOP 1 DeviceSN, DeviceSalt, YeahPayEnabled 
                     FROM dbo.Paymode WITH (NOLOCK)
                     WHERE ISNULL(YeahPayEnabled, 0) = 1
-                    ORDER BY CASE WHEN RTRIM(UPPER(PayMode)) = UPPER(@payMode) THEN 0 ELSE 1 END;
+                    ORDER BY CASE 
+                        WHEN REPLACE(RTRIM(UPPER(PayMode)), ' ', '_') = REPLACE(UPPER(@payMode), ' ', '_') THEN 0
+                        WHEN UPPER(@payMode) LIKE '%CARD%' AND RTRIM(UPPER(PayMode)) LIKE '%CARD%' THEN 1
+                        WHEN (UPPER(@payMode) LIKE '%QR%' OR UPPER(@payMode) LIKE '%PAYNOW%') AND (RTRIM(UPPER(PayMode)) LIKE '%PAYNOW%' OR RTRIM(UPPER(PayMode)) LIKE '%QR%') THEN 1
+                        ELSE 2
+                    END;
                 `);
 
             if (pmRes.recordset.length > 0) {
@@ -123,8 +128,8 @@ async function resolveDeviceDetails(requestedDeviceSn, requestedSalt, payMode) {
     }
 
     return {
-        deviceSn: deviceSn || process.env.YEAPAY_DEVICE_SN || '',
-        salt: salt || process.env.YEAPAY_SALT || ''
+        deviceSn: (deviceSn || '').trim(),
+        salt: (salt || '').trim()
     };
 }
 

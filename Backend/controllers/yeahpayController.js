@@ -3,7 +3,6 @@ const { getPool } = require('../config/db');
 const YeahPayService = require('../services/yeahpay.service');
 
 const FIXED_APP_ID = process.env.APP_ID || process.env.YEAPAY_APP_ID || 'bin38m42efz4ta6f';
-const DEFAULT_SALT = process.env.YEAPAY_SALT || '';
 
 // Single shared YeahPayService instance using embedded public and private keys
 const yeahpayService = new YeahPayService();
@@ -66,13 +65,13 @@ async function processOrderPayment(req, res) {
       `);
 
     const pmRow = paymodeRes.recordset[0] || {};
-    const deviceSn = (pmRow.DeviceSN || process.env.YEAPAY_DEVICE_SN || '').trim();
-    const salt = (pmRow.DeviceSalt || DEFAULT_SALT || '').trim();
+    const deviceSn = (pmRow.DeviceSN || '').trim();
+    const salt = (pmRow.DeviceSalt || '').trim();
 
     if (!deviceSn) {
       return res.status(400).json({
         success: false,
-        message: 'No active YeahPay terminal DeviceSN configured in dbo.Paymode or .env (YEAPAY_DEVICE_SN)'
+        message: 'No active YeahPay terminal DeviceSN configured in dbo.Paymode'
       });
     }
 
