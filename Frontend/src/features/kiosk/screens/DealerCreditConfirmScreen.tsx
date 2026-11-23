@@ -71,6 +71,7 @@ export const DealerCreditConfirmScreen: React.FC<DealerCreditConfirmScreenProps>
           isTallKiosk && { paddingVertical: 28 }
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.portraitContainer, { maxWidth: isTwoCol ? 1200 : contentMaxWidth, width: '100%' }]}>
           {/* Top Automatic Credit Banner */}

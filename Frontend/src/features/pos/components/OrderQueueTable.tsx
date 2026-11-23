@@ -17,6 +17,7 @@ import {
   IconClock,
 } from '../../../components/common/AppIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { makeShadow } from '../../../theme/shadows';
 import { getDbTimestampMs, parseToSgDate, getDbTime } from '../../../services/timeService';
 
 export type FilterTabKey =
@@ -472,6 +473,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
           horizontal
           nestedScrollEnabled={true}
           showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.filterPillsRow}
         >
           {/* 1. All Orders */}
@@ -704,27 +706,33 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           <Text style={styles.selectBayBtnText}>Select Bay</Text>
                         </TouchableOpacity>
                       ) : isPending ? (
-                        <TouchableOpacity
-                          style={[styles.selectBayBtn, { backgroundColor: '#DC2626', borderColor: '#B91C1C' }]}
-                          onPress={() => onPayOrder(order)}
-                          activeOpacity={0.8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Collect Payment"
-                        >
-                          <Text style={{ fontSize: 11, marginRight: 3 }}>💳</Text>
-                          <Text style={styles.selectBayBtnText}>Pay</Text>
-                        </TouchableOpacity>
+                        <View style={styles.awaitingPayContainer}>
+                          <Text style={styles.awaitingPayText}>Awaiting Pay</Text>
+                        </View>
                       ) : (
                         <Text style={styles.unassignedText}>—</Text>
                       )}
                     </View>
 
                     <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                      {isPending && (
+                        <TouchableOpacity
+                          style={styles.mobilePayNowBtn}
+                          onPress={() => onPayOrder(order)}
+                          activeOpacity={0.8}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityLabel="Collect Payment"
+                        >
+                          <Ionicons name="card-outline" size={13} color="#FFFFFF" />
+                          <Text style={styles.mobilePayNowBtnText}>Pay Now</Text>
+                        </TouchableOpacity>
+                      )}
                       {onCancelOrder && isPending && (
                         <TouchableOpacity
                           style={styles.cancelActionBtn}
                           onPress={() => onCancelOrder(order)}
                           activeOpacity={0.7}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                           accessibilityLabel="Cancel Order"
                         >
                           <Ionicons name="close" size={15} color="#DC2626" />
@@ -735,6 +743,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           style={styles.historyBtn}
                           onPress={() => onViewHistory(order)}
                           activeOpacity={0.7}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
                           <IconClock size={14} color="#94A3B8" strokeWidth={2} />
                         </TouchableOpacity>
@@ -743,6 +752,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         style={styles.viewBtn}
                         onPress={() => onViewOrder(order)}
                         activeOpacity={0.85}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >
                         <Text style={styles.viewBtnText}>View Details</Text>
                       </TouchableOpacity>
@@ -761,6 +771,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
           style={{ width: '100%' }}
           contentContainerStyle={{ minWidth: '100%' }}
           nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.tableWrapper, width < 960 && { minWidth: 880 }]}>
             {/* Table Column Headers */}
@@ -885,7 +896,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         </Text>
                       </View>
 
-                      {/* 6. PAYMENT: Cancelled / Credit / Paid / Pending Badge */}
+                      {/* 6. PAYMENT: Cancelled / Credit / Paid / Pay Now Button */}
                       <View style={{ width: '11%', justifyContent: 'center' }}>
                         {isCancelled ? (
                           <View style={styles.cancelledBadge}>
@@ -902,10 +913,17 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             <Text style={styles.paidBadgeText}>Paid</Text>
                           </View>
                         ) : (
-                          <View style={styles.pendingBadge}>
-                            <IconHourglass size={11} color="#D97706" strokeWidth={2.2} />
-                            <Text style={styles.pendingBadgeText}>Pending</Text>
-                          </View>
+                          <TouchableOpacity
+                            style={styles.payNowBtn}
+                            onPress={() => onPayOrder(order)}
+                            activeOpacity={0.8}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Collect Payment"
+                          >
+                            <Ionicons name="card-outline" size={13} color="#FFFFFF" />
+                            <Text style={styles.payNowBtnText}>Pay Now</Text>
+                          </TouchableOpacity>
                         )}
                       </View>
 
@@ -923,6 +941,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             style={styles.selectBayBtn}
                             onPress={() => onAssignOrder(order)}
                             activeOpacity={0.8}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityRole="button"
                             accessibilityLabel="Select Bay"
                           >
@@ -930,16 +949,9 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             <Text style={styles.selectBayBtnText}>Select Bay</Text>
                           </TouchableOpacity>
                         ) : isPending ? (
-                          <TouchableOpacity
-                            style={[styles.selectBayBtn, { backgroundColor: '#DC2626', borderColor: '#B91C1C' }]}
-                            onPress={() => onPayOrder(order)}
-                            activeOpacity={0.8}
-                            accessibilityRole="button"
-                            accessibilityLabel="Collect Payment"
-                          >
-                            <Text style={{ fontSize: 11, marginRight: 3 }}>💳</Text>
-                            <Text style={styles.selectBayBtnText}>Pay</Text>
-                          </TouchableOpacity>
+                          <View style={styles.awaitingPayContainer}>
+                            <Text style={styles.awaitingPayText}>Awaiting Pay</Text>
+                          </View>
                         ) : (
                           <Text style={styles.unassignedText}>—</Text>
                         )}
@@ -967,6 +979,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           style={styles.viewBtn}
                           onPress={() => onViewOrder(order)}
                           activeOpacity={0.85}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
                           <Text style={styles.viewBtnText}>View</Text>
                         </TouchableOpacity>
@@ -976,6 +989,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             style={styles.cancelActionBtn}
                             onPress={() => onCancelOrder(order)}
                             activeOpacity={0.7}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             accessibilityLabel="Cancel Order"
                           >
                             <Ionicons name="close" size={14} color="#DC2626" />
@@ -987,6 +1001,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             style={styles.historyBtn}
                             onPress={() => onViewHistory(order)}
                             activeOpacity={0.7}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                           >
                             <IconClock size={14} color="#94A3B8" strokeWidth={2} />
                           </TouchableOpacity>
@@ -1491,6 +1506,52 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#1D4ED8',
+  },
+  payNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ED0712',
+    paddingVertical: 5,
+    paddingHorizontal: 11,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    ...makeShadow('#ED0712', { width: 0, height: 2 }, 0.25, 4, 2),
+  },
+  payNowBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  mobilePayNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ED0712',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    ...makeShadow('#ED0712', { width: 0, height: 2 }, 0.25, 4, 2),
+  },
+  mobilePayNowBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  awaitingPayContainer: {
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  awaitingPayText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#B45309',
   },
   unassignedText: {
     fontSize: 13,

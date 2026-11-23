@@ -70,6 +70,7 @@ export interface ServicePackage {
   name: string;
   nameZh?: string;
   price: number;
+  dealerPrice?: number;
   currencyCode?: string;
   gstPercent?: number;
   isTaxInclusive?: boolean;
@@ -103,6 +104,7 @@ export interface KioskOrder {
   paymentMode: PaymentMode;
   paymentStatus: PaymentStatus;
   packagePrice?: number;
+  dealerPrice?: number;
   gstPercent?: number;
   totalAmount: number;
   gstAmount: number;

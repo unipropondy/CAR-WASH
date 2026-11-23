@@ -2309,6 +2309,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 horizontal
                 nestedScrollEnabled={true}
                 showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 style={styles.barsContainer}
                 contentContainerStyle={[
                   styles.barsScrollContent,
@@ -3790,6 +3791,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                 horizontal 
                 nestedScrollEnabled={true}
                 showsHorizontalScrollIndicator={false} 
+                keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ minWidth: '100%' }}
               >
                 <View style={{ width: '100%', minWidth: 520 }}>

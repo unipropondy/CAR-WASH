@@ -243,7 +243,7 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
       </View>
 
       {/* Bays Grid */}
-      <ScrollView contentContainerStyle={styles.grid}>
+      <ScrollView contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled">
         {filteredBays.map((bay) => {
           const badge = getStatusBadge(bay.bayStatus);
           const isBusy = loadingAction === bay.bayNumber;

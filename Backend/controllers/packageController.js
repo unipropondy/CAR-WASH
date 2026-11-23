@@ -46,6 +46,7 @@ async function getPackages(req, res) {
         p.PackageName,
         p.Description,
         p.Price,
+        p.DealerPrice,
         p.CurrencyCode,
         p.GSTPercent,
         p.IsTaxInclusive,
@@ -106,6 +107,7 @@ async function getPackages(req, res) {
       packageName: (row.PackageName || '').trim(),
       description: row.Description ? row.Description.trim() : '',
       price: Number(row.Price),
+      dealerPrice: row.DealerPrice != null ? Number(row.DealerPrice) : Number(row.Price),
       currencyCode: (row.CurrencyCode || 'SGD').trim(),
       gstPercent: Number(row.GSTPercent || 0),
       isTaxInclusive: false,
@@ -195,6 +197,7 @@ async function createPackage(req, res) {
       packageName,
       description,
       price,
+      dealerPrice,
       currencyCode = 'SGD',
       gstPercent = 9.0,
       isTaxInclusive = false,
@@ -237,7 +240,11 @@ async function createPackage(req, res) {
     insertReq.input('code', sql.NVarChar(50), packageCode.trim().toUpperCase());
     insertReq.input('name', sql.NVarChar(150), packageName.trim());
     insertReq.input('desc', sql.NVarChar(500), description ? description.trim() : null);
+    const dPrice = dealerPrice !== undefined && dealerPrice !== null && dealerPrice !== ''
+      ? parseFloat(dealerPrice)
+      : parseFloat(price);
     insertReq.input('price', sql.Decimal(10, 2), parseFloat(price));
+    insertReq.input('dealerPrice', sql.Decimal(10, 2), dPrice);
     insertReq.input('currency', sql.NVarChar(10), (currencyCode || 'SGD').trim());
     insertReq.input('gst', sql.Decimal(5, 2), parseFloat(gstPercent || 9));
     insertReq.input('taxInc', sql.Bit, isTaxInclusive ? 1 : 0);
@@ -252,6 +259,7 @@ async function createPackage(req, res) {
         PackageName,
         Description,
         Price,
+        DealerPrice,
         CurrencyCode,
         GSTPercent,
         IsTaxInclusive,
@@ -260,13 +268,14 @@ async function createPackage(req, res) {
         IsActive,
         CreatedDate
       )
-      OUTPUT INSERTED.PackageId, INSERTED.ServiceCategoryId, INSERTED.PackageCode, INSERTED.PackageName, INSERTED.Price, INSERTED.GSTPercent, INSERTED.IsActive, INSERTED.CreatedDate
+      OUTPUT INSERTED.PackageId, INSERTED.ServiceCategoryId, INSERTED.PackageCode, INSERTED.PackageName, INSERTED.Price, INSERTED.DealerPrice, INSERTED.GSTPercent, INSERTED.IsActive, INSERTED.CreatedDate
       VALUES (
         @catId,
         @code,
         @name,
         @desc,
         @price,
+        @dealerPrice,
         @currency,
         @gst,
         @taxInc,
@@ -340,6 +349,7 @@ async function updatePackage(req, res) {
       packageName,
       description,
       price,
+      dealerPrice,
       currencyCode,
       gstPercent,
       isTaxInclusive,
@@ -374,6 +384,11 @@ async function updatePackage(req, res) {
     if (price !== undefined) {
       reqDb.input('price', sql.Decimal(10, 2), parseFloat(price));
       updates.push(`Price = @price`);
+    }
+    if (dealerPrice !== undefined) {
+      const dPrice = dealerPrice !== null && dealerPrice !== '' ? parseFloat(dealerPrice) : null;
+      reqDb.input('dPrice', sql.Decimal(10, 2), dPrice);
+      updates.push(`DealerPrice = @dPrice`);
     }
     if (currencyCode !== undefined) {
       reqDb.input('curr', sql.NVarChar(10), currencyCode.trim());

@@ -56,6 +56,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
             style={styles.backBtnSquare}
             onPress={onBack}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
@@ -66,6 +67,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
             style={styles.menuBtn}
             onPress={onToggleSidebar}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Toggle side menu"
           >
@@ -124,6 +126,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
               style={styles.notificationBtn}
               onPress={onPressNotification}
               activeOpacity={0.75}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Notifications"
             >
@@ -141,6 +144,7 @@ export const PosTopNavbar: React.FC<PosTopNavbarProps> = ({
             <TouchableOpacity
               style={styles.cashierProfile}
               activeOpacity={0.75}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               onPress={() => setShowLogoutModal(true)}
               accessibilityRole="button"
               accessibilityLabel="Cashier profile / logout"

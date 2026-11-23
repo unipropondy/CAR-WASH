@@ -155,6 +155,7 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
           isLandscapeShort && styles.scrollContentShort,
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[
           styles.portraitContainer, 

@@ -140,6 +140,7 @@ export const DealerPasswordScreen: React.FC<DealerPasswordScreenProps> = ({
       <ScrollView 
         contentContainerStyle={[styles.scrollContent, isTallKiosk && { paddingVertical: 40 }]} 
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.portraitContainer, { maxWidth: dynamicContainerMaxWidth }, isTallKiosk && styles.portraitContainerTall]}>
           <View style={[styles.cardContainer, isTallKiosk && styles.cardContainerTall]}>

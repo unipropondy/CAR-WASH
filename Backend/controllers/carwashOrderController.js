@@ -160,6 +160,7 @@ async function createOrder(req, res) {
         ServiceCategoryId, 
         PackageName, 
         Price, 
+        DealerPrice,
         CurrencyCode, 
         GSTPercent, 
         IsTaxInclusive,
@@ -194,11 +195,20 @@ async function createOrder(req, res) {
       ? Number(settingsResult.recordset[0].GSTPercentage || 0)
       : 0;
 
+    // Check if this is a Dealer Credit Order
+    const isDealerByInfo = Boolean(dealerId) ||
+      (safeVehicleNumber && (safeVehicleNumber.includes('DLR-') || safeVehicleNumber.includes('FLEET'))) ||
+      (safeCustomerName && (safeCustomerName.toUpperCase() === 'UNIPRO' || safeCustomerName.toUpperCase().includes('DEALER')));
+    const isCreditOrder = (payMode && String(payMode).trim().toUpperCase() === 'CREDIT') || isDealerByInfo;
+
     // Official pricing calculations - All prices are treated as GST Exclusive by default
-    const price = Number(officialPkg.Price);
+    const standardPrice = Number(officialPkg.Price);
+    const officialDealerPrice = officialPkg.DealerPrice != null ? Number(officialPkg.DealerPrice) : standardPrice;
     const currencyCode = (officialPkg.CurrencyCode || 'SGD').trim();
 
-    const packagePrice = Number(price.toFixed(2));
+    // Use dealer price if this is a dealer credit order, otherwise standard customer price
+    const packagePrice = isCreditOrder ? Number(officialDealerPrice.toFixed(2)) : Number(standardPrice.toFixed(2));
+    const orderDealerPrice = Number(officialDealerPrice.toFixed(2));
     const extraAmount = Number(additionalAmount) || 0;
     const baseAmount = Number((packagePrice + extraAmount).toFixed(2));
     const gstAmount = Number(((baseAmount * (gstPercent / 100))).toFixed(2));
@@ -252,11 +262,6 @@ async function createOrder(req, res) {
       }
     }
 
-    // Check if this is a Dealer Credit Order
-    const isDealerByInfo = Boolean(dealerId) ||
-      (safeVehicleNumber && (safeVehicleNumber.includes('DLR-') || safeVehicleNumber.includes('FLEET'))) ||
-      (safeCustomerName && (safeCustomerName.toUpperCase() === 'UNIPRO' || safeCustomerName.toUpperCase().includes('DEALER')));
-    const isCreditOrder = (payMode && String(payMode).trim().toUpperCase() === 'CREDIT') || isDealerByInfo;
     const finalDealerId = dealerId ? parseInt(dealerId, 10) : (isDealerByInfo ? 1 : null);
     const finalPaidAmount = 0;
     const finalOutstandingAmount = isCreditOrder ? finalTotalAmount : null;
@@ -277,6 +282,7 @@ async function createOrder(req, res) {
     orderInsertReq.input('serviceCategoryId', sql.Int, parseInt(serviceCategoryId, 10));
     orderInsertReq.input('packageId', sql.Int, parseInt(packageId, 10));
     orderInsertReq.input('packagePrice', sql.Decimal(18, 2), packagePrice);
+    orderInsertReq.input('dealerPrice', sql.Decimal(18, 2), orderDealerPrice);
     orderInsertReq.input('gstPercent', sql.Decimal(5, 2), gstPercent);
     orderInsertReq.input('gstAmount', sql.Decimal(18, 2), gstAmount);
     orderInsertReq.input('totalAmount', sql.Decimal(18, 2), finalTotalAmount);
@@ -294,7 +300,7 @@ async function createOrder(req, res) {
       INSERT INTO dbo.CarWashOrder (
         DayId, BusinessDate, OrderNo, CustomerName, VehicleNumber, MobileNumber,
         VehicleTypeId, ServiceCategoryId, PackageId,
-        PackagePrice, GSTPercent, GSTAmount, TotalAmount, CurrencyCode,
+        PackagePrice, DealerPrice, GSTPercent, GSTAmount, TotalAmount, CurrencyCode,
         PayMode, PaymentStatus, StatusCode,
         DealerId, AdditionalServices, PaidAmount, OutstandingAmount, CreditStatus,
         CreatedDate
@@ -308,7 +314,7 @@ async function createOrder(req, res) {
       VALUES (
         @dayId, @businessDate, @orderNo, @customerName, @vehicleNumber, @mobileNumber,
         @vehicleTypeId, @serviceCategoryId, @packageId,
-        @packagePrice, @gstPercent, @gstAmount, @totalAmount, @currencyCode,
+        @packagePrice, @dealerPrice, @gstPercent, @gstAmount, @totalAmount, @currencyCode,
         @payMode, @paymentStatus, @statusCode,
         @dealerId, @additionalServices, @paidAmount, @outstandingAmount, @creditStatus,
         GETDATE()
@@ -1060,6 +1066,7 @@ async function getOrders(req, res) {
         sp.PackageCode,
         sp.DurationMinutes,
         o.PackagePrice,
+        o.DealerPrice,
         o.GSTPercent,
         o.GSTAmount,
         o.TotalAmount,
@@ -1138,6 +1145,7 @@ async function getOrders(req, res) {
         packageCode: row.PackageCode || '',
         durationMinutes: row.DurationMinutes,
         packagePrice: Number(row.PackagePrice),
+        dealerPrice: row.DealerPrice != null ? Number(row.DealerPrice) : null,
         gstPercent: row.GSTPercent != null ? Number(row.GSTPercent) : 0,
         gstAmount: row.GSTAmount ? Number(row.GSTAmount) : 0,
         totalAmount: Number(row.TotalAmount),
@@ -1216,6 +1224,7 @@ async function getOrderById(req, res) {
         sp.PackageCode,
         sp.DurationMinutes,
         o.PackagePrice,
+        o.DealerPrice,
         o.GSTPercent,
         o.GSTAmount,
         o.TotalAmount,
@@ -1281,6 +1290,7 @@ async function getOrderById(req, res) {
         packageCode: row.PackageCode,
         durationMinutes: row.DurationMinutes,
         packagePrice: Number(row.PackagePrice),
+        dealerPrice: row.DealerPrice != null ? Number(row.DealerPrice) : null,
         gstPercent: row.GSTPercent != null ? Number(row.GSTPercent) : 0,
         gstAmount: row.GSTAmount ? Number(row.GSTAmount) : 0,
         totalAmount: Number(row.TotalAmount),

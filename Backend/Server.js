@@ -32,6 +32,7 @@ const dealerRoutes = require('./routes/dealerRoutes');
 const accountTypeRoutes = require('./routes/accountTypeRoutes');
 const paymodeRoutes = require('./routes/paymodeRoutes');
 const yeahpayRoutes = require('./routes/yeahpay');
+const addonRoutes = require('./routes/addonRoutes');
 const { getPool } = require('./config/db');
 
 const app = express();
@@ -65,6 +66,8 @@ app.use('/api/service-categories', categoryRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/service-packages', packageRoutes);
 app.use('/api/packages', packageRoutes);
+app.use('/api/service-addons', addonRoutes);
+app.use('/api/addons', addonRoutes);
 app.use('/api/bays', bayRoutes);
 app.use('/api/carwash/reports', salesReportRoutes);
 app.use('/api/reports', salesReportRoutes);

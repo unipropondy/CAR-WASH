@@ -30,6 +30,12 @@ const {
   clearAllHelpRequests,
 } = require('../controllers/helpNotificationController');
 const { processOrderPayment } = require('../controllers/yeahpayController');
+const {
+  getAddons,
+  createAddon,
+  updateAddon,
+  deleteAddon,
+} = require('../controllers/addonMasterController');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'car-wash-secret-key-fallback';
 
@@ -118,6 +124,19 @@ router.put('/help/:id/resolve', optionalAuth, resolveHelpRequest);
 
 // 19. DELETE /api/carwash/help - Clear all help requests
 router.delete('/help', optionalAuth, clearAllHelpRequests);
+
+// ================= À LA CARTE / ADD-ON SERVICES =================
+// 20. GET /api/carwash/addons - List add-on services
+router.get('/addons', getAddons);
+
+// 21. POST /api/carwash/addons - Create add-on service
+router.post('/addons', optionalAuth, createAddon);
+
+// 22. PUT /api/carwash/addons/:id - Update add-on service
+router.put('/addons/:id', optionalAuth, updateAddon);
+
+// 23. DELETE /api/carwash/addons/:id - Delete add-on service
+router.delete('/addons/:id', optionalAuth, deleteAddon);
 
 module.exports = router;
 

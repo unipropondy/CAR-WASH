@@ -23,21 +23,341 @@ import { makeShadow } from '../../../theme/shadows';
 import { getCategoryVisualMeta } from '../data/kioskCategoryAssets';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
 import { resolveApiUrl } from '../../../services/apiConfig';
+import { fetchAllAddons } from '../../../services/masterApi';
 
-export interface DealerAddonOption {
+export interface ALaCarteServiceOption {
   id: string;
   name: string;
-  price: number;
+  customerPrice: number;
+  dealerPrice: number;
+  category: 'EXTERIOR' | 'INTERIOR';
   icon: string;
   description: string;
 }
 
-export const DEALER_ADDONS: DealerAddonOption[] = [
-  { id: 'tire_shine', name: 'Tire Shine & Rim Coating', price: 5.0, icon: 'disc-outline', description: 'Deep glossy tire shine with brake dust repellent' },
-  { id: 'rain_repellent', name: 'Rain Repellent Windshield Coating', price: 8.0, icon: 'rainy-outline', description: 'Hydrophobic windshield water beading barrier' },
-  { id: 'interior_mist', name: 'Interior Antibacterial Mist Fogging', price: 10.0, icon: 'shield-checkmark-outline', description: 'Hospital-grade cabin sanitizing & odor removal' },
-  { id: 'engine_degrease', name: 'Engine Bay Quick Degrease', price: 12.0, icon: 'hardware-chip-outline', description: 'Removal of oil residue & engine bay dusting' },
+export const ALL_A_LA_CARTE_SERVICES: ALaCarteServiceOption[] = [
+  // Exterior Services
+  {
+    id: 'snow_foam_wash',
+    name: 'Snow Foam Hand Wash',
+    customerPrice: 12.0,
+    dealerPrice: 9.0,
+    category: 'EXTERIOR',
+    icon: 'water-outline',
+    description: 'High-density pH-neutral snow foam hand wash with clean chamois hand dry',
+  },
+  {
+    id: 'water_wax_finish',
+    name: 'Water Wax Finish',
+    customerPrice: 10.0,
+    dealerPrice: 7.5,
+    category: 'EXTERIOR',
+    icon: 'sparkles-outline',
+    description: 'Spray wax treatment that enhances gloss and beads water off exterior paint',
+  },
+  {
+    id: 'tyre_dressing_shine',
+    name: 'Tyre Dressing & Shine',
+    customerPrice: 3.0,
+    dealerPrice: 2.2,
+    category: 'EXTERIOR',
+    icon: 'disc-outline',
+    description: 'Silicone-based dressing applied to tyres for a rich wet-black shine',
+  },
+  {
+    id: 'rim_detailing',
+    name: 'Rim Detailing',
+    customerPrice: 6.0,
+    dealerPrice: 4.5,
+    category: 'EXTERIOR',
+    icon: 'radio-button-on-outline',
+    description: 'Wheel face cleaner removing stubborn brake dust from rims',
+  },
+  {
+    id: 'headlight_restoration',
+    name: 'Headlight Restoration',
+    customerPrice: 50.0,
+    dealerPrice: 37.5,
+    category: 'EXTERIOR',
+    icon: 'sunny-outline',
+    description: 'Machine-polishing hazy, yellowed headlight lenses back to crystal clear',
+  },
+  {
+    id: 'windscreen_polishing_coating',
+    name: 'Windscreen Polishing & Coating',
+    customerPrice: 40.0,
+    dealerPrice: 30.0,
+    category: 'EXTERIOR',
+    icon: 'rainy-outline',
+    description: 'Glass scrubbed of oil film and coated with a rain-repellent hydrophobic barrier',
+  },
+  {
+    id: 'engine_bay_cleaning',
+    name: 'Engine Bay Cleaning & Dressing',
+    customerPrice: 20.0,
+    dealerPrice: 15.0,
+    category: 'EXTERIOR',
+    icon: 'hardware-chip-outline',
+    description: 'Safe engine compartment degrease, wipe-down and plastic dressing',
+  },
+  {
+    id: 'clay_bar_treatment',
+    name: 'Clay Bar Treatment',
+    customerPrice: 50.0,
+    dealerPrice: 37.5,
+    category: 'EXTERIOR',
+    icon: 'hand-left-outline',
+    description: 'Automotive clay bar removes bonded surface contaminants (tar, fallout, overspray)',
+  },
+  {
+    id: 'quick_3in1_polish',
+    name: '3-in-1 Polishing',
+    customerPrice: 80.0,
+    dealerPrice: 60.0,
+    category: 'EXTERIOR',
+    icon: 'color-wand-outline',
+    description: 'Single-stage machine polish that cleans paint, reduces light swirls and adds sealant',
+  },
+  {
+    id: 'detailed_3layer_polish',
+    name: '3-Layer Polishing & Sealant',
+    customerPrice: 150.0,
+    dealerPrice: 112.5,
+    category: 'EXTERIOR',
+    icon: 'layers-outline',
+    description: 'Multi-stage paint correction: compound cut, swirl-free polish, and synthetic sealant',
+  },
+  {
+    id: 'ceramic_coating',
+    name: 'Ceramic Coating',
+    customerPrice: 60.0,
+    dealerPrice: 45.0,
+    category: 'EXTERIOR',
+    icon: 'shield-checkmark-outline',
+    description: 'Liquid polymer coating that bonds with paint for durable hydrophobic shine',
+  },
+
+  // Interior Services
+  {
+    id: 'interior_vacuuming',
+    name: 'Interior Vacuuming',
+    customerPrice: 8.0,
+    dealerPrice: 6.0,
+    category: 'INTERIOR',
+    icon: 'funnel-outline',
+    description: 'Standard vacuuming of cabin carpets, seats and footwells',
+  },
+  {
+    id: 'deep_interior_vacuuming',
+    name: 'Deep Interior Vacuuming',
+    customerPrice: 15.0,
+    dealerPrice: 11.2,
+    category: 'INTERIOR',
+    icon: 'scan-outline',
+    description: 'Intensive vacuuming under seats, boot/trunk and deep crevices',
+  },
+  {
+    id: 'dashboard_cleaning',
+    name: 'Dashboard Cleaning & Shine',
+    customerPrice: 5.0,
+    dealerPrice: 3.8,
+    category: 'INTERIOR',
+    icon: 'speedometer-outline',
+    description: 'Wipe-down of dashboard and centre console with UV protectant',
+  },
+  {
+    id: 'interior_wipe_down',
+    name: 'Interior Wipe-Down',
+    customerPrice: 10.0,
+    dealerPrice: 7.5,
+    category: 'INTERIOR',
+    icon: 'brush-outline',
+    description: 'All hard interior surfaces wiped clean of fingerprints, dust and marks',
+  },
+  {
+    id: 'interior_dressing_shine',
+    name: 'Interior Dressing & Shine',
+    customerPrice: 10.0,
+    dealerPrice: 7.5,
+    category: 'INTERIOR',
+    icon: 'color-fill-outline',
+    description: 'Plastic and vinyl surfaces dressed for a uniform, non-greasy satin finish',
+  },
+  {
+    id: 'dettol_interior_wipe',
+    name: 'Dettol Interior Wipe-Down',
+    customerPrice: 12.0,
+    dealerPrice: 9.0,
+    category: 'INTERIOR',
+    icon: 'medkit-outline',
+    description: 'Disinfectant wipe-down using Dettol-based solution on high-touch cabin surfaces',
+  },
+  {
+    id: 'interior_fumigation',
+    name: 'Interior Fumigation',
+    customerPrice: 30.0,
+    dealerPrice: 22.5,
+    category: 'INTERIOR',
+    icon: 'cloud-outline',
+    description: 'Sanitising antibacterial fog neutralising odours and bacteria in cabin vents',
+  },
+  {
+    id: 'leather_conditioning',
+    name: 'Leather Cleaning & Conditioning',
+    customerPrice: 20.0,
+    dealerPrice: 15.0,
+    category: 'INTERIOR',
+    icon: 'ribbon-outline',
+    description: 'Leather seats cleaned and conditioned to prevent cracking and restore softness',
+  },
+  {
+    id: 'upholstery_steam_cleaning',
+    name: 'Upholstery Steam Cleaning',
+    customerPrice: 60.0,
+    dealerPrice: 45.0,
+    category: 'INTERIOR',
+    icon: 'flame-outline',
+    description: 'Hot steam extraction deep-cleaning fabric/leather seats, lifting embedded dirt',
+  },
+  {
+    id: 'vomit_odour_removal',
+    name: 'Vomit & Odour Removal',
+    customerPrice: 80.0,
+    dealerPrice: 60.0,
+    category: 'INTERIOR',
+    icon: 'trash-bin-outline',
+    description: 'Specialised decontamination removing bio-waste residue and persistent foul odours',
+  },
 ];
+
+/**
+ * Filter à la carte services depending on the selected package according to the official Red Bay menu matrix:
+ * Avoid recommending items already included in the package. Suggest high-value upgrades.
+ */
+export function getAvailableALaCarteForPackage(pkg?: ServicePackage, customList?: ALaCarteServiceOption[]): ALaCarteServiceOption[] {
+  const source = customList && customList.length > 0 ? customList : ALL_A_LA_CARTE_SERVICES;
+  if (!pkg) return source;
+  const code = (pkg.packageCode || pkg.name || '').toUpperCase();
+
+  // Helper to normalize and check if item matches an excluded ID or code
+  const isExcluded = (item: ALaCarteServiceOption, excluded: string[]) => {
+    const itemNorm = item.id.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    return excluded.some((ex) => itemNorm.includes(ex) || ex.includes(itemNorm));
+  };
+
+  // 1. CARLING PACKAGE
+  // Included: Snow Foam Wash, Tyre Dressing, Rim Detailing, Interior Vac, Dashboard Clean
+  if (code.includes('CARLING')) {
+    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'interior_vacuuming', 'dashboard_cleaning'];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  // 2. PREMIER PACKAGE
+  // Included: Snow Foam Wash, Tyre Dressing, Rim Detailing, Water Wax, Interior Vac, Dashboard Clean, Dettol Wipe
+  if (code.includes('PREMIER')) {
+    const includedIds = [
+      'snow_foam_wash',
+      'tyre_dressing',
+      'rim_detailing',
+      'water_wax',
+      'interior_vacuuming',
+      'dashboard_cleaning',
+      'dettol',
+    ];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  // 3. CHAMPION PACKAGE
+  // Included: Snow Foam, Tyre Dressing, Rim Detailing, Water Wax, Deep Vac, Dashboard, Dettol, Leather, Fumigation, Engine Bay
+  if (code.includes('CHAMPION')) {
+    const includedIds = [
+      'snow_foam_wash',
+      'tyre_dressing',
+      'rim_detailing',
+      'water_wax',
+      'interior_vacuuming',
+      'deep_interior_vacuuming',
+      'dashboard_cleaning',
+      'dettol',
+      'leather',
+      'fumigation',
+      'engine_bay',
+    ];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  // 4. CLUB PACKAGE (POLISHING)
+  // Included: Premier Wash, 3-in-1 Polish, Clay Bar, Interior Care
+  if (code.includes('CLUB')) {
+    const includedIds = [
+      'snow_foam_wash',
+      'tyre_dressing',
+      'rim_detailing',
+      'water_wax',
+      'interior_vacuuming',
+      'dashboard_cleaning',
+      'dettol',
+      '3_in_1_polish',
+      'clay_bar',
+      'interior_wipe',
+      'interior_dressing',
+    ];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  // 5. EURO PACKAGE (POLISHING)
+  // Included: Champion Package, 3-Layer Polishing & Sealant, Clay Bar, Glass Polishing, Glass Shield
+  if (code.includes('EURO')) {
+    const includedIds = [
+      'snow_foam_wash',
+      'tyre_dressing',
+      'rim_detailing',
+      'water_wax',
+      'interior_vacuuming',
+      'deep_interior_vacuuming',
+      'dashboard_cleaning',
+      'dettol',
+      'leather',
+      'fumigation',
+      'engine_bay',
+      'clay_bar',
+      '3_in_1_polish',
+      '3_layer_polish',
+      'windscreen',
+    ];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  // 6. WORLD CUP PACKAGE (POLISHING)
+  // Included: Champion Package, 3-Layer Polishing & Sealant, Clay Bar, Steam Extraction, Glass Polishing, Glass Shield
+  if (code.includes('WORLD')) {
+    const includedIds = [
+      'snow_foam_wash',
+      'tyre_dressing',
+      'rim_detailing',
+      'water_wax',
+      'interior_vacuuming',
+      'deep_interior_vacuuming',
+      'dashboard_cleaning',
+      'dettol',
+      'leather',
+      'fumigation',
+      'engine_bay',
+      'clay_bar',
+      '3_in_1_polish',
+      '3_layer_polish',
+      'windscreen',
+      'steam_cleaning',
+    ];
+    return source.filter((item) => !isExcluded(item, includedIds));
+  }
+
+  return source;
+}
+
+// Retain backward-compatible alias
+export type DealerAddonOption = ALaCarteServiceOption;
+export const DEALER_ADDONS = ALL_A_LA_CARTE_SERVICES;
 
 interface Page3ServiceScreenProps {
   initialCategory?: ServiceCategory;
@@ -195,6 +515,32 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   // Dealer Additional Services selection state
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const [addonsList, setAddonsList] = useState<ALaCarteServiceOption[]>(ALL_A_LA_CARTE_SERVICES);
+
+  // Fetch dynamic add-ons from database
+  useEffect(() => {
+    let active = true;
+    fetchAllAddons(true)
+      .then((records) => {
+        if (!active || !records || records.length === 0) return;
+        const mapped: ALaCarteServiceOption[] = records.map((r) => ({
+          id: r.addonCode.toLowerCase(),
+          name: r.addonName,
+          customerPrice: r.customerPrice,
+          dealerPrice: r.dealerPrice,
+          category: r.category,
+          icon: r.icon || 'sparkles-outline',
+          description: r.description || '',
+        }));
+        setAddonsList(mapped);
+      })
+      .catch((err) => {
+        console.warn('[Page3ServiceScreen] Could not load dynamic add-ons from DB:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggleAddon = (id: string) => {
     setSelectedAddonIds((prev) =>
@@ -287,26 +633,33 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     setSelectedCategory(cat);
     setSelectedServiceCategoryId(cat.serviceCategoryId);
     setSelectedPackage(undefined);
+    setSelectedAddonIds([]);
     setViewStep('PACKAGES');
     loadPackagesForCategory(cat.serviceCategoryId);
   };
 
   const handleSelectPackage = (pkg: ServicePackage) => {
     setSelectedPackage(pkg);
-    if (!isDealer) {
-      if (isNavigating) return;
-      if (!selectedCategory) return;
-      setIsNavigating(true);
-      // Single-Click Auto Navigation: proceed immediately to Customer Details
-      onContinue(selectedCategory, pkg, selectedServiceCategoryId);
-    }
+    // When package changes, auto-clean any previously selected add-on that is already included in this package
+    const available = getAvailableALaCarteForPackage(pkg, addonsList);
+    const availableIdSet = new Set(available.map((a) => a.id));
+    setSelectedAddonIds((prev) => prev.filter((id) => availableIdSet.has(id)));
   };
 
-  const handleDealerPlaceCreditOrder = () => {
+  const handleProceedWithOrder = () => {
     if (!selectedPackage || !selectedCategory) return;
-    const activeAddons = DEALER_ADDONS.filter((a) => selectedAddonIds.includes(a.id));
-    const addonsStr = activeAddons.map((a) => `${a.name} ($${a.price.toFixed(2)})`).join(', ');
-    const addonsTotal = activeAddons.reduce((sum, a) => sum + a.price, 0);
+    const available = getAvailableALaCarteForPackage(selectedPackage, addonsList);
+    const activeAddons = available.filter((a) => selectedAddonIds.includes(a.id));
+    const addonsStr = activeAddons
+      .map((a) => {
+        const itemPrice = isDealer ? a.dealerPrice : a.customerPrice;
+        return `${a.name} ($${itemPrice.toFixed(2)})`;
+      })
+      .join(', ');
+    const addonsTotal = activeAddons.reduce(
+      (sum, a) => sum + (isDealer ? a.dealerPrice : a.customerPrice),
+      0
+    );
 
     onContinue(
       selectedCategory,
@@ -316,6 +669,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
       addonsTotal
     );
   };
+
+  const handleDealerPlaceCreditOrder = handleProceedWithOrder;
 
   const handleBackNavigation = () => {
     setIsNavigating(false);
@@ -360,6 +715,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           isTallKiosk && styles.scrollContentTall
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth, width: '100%' }]}>
           {/* ================= STEP 1: CATEGORY SELECTION ================= */}
@@ -554,6 +910,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                   {packages.map((pkg) => {
                     const isSelected = selectedPackage?.packageId === pkg.packageId || selectedPackage?.id === pkg.id;
                     const features = getPackageFeatures(pkg);
+                    const pkgDisplayPrice = isDealer && pkg.dealerPrice != null ? pkg.dealerPrice : pkg.price;
+                    const hasDealerDiscount = isDealer && pkg.dealerPrice != null && pkg.dealerPrice < pkg.price;
 
                     return (
                       <TouchableOpacity
@@ -580,8 +938,13 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                           </Text>
                           <View style={styles.priceRow}>
                             <Text style={[styles.priceAmount, isSelected && styles.priceAmountSelected]}>
-                              ${pkg.price.toFixed(2)}
+                              ${pkgDisplayPrice.toFixed(2)}
                             </Text>
+                            {hasDealerDiscount && (
+                              <View style={styles.dealerDiscountBadge}>
+                                <Text style={styles.dealerDiscountBadgeText}>DEALER (20% OFF)</Text>
+                              </View>
+                            )}
                           </View>
                         </View>
 
@@ -590,7 +953,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
                         {/* Features Points Checklist */}
                         <View style={styles.pkgFeatureList}>
-                          {features.slice(0, 3).map((feat, fIdx) => (
+                          {features.slice(0, 4).map((feat, fIdx) => (
                             <View key={fIdx} style={styles.pkgFeatureItem}>
                               <Ionicons 
                                 name="checkmark-circle" 
@@ -613,7 +976,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                           )}
                           <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
-                            {isSelected ? 'Selected' : 'Select Package'}
+                            {isSelected ? 'Selected ✓' : 'Select Package'}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -622,120 +985,197 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                 </View>
               )}
 
-              {/* ================= DEALER: ADDITIONAL SERVICES & AUTOMATIC CREDIT CHECKOUT ================= */}
-              {isDealer && selectedPackage && (
+              {/* ================= A LA CARTE SERVICES TAILORED TO SELECTED PACKAGE ================= */}
+              {selectedPackage && (
                 <View style={styles.dealerSectionWrapper}>
-                  {/* Additional Services Section Header */}
+                  {/* Section Header */}
                   <View style={styles.dealerSectionHeader}>
                     <View style={styles.dealerSectionBadge}>
-                      <Ionicons name="sparkles" size={16} color="#D97706" />
+                      <Ionicons name="sparkles" size={17} color="#D97706" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.dealerSectionTitle}>Additional Services (Commercial Add-ons)</Text>
+                      <Text style={styles.dealerSectionTitle}>
+                        À La Carte Services & Upgrades
+                      </Text>
                       <Text style={styles.dealerSectionSub}>
-                        Optional services available for {dealer?.name || 'Dealer'} account. Tap to add or remove.
+                        {isDealer
+                          ? `Recommended commercial add-ons for ${selectedPackage.name} (25% dealer discount).`
+                          : `Recommended add-ons for ${selectedPackage.name}. Pick any upgrades or continue directly.`}
                       </Text>
                     </View>
+                    {selectedAddonIds.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setSelectedAddonIds([])}
+                        style={styles.clearAddonsBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.clearAddonsText}>Clear ({selectedAddonIds.length})</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
 
                   {/* Addons Grid */}
-                  <View style={styles.addonsGrid}>
-                    {DEALER_ADDONS.map((addon) => {
-                      const isAdded = selectedAddonIds.includes(addon.id);
-                      return (
-                        <TouchableOpacity
-                          key={addon.id}
-                          style={[
-                            styles.addonCard, 
-                            { width: addonCardWidth },
-                            isAdded && styles.addonCardSelected
-                          ]}
-                          onPress={() => toggleAddon(addon.id)}
-                          activeOpacity={0.85}
-                        >
-                          <View style={styles.addonTopRow}>
-                            <View style={[styles.addonCheckbox, isAdded && styles.addonCheckboxSelected]}>
-                              {isAdded && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                            </View>
-                            <View style={styles.addonPriceTag}>
-                              <Text style={styles.addonPriceTagText}>+${addon.price.toFixed(2)}</Text>
-                            </View>
-                          </View>
-                          <View style={styles.addonContent}>
-                            <View style={styles.addonIconBox}>
-                              <Ionicons name={addon.icon as any} size={20} color={isAdded ? RED_BAY_COLORS.primary : "#475569"} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.addonName, isAdded && styles.addonNameSelected]}>{addon.name}</Text>
-                              <Text style={styles.addonDesc} numberOfLines={2}>{addon.description}</Text>
-                            </View>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {/* Automatic Credit Checkout Card */}
                   {(() => {
-                    const activeAddons = DEALER_ADDONS.filter((a) => selectedAddonIds.includes(a.id));
-                    const addonsTotal = activeAddons.reduce((sum, a) => sum + a.price, 0);
-                    const grandTotal = Number((selectedPackage.price + addonsTotal).toFixed(2));
+                    const availableAddons = getAvailableALaCarteForPackage(selectedPackage, addonsList);
+                    const activeAddons = availableAddons.filter((a) => selectedAddonIds.includes(a.id));
+                    const basePkgPrice = isDealer && selectedPackage.dealerPrice != null
+                      ? selectedPackage.dealerPrice
+                      : selectedPackage.price;
+                    const addonsTotal = activeAddons.reduce(
+                      (sum, a) => sum + (isDealer ? a.dealerPrice : a.customerPrice),
+                      0
+                    );
+                    const grandTotal = Number((basePkgPrice + addonsTotal).toFixed(2));
 
                     return (
-                      <View style={styles.dealerCreditCard}>
-                        {/* Notice Banner */}
-                        <View style={styles.dealerCreditNoticeBanner}>
-                          <Ionicons name="card" size={20} color="#D97706" />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.dealerCreditNoticeTitle}>AUTOMATIC DEALER CREDIT BILLING</Text>
-                            <Text style={styles.dealerCreditNoticeSubtitle}>
-                              No Cash, Card, or PayNow required. Total amount is charged automatically to your commercial credit account.
-                            </Text>
-                          </View>
-                          <View style={styles.creditPillTag}>
-                            <Text style={styles.creditPillTagText}>CREDIT</Text>
-                          </View>
+                      <>
+                        <View style={styles.addonsGrid}>
+                          {availableAddons.map((addon) => {
+                            const isAdded = selectedAddonIds.includes(addon.id);
+                            const itemPrice = isDealer ? addon.dealerPrice : addon.customerPrice;
+
+                            return (
+                              <TouchableOpacity
+                                key={addon.id}
+                                style={[
+                                  styles.addonCard, 
+                                  { width: addonCardWidth },
+                                  isAdded && styles.addonCardSelected
+                                ]}
+                                onPress={() => toggleAddon(addon.id)}
+                                activeOpacity={0.85}
+                              >
+                                <View style={styles.addonTopRow}>
+                                  <View style={[styles.addonCheckbox, isAdded && styles.addonCheckboxSelected]}>
+                                    {isAdded && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                                  </View>
+                                  <View style={[styles.addonPriceTag, isAdded && { backgroundColor: '#FEE2E2' }]}>
+                                    <Text style={[styles.addonPriceTagText, isAdded && { color: RED_BAY_COLORS.primary }]}>
+                                      +${itemPrice.toFixed(2)}
+                                    </Text>
+                                    {isDealer && (
+                                      <Text style={styles.dealerDiscountTag}>-25%</Text>
+                                    )}
+                                  </View>
+                                </View>
+                                <View style={styles.addonContent}>
+                                  <View style={[styles.addonIconBox, isAdded && { backgroundColor: '#FEE2E2' }]}>
+                                    <Ionicons 
+                                      name={addon.icon as any} 
+                                      size={20} 
+                                      color={isAdded ? RED_BAY_COLORS.primary : "#475569"} 
+                                    />
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={[styles.addonName, isAdded && styles.addonNameSelected]}>
+                                      {addon.name}
+                                    </Text>
+                                    <Text style={styles.addonDesc} numberOfLines={2}>
+                                      {addon.description}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
 
-                        {/* Breakdown Rows */}
-                        <View style={styles.creditBreakdown}>
-                          <View style={styles.creditRow}>
-                            <Text style={styles.creditRowLabel}>Dealer Account</Text>
-                            <Text style={styles.creditRowValBold}>{dealer?.name} ({dealer?.code})</Text>
-                          </View>
-                          <View style={styles.creditRow}>
-                            <Text style={styles.creditRowLabel}>Vehicle Plate</Text>
-                            <Text style={styles.creditRowValBold}>{vehicleNumber || 'WALK-IN'}</Text>
-                          </View>
-                          <View style={styles.creditRow}>
-                            <Text style={styles.creditRowLabel}>Selected Package</Text>
-                            <Text style={styles.creditRowVal}>{selectedPackage.name} (${selectedPackage.price.toFixed(2)})</Text>
-                          </View>
-                          {activeAddons.length > 0 && (
-                            <View style={styles.creditRow}>
-                              <Text style={styles.creditRowLabel}>Additional Services ({activeAddons.length})</Text>
-                              <Text style={styles.creditRowVal}>+${addonsTotal.toFixed(2)}</Text>
+                        {/* Order Checkout Card */}
+                        {isDealer ? (
+                          <View style={styles.dealerCreditCard}>
+                            {/* Notice Banner */}
+                            <View style={styles.dealerCreditNoticeBanner}>
+                              <Ionicons name="card" size={20} color="#D97706" />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.dealerCreditNoticeTitle}>AUTOMATIC DEALER CREDIT BILLING</Text>
+                                <Text style={styles.dealerCreditNoticeSubtitle}>
+                                  Charged automatically to your commercial credit account. No upfront payment required.
+                                </Text>
+                              </View>
+                              <View style={styles.creditPillTag}>
+                                <Text style={styles.creditPillTagText}>CREDIT</Text>
+                              </View>
                             </View>
-                          )}
-                          <View style={styles.creditDivider} />
-                          <View style={styles.creditTotalRow}>
-                            <Text style={styles.creditTotalLabel}>Total Credit Amount</Text>
-                            <Text style={styles.creditTotalVal}>${grandTotal.toFixed(2)}</Text>
-                          </View>
-                        </View>
 
-                        {/* Automatic Submit Button */}
-                        <TouchableOpacity
-                          style={styles.dealerCreditSubmitBtn}
-                          onPress={handleDealerPlaceCreditOrder}
-                          activeOpacity={0.88}
-                        >
-                          <Text style={styles.dealerCreditSubmitBtnText}>
-                            Place Order on Credit (${grandTotal.toFixed(2)})
-                          </Text>
-                          <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
-                        </TouchableOpacity>
-                      </View>
+                            {/* Breakdown Rows */}
+                            <View style={styles.creditBreakdown}>
+                              <View style={styles.creditRow}>
+                                <Text style={styles.creditRowLabel}>Dealer Account</Text>
+                                <Text style={styles.creditRowValBold}>{dealer?.name} ({dealer?.code})</Text>
+                              </View>
+                              <View style={styles.creditRow}>
+                                <Text style={styles.creditRowLabel}>Vehicle Plate</Text>
+                                <Text style={styles.creditRowValBold}>{vehicleNumber || 'WALK-IN'}</Text>
+                              </View>
+                              <View style={styles.creditRow}>
+                                <Text style={styles.creditRowLabel}>Selected Package</Text>
+                                <Text style={styles.creditRowVal}>{selectedPackage.name} (${basePkgPrice.toFixed(2)})</Text>
+                              </View>
+                              {activeAddons.length > 0 && (
+                                <View style={styles.creditRow}>
+                                  <Text style={styles.creditRowLabel}>À La Carte Add-ons ({activeAddons.length})</Text>
+                                  <Text style={styles.creditRowVal}>+${addonsTotal.toFixed(2)}</Text>
+                                </View>
+                              )}
+                              <View style={styles.creditDivider} />
+                              <View style={styles.creditTotalRow}>
+                                <Text style={styles.creditTotalLabel}>Total Credit Amount</Text>
+                                <Text style={styles.creditTotalVal}>${grandTotal.toFixed(2)}</Text>
+                              </View>
+                            </View>
+
+                            {/* Automatic Submit Button */}
+                            <TouchableOpacity
+                              style={styles.dealerCreditSubmitBtn}
+                              onPress={handleProceedWithOrder}
+                              activeOpacity={0.88}
+                            >
+                              <Text style={styles.dealerCreditSubmitBtnText}>
+                                Continue to Details (${grandTotal.toFixed(2)})
+                              </Text>
+                              <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.customerSummaryCard}>
+                            {/* Breakdown Rows */}
+                            <View style={styles.creditBreakdown}>
+                              <View style={styles.creditRow}>
+                                <Text style={styles.creditRowLabel}>Base Package</Text>
+                                <Text style={styles.creditRowValBold}>{selectedPackage.name} (${basePkgPrice.toFixed(2)})</Text>
+                              </View>
+                              {activeAddons.length > 0 ? (
+                                <View style={styles.creditRow}>
+                                  <Text style={styles.creditRowLabel}>Selected À La Carte ({activeAddons.length})</Text>
+                                  <Text style={[styles.creditRowVal, { color: RED_BAY_COLORS.primary }]}>+${addonsTotal.toFixed(2)}</Text>
+                                </View>
+                              ) : (
+                                <View style={styles.creditRow}>
+                                  <Text style={styles.creditRowLabel}>À La Carte Add-ons</Text>
+                                  <Text style={styles.creditRowVal}>None selected (Base package only)</Text>
+                                </View>
+                              )}
+                              <View style={styles.creditDivider} />
+                              <View style={styles.creditTotalRow}>
+                                <Text style={styles.creditTotalLabel}>Grand Total</Text>
+                                <Text style={styles.creditTotalVal}>${grandTotal.toFixed(2)}</Text>
+                              </View>
+                            </View>
+
+                            {/* Submit Button */}
+                            <TouchableOpacity
+                              style={styles.customerProceedBtn}
+                              onPress={handleProceedWithOrder}
+                              activeOpacity={0.88}
+                            >
+                              <Text style={styles.customerProceedBtnText}>
+                                Continue to Customer Details (${grandTotal.toFixed(2)})
+                              </Text>
+                              <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </>
                     );
                   })()}
                 </View>
@@ -1471,6 +1911,64 @@ const styles = StyleSheet.create({
     ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 4 }, 0.28, 8, 3),
   },
   dealerCreditSubmitBtnText: {
+    fontSize: 15.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  dealerDiscountBadge: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 4,
+  },
+  dealerDiscountBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#166534',
+    letterSpacing: 0.2,
+  },
+  clearAddonsBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  clearAddonsText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  dealerDiscountTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#16A34A',
+    marginLeft: 4,
+  },
+  customerSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    padding: 18,
+    ...makeShadow('#000000', { width: 0, height: 4 }, 0.06, 10, 2),
+  },
+  customerProceedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: RED_BAY_COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 8,
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 4 }, 0.28, 8, 3),
+  },
+  customerProceedBtnText: {
     fontSize: 15.5,
     fontWeight: '900',
     color: '#FFFFFF',

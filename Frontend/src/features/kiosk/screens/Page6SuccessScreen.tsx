@@ -151,6 +151,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
           isTallKiosk && { paddingVertical: 28 }
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.portraitContainer, { maxWidth: dynamicPassMaxWidth, width: '100%' }]}>
           {/* THE UNIFIED DIGITAL QUEUE PASS */}

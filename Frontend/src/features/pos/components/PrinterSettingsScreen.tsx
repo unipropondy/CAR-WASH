@@ -446,6 +446,7 @@ export const PrinterSettingsScreen: React.FC<Props> = ({
         scrollEnabled={false}
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
       >
         {/* 1. PRINTER TYPE SELECTOR */}

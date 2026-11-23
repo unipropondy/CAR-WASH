@@ -493,7 +493,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
       </View>
 
       {/* Navigation Sub-Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subTabRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.subTabRow}>
         <TouchableOpacity
           style={[styles.subTabBtn, activeSection === 'GENERAL' && styles.subTabBtnActive]}
           onPress={() => setActiveSection('GENERAL')}
@@ -1285,7 +1285,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 16 }}>
               {/* Printer Name */}
               <View style={styles.formGroup}>
                 <Text style={styles.fieldLabel}>Printer Name *</Text>

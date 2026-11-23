@@ -163,6 +163,7 @@ export interface ServicePackageRecord {
   packageName: string;
   description: string;
   price: number;
+  dealerPrice?: number;
   currencyCode: string;
   gstPercent: number;
   isTaxInclusive: boolean;
@@ -194,6 +195,7 @@ export async function createPackage(payload: {
   packageName: string;
   description?: string;
   price: number;
+  dealerPrice?: number;
   currencyCode?: string;
   gstPercent?: number;
   isTaxInclusive?: boolean;
@@ -234,6 +236,79 @@ export async function deletePackage(id: number): Promise<any> {
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.message || 'Failed to delete service package');
+  }
+  return data;
+}
+
+/* ==================== 3b. SERVICE ADD-ONS (dbo.ServiceAddonMaster) ==================== */
+export interface ServiceAddonRecord {
+  addonId: number;
+  addonCode: string;
+  addonName: string;
+  category: 'EXTERIOR' | 'INTERIOR';
+  customerPrice: number;
+  dealerPrice: number;
+  icon?: string;
+  description?: string;
+  displayOrder: number;
+  isActive: boolean;
+  createdDate?: string;
+  modifiedDate?: string;
+}
+
+export async function fetchAllAddons(activeOnly: boolean = false): Promise<ServiceAddonRecord[]> {
+  const res = await apiFetch(`/api/carwash/addons${activeOnly ? '?activeOnly=true' : ''}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Failed to fetch add-on services');
+  }
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function createAddon(payload: {
+  addonCode: string;
+  addonName: string;
+  category: 'EXTERIOR' | 'INTERIOR';
+  customerPrice: number;
+  dealerPrice: number;
+  icon?: string;
+  description?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}): Promise<any> {
+  const res = await apiFetch('/api/carwash/addons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to create add-on service');
+  }
+  return data;
+}
+
+export async function updateAddon(id: number, payload: Partial<ServiceAddonRecord>): Promise<any> {
+  const res = await apiFetch(`/api/carwash/addons/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to update add-on service');
+  }
+  return data;
+}
+
+export async function deleteAddon(id: number): Promise<any> {
+  const res = await apiFetch(`/api/carwash/addons/${id}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to delete add-on service');
   }
   return data;
 }

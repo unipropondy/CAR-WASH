@@ -53,9 +53,8 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
       ? '30.5%' 
       : '47%';
 
-  const dynamicImageShowcaseHeight = scaleSize(125, 105, 150);
-  const dynamicLogoHeight = scaleSize(105, 85, 130);
-  const dynamicDealerNameFont = scaleFont(16, 14.5, 19);
+  const dynamicImageShowcaseHeight = scaleSize(120, 105, 140);
+  const dynamicDealerNameFont = scaleFont(16, 14.5, 18.5);
 
   const initialCachedDealers: DealerOption[] = getCachedDealers().map((r) => ({
     id: String(r.dealerId || r.uniqueCode),
@@ -76,6 +75,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
   const [isLoading, setIsLoading] = useState(initialCachedDealers.length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isNavigating, setIsNavigating] = useState(false);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (dealersList.length === 0) {
@@ -177,6 +177,7 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
           isTallKiosk && styles.scrollContentTall
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {isLoading && dealersList.length === 0 ? (
           <View style={styles.loadingContainer}>
@@ -187,7 +188,8 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
           <View style={[styles.gridContainer, isTallKiosk && styles.gridContainerTall, { maxWidth: contentMaxWidth, width: '100%' }]}>
             {filteredDealers.map((dealer) => {
               const isSelected = selectedDealer?.id === dealer.id || selectedDealer?.code === dealer.code;
-              const logoSource = dealer.logo || (dealer.logoUrl ? { uri: resolveApiUrl(dealer.logoUrl) } : null);
+              const hasFailedImage = Boolean(failedImages[String(dealer.id || dealer.code)]);
+              const logoSource = !hasFailedImage && (dealer.logo || (dealer.logoUrl ? { uri: resolveApiUrl(dealer.logoUrl) } : null));
 
               return (
                 <TouchableOpacity
@@ -203,39 +205,44 @@ export const DealerChooseScreen: React.FC<DealerChooseScreenProps> = ({
                   accessibilityRole="button"
                   accessibilityLabel={`Select ${dealer.name}`}
                 >
-                  {/* Body: Dealer Logo Showcase */}
+                  {/* Body: Uniform Framed Showcase */}
                   <View style={[
                     styles.imageShowcase, 
                     { height: dynamicImageShowcaseHeight },
-                    isTallKiosk && styles.imageShowcaseTall
+                    isTallKiosk && styles.imageShowcaseTall,
+                    isSelected && styles.imageShowcaseSelected
                   ]}>
                     {logoSource ? (
                       <Image 
                         source={logoSource} 
-                        style={[
-                          styles.logoImage, 
-                          { height: dynamicLogoHeight },
-                          isTallKiosk && styles.logoImageTall
-                        ]} 
-                        resizeMode="contain" 
+                        style={styles.logoImage} 
+                        resizeMode="cover"
+                        onError={() => setFailedImages((prev) => ({ ...prev, [String(dealer.id || dealer.code)]: true }))}
                       />
                     ) : (
                       <View style={[
-                        styles.iconBox,
-                        isTallKiosk && styles.iconBoxTall,
-                        isSelected && styles.iconBoxSelected
+                        styles.fallbackContainer,
+                        isSelected && styles.fallbackContainerSelected
                       ]}>
-                        <Ionicons 
-                          name="business" 
-                          size={isTallKiosk ? 50 : 38} 
-                          color={RED_BAY_COLORS.primary} 
-                        />
+                        <View style={[
+                          styles.fallbackIconCircle,
+                          isSelected && styles.fallbackIconCircleSelected
+                        ]}>
+                          <Ionicons 
+                            name="business" 
+                            size={isTallKiosk ? 36 : 28} 
+                            color={RED_BAY_COLORS.primary} 
+                          />
+                        </View>
+                        <Text style={[styles.fallbackTag, isSelected && styles.fallbackTagSelected]}>
+                          COMMERCIAL
+                        </Text>
                       </View>
                     )}
                   </View>
 
-                  {/* Dealer Name */}
-                  <View style={styles.cardInfo}>
+                  {/* Dealer Name Only */}
+                  <View style={[styles.cardInfo, isTallKiosk && styles.cardInfoTall]}>
                     <Text
                       style={[
                         styles.dealerName, 
@@ -378,81 +385,101 @@ const styles = StyleSheet.create({
   },
   dealerCard: {
     width: '30.5%',
-    minWidth: 160,
-    aspectRatio: 0.96,
+    minWidth: 155,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 14,
-    paddingTop: 16,
-    paddingBottom: 16,
+    padding: 12,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     position: 'relative',
     overflow: 'hidden',
-    ...makeShadow('#0F172A', { width: 0, height: 6 }, 0.08, 14, 2),
+    ...makeShadow('#0F172A', { width: 0, height: 4 }, 0.06, 12, 2),
   },
   dealerCardTall: {
     borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 18,
-    ...makeShadow('#0F172A', { width: 0, height: 8 }, 0.10, 16, 3),
+    padding: 16,
+    ...makeShadow('#0F172A', { width: 0, height: 6 }, 0.08, 16, 3),
   },
   dealerCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
     backgroundColor: '#FFFFFF',
     borderWidth: 2.5,
-    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.28, 18, 4),
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 8 }, 0.22, 16, 4),
   },
   imageShowcase: {
     width: '100%',
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    padding: 0,
-    marginBottom: 4,
-  },
-  imageShowcaseTall: {
-    marginBottom: 8,
-  },
-  logoImage: {
-    width: '88%',
-    height: 105,
-    borderRadius: 12,
-  },
-  logoImageTall: {
-    height: 125,
-  },
-  iconBox: {
-    width: 52,
-    height: 52,
+    height: 115,
     borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconBoxTall: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
+  imageShowcaseTall: {
+    height: 135,
+    borderRadius: 16,
   },
-  iconBoxSelected: {
-    backgroundColor: '#FEF2F2',
+  imageShowcaseSelected: {
     borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  fallbackContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+  },
+  fallbackContainerSelected: {
+    backgroundColor: '#FEF2F2',
+  },
+  fallbackIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...makeShadow('#0F172A', { width: 0, height: 2 }, 0.04, 4, 1),
+  },
+  fallbackIconCircleSelected: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FFFFFF',
+  },
+  fallbackTag: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+  },
+  fallbackTagSelected: {
+    color: RED_BAY_COLORS.primary,
   },
   cardInfo: {
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    marginTop: 4,
+    marginTop: 10,
+    minHeight: 44,
+    paddingHorizontal: 4,
+  },
+  cardInfoTall: {
+    marginTop: 14,
+    minHeight: 52,
   },
   dealerName: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
@@ -460,8 +487,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   dealerNameTall: {
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 17.5,
+    lineHeight: 22,
     letterSpacing: 0.2,
   },
   dealerNameSelected: {

@@ -110,7 +110,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {/* Step 1: Vehicle Category Selection */}
             <View style={styles.sectionBlock}>
               <Text style={styles.sectionHeading}>

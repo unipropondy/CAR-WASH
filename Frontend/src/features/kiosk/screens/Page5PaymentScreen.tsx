@@ -334,6 +334,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
           isTallKiosk && styles.scrollContentTall
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.portraitContainer, { maxWidth: contentMaxWidth, width: '100%' }]}>
           {/* Order Summary Strip (Responsive Full-Width) */}

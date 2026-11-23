@@ -15,6 +15,7 @@ import {
   Platform,
   StatusBar,
   Pressable,
+  TouchableOpacity,
   ScrollView,
   TextInput,
   Modal,
@@ -89,6 +90,11 @@ import {
   updatePackage,
   deletePackage,
   ServicePackageRecord,
+  fetchAllAddons,
+  createAddon,
+  updateAddon,
+  deleteAddon,
+  ServiceAddonRecord,
   fetchAuditLogs,
   AuditLogRecord,
   getExportUrl,
@@ -330,7 +336,7 @@ type NavId =
   | 'export'
   | 'alerts';
 
-type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'BAYS' | 'DEALERS' | 'ACCOUNT_TYPES' | 'COMPANY' | 'PRINTERS';
+type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'ADDONS' | 'BAYS' | 'DEALERS' | 'ACCOUNT_TYPES' | 'COMPANY' | 'PRINTERS';
 
 export interface BackofficeScreenProps {
   onLogout?: () => void;
@@ -373,6 +379,11 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   }, []);
 
   const showAlert = useCallback((title: string, message: string, customType?: 'success' | 'error' | 'warning' | 'info') => {
+    if (Platform.OS !== 'web') {
+      Alert.alert(title, message, [{ text: 'OK' }]);
+      return;
+    }
+
     let resolvedType: 'success' | 'error' | 'warning' | 'info' = customType || 'info';
     if (!customType) {
       const lower = (title || '').toLowerCase() + ' ' + (message || '').toLowerCase();
@@ -413,6 +424,31 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     onConfirm: () => void;
     onCancel?: () => void;
   }) => {
+    if (Platform.OS !== 'web') {
+      Alert.alert(
+        title,
+        message,
+        [
+          {
+            text: cancelText,
+            style: 'cancel',
+            onPress: () => {
+              if (onCancel) onCancel();
+            },
+          },
+          {
+            text: confirmText,
+            style: 'destructive',
+            onPress: () => {
+              if (onConfirm) onConfirm();
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+      return;
+    }
+
     setPopup({
       visible: true,
       type: 'confirm',
@@ -1051,10 +1087,24 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [pName, setPName] = useState('');
   const [pDesc, setPDesc] = useState('');
   const [pPrice, setPPrice] = useState('15.00');
+  const [pDealerPrice, setPDealerPrice] = useState('15.00');
   const [pDuration, setPDuration] = useState('20');
   const [pOrder, setPOrder] = useState('1');
   const [pActive, setPActive] = useState(true);
   const [pFeatures, setPFeatures] = useState('');
+
+  // 3c2. À La Carte Add-ons
+  const [addonsList, setAddonsList] = useState<ServiceAddonRecord[]>([]);
+  const [addonModalOpen, setAddonModalOpen] = useState(false);
+  const [editingAddon, setEditingAddon] = useState<ServiceAddonRecord | null>(null);
+  const [adCode, setAdCode] = useState('');
+  const [adName, setAdName] = useState('');
+  const [adCategory, setAdCategory] = useState<'EXTERIOR' | 'INTERIOR'>('EXTERIOR');
+  const [adCustomerPrice, setAdCustomerPrice] = useState('10.00');
+  const [adDealerPrice, setAdDealerPrice] = useState('7.50');
+  const [adDesc, setAdDesc] = useState('');
+  const [adOrder, setAdOrder] = useState('1');
+  const [adActive, setAdActive] = useState(true);
 
   // 3d. Bays
   const [bays, setBays] = useState<BayMasterRecord[]>([]);
@@ -1155,6 +1205,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         setPackages(pkgs);
         setCategories(cats);
         if (cats.length > 0 && !pCatId) setPCatId(cats[0].serviceCategoryId);
+      } else if (settingsTab === 'ADDONS') {
+        const data = await fetchAllAddons(false);
+        setAddonsList(data);
       } else if (settingsTab === 'BAYS') {
         const data = await fetchBayMasterList();
         setBays(data);
@@ -1327,6 +1380,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       showAlert('Validation Error', 'Valid Package Price is required.');
       return;
     }
+    const parsedDealerPrice = pDealerPrice && !isNaN(parseFloat(pDealerPrice)) 
+      ? parseFloat(pDealerPrice) 
+      : parseFloat(pPrice);
+
     try {
       const featArray = pFeatures
         .split('\n')
@@ -1340,6 +1397,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           packageName: pName.trim(),
           description: pDesc.trim(),
           price: parseFloat(pPrice),
+          dealerPrice: parsedDealerPrice,
           gstPercent: 0,
           isTaxInclusive: false,
           durationMinutes: parseInt(pDuration || '20', 10),
@@ -1355,6 +1413,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           packageName: pName.trim(),
           description: pDesc.trim(),
           price: parseFloat(pPrice),
+          dealerPrice: parsedDealerPrice,
           gstPercent: 0,
           isTaxInclusive: false,
           durationMinutes: parseInt(pDuration || '20', 10),
@@ -1384,6 +1443,70 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete package');
+        }
+      },
+    });
+  };
+
+  // 3c2. À La Carte Add-on Handlers
+  const handleSaveAddon = async () => {
+    if (!adCode.trim() || !adName.trim()) {
+      showAlert('Validation Error', 'Add-on Code and Name are required.');
+      return;
+    }
+    if (isNaN(parseFloat(adCustomerPrice))) {
+      showAlert('Validation Error', 'Valid Customer Price is required.');
+      return;
+    }
+    const cPrice = parseFloat(adCustomerPrice);
+    const dPrice = isNaN(parseFloat(adDealerPrice)) ? cPrice * 0.75 : parseFloat(adDealerPrice);
+
+    try {
+      if (editingAddon) {
+        await updateAddon(editingAddon.addonId, {
+          addonCode: adCode.trim().toUpperCase().replace(/\s+/g, '_'),
+          addonName: adName.trim(),
+          category: adCategory,
+          customerPrice: cPrice,
+          dealerPrice: dPrice,
+          description: adDesc.trim(),
+          displayOrder: parseInt(adOrder || '1', 10),
+          isActive: adActive,
+        });
+        showAlert('Success', `Add-on service "${adName}" updated.`);
+      } else {
+        await createAddon({
+          addonCode: adCode.trim().toUpperCase().replace(/\s+/g, '_'),
+          addonName: adName.trim(),
+          category: adCategory,
+          customerPrice: cPrice,
+          dealerPrice: dPrice,
+          description: adDesc.trim(),
+          displayOrder: parseInt(adOrder || '1', 10),
+          isActive: adActive,
+        });
+        showAlert('Success', `Add-on service "${adName}" created.`);
+      }
+      setAddonModalOpen(false);
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to save add-on service.');
+    }
+  };
+
+  const handleDeleteAddon = (id: number) => {
+    showConfirm({
+      title: 'Delete À La Carte Service',
+      message: 'Are you sure you want to delete this add-on service?',
+      confirmText: 'Delete',
+      confirmButtonColor: '#EF4444',
+      onConfirm: async () => {
+        try {
+          await deleteAddon(id);
+          showAlert('Success', 'Add-on service deleted.');
+          loadSettingsData();
+        } catch (err: any) {
+          showAlert('Error', err.message || 'Failed to delete add-on service.');
         }
       },
     });
@@ -1920,7 +2043,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 1. Dashboard View ── */
   const renderDashboard = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       {/* Hero Banner */}
       <View style={styles.heroBanner}>
         <View style={styles.heroInner}>
@@ -2237,7 +2360,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 2. User Management View ── */
   const renderUsers = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>User Management</Text>
@@ -2327,12 +2450,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     </View>
                   </View>
                   <View style={[styles.actionRow, { flex: 1 }]}>
-                    <Pressable style={styles.btnAction} onPress={() => handleOpenEditUser(u)}>
+                    <TouchableOpacity
+                      style={styles.btnAction}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      onPress={() => handleOpenEditUser(u)}
+                    >
                       <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                    </Pressable>
-                    <Pressable style={styles.btnAction} onPress={() => handleDeleteUser(u)}>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.btnAction}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      onPress={() => handleDeleteUser(u)}
+                    >
                       <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                    </Pressable>
+                    </TouchableOpacity>
                   </View>
                 </View>
               ))
@@ -2452,7 +2585,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 2b. User Group Master View ── */
   const renderUserGroups = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>User Group Master</Text>
@@ -2548,12 +2681,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                       </View>
                     </View>
                     <View style={[styles.actionRow, { flex: 1 }]}>
-                      <Pressable style={styles.btnAction} onPress={() => handleOpenEditGroup(g)}>
+                      <TouchableOpacity
+                        style={styles.btnAction}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        onPress={() => handleOpenEditGroup(g)}
+                      >
                         <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                      </Pressable>
-                      <Pressable style={styles.btnAction} onPress={() => handleDeleteGroup(g)}>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.btnAction}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        onPress={() => handleDeleteGroup(g)}
+                      >
                         <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      </Pressable>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 );
@@ -2715,7 +2858,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         </View>
 
         {/* Paymodes Table */}
-        <ScrollView horizontal showsHorizontalScrollIndicator style={{ width: '100%', marginTop: 8 }} contentContainerStyle={{ minWidth: 1420 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator keyboardShouldPersistTaps="handled" style={{ width: '100%', marginTop: 8 }} contentContainerStyle={{ minWidth: 1420 }}>
           <View style={{ flex: 1 }}>
             {/* Table Header */}
             <View style={styles.tableHeader}>
@@ -2846,20 +2989,22 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
                 {/* Actions */}
                 <View style={[styles.actionRow, { width: 90 }]}>
-                  <Pressable
+                  <TouchableOpacity
                     style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     onPress={() => openEditPaymodeModal(pm)}
-                    hitSlop={6}
                   >
                     <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                  </Pressable>
-                  <Pressable
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     onPress={() => handleDeletePaymode(pm)}
-                    hitSlop={6}
                   >
                     <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                  </Pressable>
+                  </TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -2944,6 +3089,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           {/* Scrollable Body */}
           <ScrollView
             style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ padding: 20, gap: 14 }}
             showsVerticalScrollIndicator={true}
           >
@@ -3226,7 +3372,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 3. Configuration & Masters View ── */
   const renderSettings = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>System Configuration</Text>
@@ -3240,21 +3386,24 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           { id: 'VEHICLES', label: 'Vehicle Types' },
           { id: 'CATEGORIES', label: 'Categories' },
           { id: 'PACKAGES', label: 'Service Packages' },
+          { id: 'ADDONS', label: 'À La Carte Services' },
           { id: 'BAYS', label: 'Washing Bays' },
           { id: 'DEALERS', label: 'Dealers' },
           { id: 'ACCOUNT_TYPES', label: 'Account Types' },
           { id: 'COMPANY', label: 'Station Profile' },
           { id: 'PRINTERS', label: 'Printers' },
         ].map((tab) => (
-          <Pressable
+          <TouchableOpacity
             key={tab.id}
             style={[styles.subTabPill, settingsTab === tab.id && styles.subTabPillActive]}
             onPress={() => setSettingsTab(tab.id as SettingsSubTab)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
           >
             <Text style={[styles.subTabPillText, settingsTab === tab.id && styles.subTabPillTextActive]}>
               {tab.label}
             </Text>
-          </Pressable>
+          </TouchableOpacity>
         ))}
       </View>
 
@@ -3314,8 +3463,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
               <View style={[styles.actionRow, { flex: 1 }]}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingVehicle(v);
                     setVCode(v.vehicleTypeCode);
@@ -3328,10 +3479,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeleteVehicleType(v.vehicleTypeId)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeleteVehicleType(v.vehicleTypeId)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3405,8 +3561,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
               <View style={[styles.actionRow, { flex: 0.9 }]}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingCategory(c);
                     setCCode(c.serviceCategoryCode);
@@ -3420,10 +3578,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeleteCategory(c.serviceCategoryId)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeleteCategory(c.serviceCategoryId)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3443,6 +3606,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setPName('');
                 setPDesc('');
                 setPPrice('15.00');
+                setPDealerPrice('15.00');
                 setPDuration('20');
                 setPOrder('1');
                 setPActive(true);
@@ -3456,30 +3620,36 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
 
           <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 1.5 }]}>CATEGORY</Text>
+            <Text style={[styles.th, { flex: 1.4 }]}>CATEGORY</Text>
             <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 2 }]}>PACKAGE NAME</Text>
-            <Text style={[styles.th, { flex: 1.2 }]}>PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
+            <Text style={[styles.th, { flex: 1.8 }]}>PACKAGE NAME</Text>
+            <Text style={[styles.th, { flex: 1.1 }]}>PRICE ($)</Text>
+            <Text style={[styles.th, { flex: 1.2 }]}>DEALER PRICE ($)</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
           </View>
 
           {packages.map((pkg) => (
             <View key={pkg.packageId} style={styles.tableRow}>
-              <Text style={[styles.td, styles.textSec, { flex: 1.5 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
+              <Text style={[styles.td, styles.textSec, { flex: 1.4 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
               <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{pkg.packageCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 2, fontWeight: '700' }]}>{pkg.packageName}</Text>
-              <Text style={[styles.td, { flex: 1.2, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
-              <View style={{ flex: 1 }}>
+              <Text style={[styles.td, styles.textWhite, { flex: 1.8, fontWeight: '700' }]}>{pkg.packageName}</Text>
+              <Text style={[styles.td, { flex: 1.1, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
+              <Text style={[styles.td, { flex: 1.2, color: '#F59E0B', fontWeight: '800' }]}>
+                {pkg.dealerPrice != null ? `$${Number(pkg.dealerPrice).toFixed(2)}` : `$${pkg.price.toFixed(2)}`}
+              </Text>
+              <View style={{ flex: 0.9 }}>
                 <View style={[styles.statusBadge, pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                   <Text style={[styles.statusBadgeText, pkg.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                     {pkg.isActive ? 'Active' : 'Inactive'}
                   </Text>
                 </View>
               </View>
-              <View style={[styles.actionRow, { flex: 1 }]}>
-                <Pressable
+              <View style={[styles.actionRow, { flex: 0.9 }]}>
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingPkg(pkg);
                     setPCatId(pkg.serviceCategoryId);
@@ -3487,6 +3657,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setPName(pkg.packageName);
                     setPDesc(pkg.description || '');
                     setPPrice(String(pkg.price));
+                    setPDealerPrice(pkg.dealerPrice != null ? String(pkg.dealerPrice) : String(pkg.price));
                     setPDuration(String(pkg.durationMinutes || 20));
                     setPOrder(String(pkg.displayOrder));
                     setPActive(pkg.isActive);
@@ -3495,10 +3666,123 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeletePackage(pkg.packageId)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeletePackage(pkg.packageId)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Tab 3c2: À La Carte Services & Upgrades */}
+      {settingsTab === 'ADDONS' && (
+        <View style={styles.glassCard}>
+          <View style={styles.cardHeaderAction}>
+            <View>
+              <Text style={styles.cardHeading}>À La Carte & Upgrades Master (ServiceAddonMaster)</Text>
+              <Text style={styles.cardSubhead}>Individual services, add-on upgrades, and customer/dealer prices</Text>
+            </View>
+            <Pressable
+              style={styles.btnPrimary}
+              onPress={() => {
+                setEditingAddon(null);
+                setAdCode('');
+                setAdName('');
+                setAdCategory('EXTERIOR');
+                setAdCustomerPrice('10.00');
+                setAdDealerPrice('7.50');
+                setAdDesc('');
+                setAdOrder('1');
+                setAdActive(true);
+                setAddonModalOpen(true);
+              }}
+            >
+              <Ionicons name="add" size={16} color={C.white} />
+              <Text style={styles.btnPrimaryText}>Add À La Carte Service</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 1.2 }]}>CATEGORY</Text>
+            <Text style={[styles.th, { flex: 1.2 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 2 }]}>SERVICE NAME</Text>
+            <Text style={[styles.th, { flex: 1.1 }]}>CUSTOMER PRICE ($)</Text>
+            <Text style={[styles.th, { flex: 1.1 }]}>DEALER PRICE ($)</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
+          </View>
+
+          {addonsList.map((addon) => (
+            <View key={addon.addonId} style={styles.tableRow}>
+              <View style={{ flex: 1.2 }}>
+                <View
+                  style={[
+                    styles.statusBadge,
+                    addon.category === 'EXTERIOR'
+                      ? { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)' }
+                      : { backgroundColor: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)' },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusBadgeText,
+                      addon.category === 'EXTERIOR' ? { color: '#60A5FA' } : { color: '#C084FC' },
+                    ]}
+                  >
+                    {addon.category}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '700' }]}>{addon.addonCode}</Text>
+              <Text style={[styles.td, styles.textWhite, { flex: 2, fontWeight: '700' }]}>{addon.addonName}</Text>
+              <Text style={[styles.td, { flex: 1.1, color: '#22C55E', fontWeight: '800' }]}>
+                ${addon.customerPrice.toFixed(2)}
+              </Text>
+              <Text style={[styles.td, { flex: 1.1, color: '#F59E0B', fontWeight: '800' }]}>
+                ${addon.dealerPrice.toFixed(2)}
+              </Text>
+              <View style={{ flex: 0.9 }}>
+                <View style={[styles.statusBadge, addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                  <Text style={[styles.statusBadgeText, addon.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                    {addon.isActive ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.actionRow, { flex: 0.9 }]}>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => {
+                    setEditingAddon(addon);
+                    setAdCode(addon.addonCode);
+                    setAdName(addon.addonName);
+                    setAdCategory(addon.category);
+                    setAdCustomerPrice(String(addon.customerPrice));
+                    setAdDealerPrice(String(addon.dealerPrice));
+                    setAdDesc(addon.description || '');
+                    setAdOrder(String(addon.displayOrder));
+                    setAdActive(addon.isActive);
+                    setAddonModalOpen(true);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeleteAddon(addon.addonId)}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3560,8 +3844,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               </View>
               <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{b.remarks || '-'}</Text>
               <View style={[styles.actionRow, { flex: 1 }]}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingBay(b);
                     setBNum(String(b.bayNumber));
@@ -3573,10 +3859,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeleteBay(b.bayNumber)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeleteBay(b.bayNumber)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3678,8 +3969,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
               {/* Actions */}
               <View style={[styles.actionRow, { flex: 1 }]}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingDealer(d);
                     setDCode(d.uniqueCode);
@@ -3694,10 +3987,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeleteDealer(d.dealerId)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeleteDealer(d.dealerId)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3802,8 +4100,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
               {/* Actions */}
               <View style={[styles.actionRow, { flex: 1 }]}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingAccountType(at);
                     setAtCode(at.code);
@@ -3818,13 +4118,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable 
+                </TouchableOpacity>
+                <TouchableOpacity 
                   style={styles.btnAction} 
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => handleDeleteAccountType(at.accountTypeId, at.name)}
                 >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -3953,11 +4255,18 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
               <View style={[styles.actionRow, { flex: 1.5 }]}>
-                <Pressable style={styles.btnAction} onPress={() => handleTestPrinter(p)}>
-                  <Ionicons name="print-outline" size={16} color="#10B981" />
-                </Pressable>
-                <Pressable
+                <TouchableOpacity
                   style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleTestPrinter(p)}
+                >
+                  <Ionicons name="print-outline" size={16} color="#10B981" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => {
                     setEditingPrn(p);
                     setPrnName(p.printerName);
@@ -3969,10 +4278,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </Pressable>
-                <Pressable style={styles.btnAction} onPress={() => handleDeletePrinter(p.printerId)}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.btnAction}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  onPress={() => handleDeletePrinter(p.printerId)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -4158,8 +4472,19 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </View>
             <View style={styles.formRow}>
               <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>PRICE ($) *</Text>
+                <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
                 <TextInput style={styles.fieldInput} value={pPrice} onChangeText={setPPrice} keyboardType="numeric" />
+              </View>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={pDealerPrice}
+                  onChangeText={setPDealerPrice}
+                  keyboardType="numeric"
+                  placeholder="e.g. 22.40"
+                  placeholderTextColor={C.textSec}
+                />
               </View>
               <View style={[styles.formGroup, { flex: 1 }]}>
                 <Text style={styles.fieldLabel}>DURATION (MINS)</Text>
@@ -4173,6 +4498,134 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPkgModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSavePackage}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Addon Modal */}
+      <Modal visible={addonModalOpen} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editingAddon ? 'Edit À La Carte Service' : 'Add À La Carte Service'}</Text>
+              <Pressable onPress={() => setAddonModalOpen(false)}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>CATEGORY *</Text>
+              <View style={styles.groupPickerRow}>
+                {(['EXTERIOR', 'INTERIOR'] as const).map((cat) => (
+                  <Pressable
+                    key={cat}
+                    style={[styles.groupPill, adCategory === cat && styles.groupPillActive]}
+                    onPress={() => setAdCategory(cat)}
+                  >
+                    <Text style={[styles.groupPillText, adCategory === cat && { color: C.white, fontWeight: '700' }]}>
+                      {cat}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.formRow}>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel}>CODE *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={adCode}
+                  onChangeText={setAdCode}
+                  autoCapitalize="characters"
+                  placeholder="e.g. WATER_WAX"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={[styles.formGroup, { flex: 1.5 }]}>
+                <Text style={styles.fieldLabel}>SERVICE NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={adName}
+                  onChangeText={setAdName}
+                  placeholder="e.g. Water Wax Finish"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+            </View>
+
+            <View style={styles.formRow}>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={adCustomerPrice}
+                  onChangeText={setAdCustomerPrice}
+                  keyboardType="numeric"
+                  placeholder="10.00"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={adDealerPrice}
+                  onChangeText={setAdDealerPrice}
+                  keyboardType="numeric"
+                  placeholder="7.50"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={adOrder}
+                  onChangeText={setAdOrder}
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+              <TextInput
+                style={[styles.fieldInput, { height: 60 }]}
+                value={adDesc}
+                onChangeText={setAdDesc}
+                multiline
+                placeholder="Brief customer-friendly description of this add-on..."
+                placeholderTextColor={C.textSec}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>STATUS</Text>
+              <View style={styles.groupPickerRow}>
+                <Pressable
+                  style={[styles.groupPill, adActive && styles.groupPillActive]}
+                  onPress={() => setAdActive(true)}
+                >
+                  <Text style={[styles.groupPillText, adActive && { color: C.white, fontWeight: '700' }]}>Active</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.groupPill, !adActive && styles.groupPillActive]}
+                  onPress={() => setAdActive(false)}
+                >
+                  <Text style={[styles.groupPillText, !adActive && { color: C.white, fontWeight: '700' }]}>Inactive</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <Pressable style={styles.btnSecondary} onPress={() => setAddonModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} onPress={handleSaveAddon}>
+                <Text style={styles.btnPrimaryText}>Save</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -4560,7 +5013,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 4. Audit Logs View ── */
   const renderAudit = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>Audit Logs & System History</Text>
@@ -4631,7 +5084,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 5. Data Export View ── */
   const renderExport = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>Data Export Center</Text>
@@ -4698,7 +5151,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   /* ── 6. Kiosk Alerts View ── */
   const renderAlerts = () => (
-    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+    <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>Kiosk Customer Alerts</Text>
@@ -4779,7 +5232,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         return renderUserGroups();
       case 'paymodes':
         return (
-          <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad}>
+          <ScrollView style={styles.scrollPane} contentContainerStyle={styles.scrollPad} keyboardShouldPersistTaps="handled">
             {renderPaymodesView()}
           </ScrollView>
         );
@@ -4810,7 +5263,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         </View>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+      <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
         {/* Navigation Group: OVERVIEW */}
         <Text style={styles.navGroupLabel}>OVERVIEW</Text>
         <Pressable
@@ -5254,8 +5707,13 @@ const styles = StyleSheet.create({
   },
   btnPrimarySmallText: { color: C.white, fontSize: 11, fontWeight: '700' },
   btnAction: {
-    padding: 6, borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    padding: 8,
+    minWidth: 36,
+    minHeight: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   /* Section Head */
@@ -5402,7 +5860,7 @@ const styles = StyleSheet.create({
   statusBadgeOn: { backgroundColor: 'rgba(34,197,94,0.1)' },
   statusBadgeOff: { backgroundColor: 'rgba(239,68,68,0.1)' },
   statusBadgeText: { fontSize: 10, fontWeight: '700' },
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, zIndex: 10 },
 
   /* Modal Styles */
   modalBackdrop: {

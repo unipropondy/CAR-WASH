@@ -289,6 +289,7 @@ export const Page2VehicleScreen: React.FC<Page2VehicleScreenProps> = ({
             isTallKiosk && styles.scrollContentTall
           ]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.portraitGrid, isTallKiosk && styles.portraitGridTall, { maxWidth: contentMaxWidth, width: '100%' }]}>
             {vehicles.map((item) => {

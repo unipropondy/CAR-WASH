@@ -70,6 +70,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   const [selectedPackage, setSelectedPackage] = useState<ServicePackage | undefined>(savedSession?.selectedPackage);
   const [selectedPackageId, setSelectedPackageId] = useState<number | undefined>(savedSession?.selectedPackageId);
   const [selectedPackageCode, setSelectedPackageCode] = useState<string | undefined>(savedSession?.selectedPackageCode);
+  const [selectedAdditionalServices, setSelectedAdditionalServices] = useState<string | undefined>(undefined);
+  const [selectedAdditionalAmount, setSelectedAdditionalAmount] = useState<number>(0);
   const [customerDetails, setCustomerDetails] = useState<CustomerDetails | undefined>(savedSession?.customerDetails);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | undefined>(savedSession?.paymentMode);
 
@@ -290,6 +292,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     setSelectedPackage(pkg);
     setSelectedPackageId(pkg.packageId);
     setSelectedPackageCode(pkg.packageCode);
+    setSelectedAdditionalServices(additionalServices);
+    setSelectedAdditionalAmount(additionalAmount || 0);
 
     // Both Customer and Dealer navigate to Details screen (all fields optional for dealer)
     navigateToPage('PAGE_4_DETAILS', '/details');
@@ -331,6 +335,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           packageId: pkgId,
           dealerId: dId,
           payMode: 'CREDIT',
+          additionalServices: selectedAdditionalServices,
+          additionalAmount: selectedAdditionalAmount,
         });
 
         const orderNo = saved.orderNo || `RB${String(billCounter).padStart(6, '0')}`;
@@ -338,7 +344,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         setActiveOrderNo(orderNo);
         setCreatedOrderData(saved);
 
-        const baseAmt = saved.packagePrice != null ? Number(saved.packagePrice) : (selectedPackage?.price || 0);
+        const baseAmt = saved.packagePrice != null ? Number(saved.packagePrice) : (selectedPackage?.dealerPrice || selectedPackage?.price || 0);
         const gstPercent = saved.gstPercent != null ? Number(saved.gstPercent) : getCachedGstRate();
         const gstAmt = saved.gstAmount != null ? Number(saved.gstAmount) : Number(((baseAmt * (gstPercent / 100))).toFixed(2));
         const totalAmt = saved.totalAmount != null ? Number(saved.totalAmount) : Number((baseAmt + gstAmt).toFixed(2));
@@ -360,9 +366,11 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           paymentMode: 'CREDIT',
           paymentStatus: 'PAID',
           packagePrice: baseAmt,
+          dealerPrice: selectedPackage?.dealerPrice || baseAmt,
           gstPercent: gstPercent,
           totalAmount: totalAmt,
           gstAmount: gstAmt,
+          additionalServices: selectedAdditionalServices,
           outstandingAmount: totalAmt,
           createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         };
@@ -397,6 +405,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           vehicleTypeId: vTypeId,
           serviceCategoryId: catId,
           packageId: pkgId,
+          additionalServices: selectedAdditionalServices,
+          additionalAmount: selectedAdditionalAmount,
         });
 
         setActiveOrderId(saved.orderId);
@@ -470,9 +480,11 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
       paymentMode: mode,
       paymentStatus: String(mode).toUpperCase() === 'CASH' ? 'PENDING' : 'PAID',
       packagePrice: baseAmount,
+      dealerPrice: selectedPackage.dealerPrice,
       gstPercent,
       totalAmount,
       gstAmount,
+      additionalServices: selectedAdditionalServices,
       createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
 
@@ -560,6 +572,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     setSelectedPackage(undefined);
     setSelectedPackageId(undefined);
     setSelectedPackageCode(undefined);
+    setSelectedAdditionalServices(undefined);
+    setSelectedAdditionalAmount(0);
     setCustomerDetails(undefined);
     setPaymentMode(undefined);
     setActiveOrderId(undefined);
@@ -636,6 +650,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             dealer={selectedDealer}
             selectedVehicle={selectedVehicle}
             selectedPackage={selectedPackage}
+            additionalServices={selectedAdditionalServices}
+            additionalAmount={selectedAdditionalAmount}
             onContinue={handleContinueDetails}
             onBack={() => navigateToPage('PAGE_3_SERVICE_CAT', '/services')}
             onExitToPos={handleOpenStaffLogin}

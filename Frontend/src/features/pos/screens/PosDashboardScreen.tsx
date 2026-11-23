@@ -1379,6 +1379,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 contentContainerStyle={{ paddingBottom: 4 }}
                 showsVerticalScrollIndicator={false}
                 nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
               >
                 <View style={styles.bayOptionsList}>
                   {availableBays.map((bay) => {
@@ -1492,14 +1493,20 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               );
 
               return (
-                <View style={styles.viewBody}>
-                  {selectedOrderForView.assignedBayName && (
-                    <View style={styles.inServiceBadge}>
-                      <Text style={styles.inServiceBadgeText}>
-                        ASSIGNED: {selectedOrderForView.assignedBayName}
-                      </Text>
-                    </View>
-                  )}
+                <ScrollView
+                  style={{ maxHeight: 520 }}
+                  contentContainerStyle={{ paddingBottom: 12 }}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={styles.viewBody}>
+                    {selectedOrderForView.assignedBayName && (
+                      <View style={styles.inServiceBadge}>
+                        <Text style={styles.inServiceBadgeText}>
+                          ASSIGNED: {selectedOrderForView.assignedBayName}
+                        </Text>
+                      </View>
+                    )}
 
                   <View style={styles.viewInfoRow}>
                     <Text style={styles.viewLabel}>Order No:</Text>
@@ -1656,7 +1663,8 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                     )}
                   </View>
                 </View>
-              );
+              </ScrollView>
+            );
             })()}
           </View>
         </View>
@@ -1779,7 +1787,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 <Text style={{ color: '#64748B', fontSize: 13 }}>No status history records found.</Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 360, marginVertical: 10 }} nestedScrollEnabled={true}>
+              <ScrollView style={{ maxHeight: 360, marginVertical: 10 }} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
                 {orderHistoryList.map((hist, i) => (
                   <View key={hist.historyId || i} style={styles.historyRow}>
                     <View style={styles.historyBadge}>
@@ -1844,7 +1852,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 380, marginVertical: 10 }} nestedScrollEnabled={true}>
+            <ScrollView style={{ maxHeight: 380, marginVertical: 10 }} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
               {/* Kiosk Customer Help Requests */}
               {activeHelpAlerts.length > 0 && (
                 <View style={styles.notificationCardSiren}>
@@ -2747,6 +2755,7 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     zIndex: 9999,
+    pointerEvents: 'box-none' as any,
   },
   orderToastCard: {
     width: '92%',

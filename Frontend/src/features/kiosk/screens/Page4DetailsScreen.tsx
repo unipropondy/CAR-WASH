@@ -27,6 +27,8 @@ interface Page4DetailsScreenProps {
   dealer?: DealerOption;
   selectedVehicle?: VehicleOption;
   selectedPackage?: ServicePackage;
+  additionalServices?: string;
+  additionalAmount?: number;
   onContinue: (details: CustomerDetails) => Promise<void> | void;
   onSkip?: () => Promise<void> | void;
   onBack: () => void;
@@ -39,6 +41,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   dealer,
   selectedVehicle,
   selectedPackage,
+  additionalServices,
+  additionalAmount = 0,
   onContinue,
   onSkip,
   onBack,
@@ -162,9 +166,11 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
     }
   };
 
-  const priceFormatted = selectedPackage 
-    ? `$${selectedPackage.price.toFixed(2)}`
-    : '';
+  const basePrice = selectedPackage 
+    ? (isDealer && selectedPackage.dealerPrice != null ? selectedPackage.dealerPrice : selectedPackage.price)
+    : 0;
+  const grandTotal = basePrice + (additionalAmount || 0);
+  const priceFormatted = `$${grandTotal.toFixed(2)}`;
 
   const vehicleImgSource = getVehicleImageSource(selectedVehicle);
 
@@ -197,6 +203,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
           isTallKiosk && styles.scrollContentTall
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[
           styles.portraitContainer, 
@@ -491,10 +498,34 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
                 {selectedPackage && (
                   <View style={styles.summaryPriceBox}>
-                    <Text style={styles.summaryPriceText}>{priceFormatted}</Text>
+                    <Text style={styles.summaryPriceText}>
+                      ${(isDealer && selectedPackage.dealerPrice != null ? selectedPackage.dealerPrice : selectedPackage.price).toFixed(2)}
+                    </Text>
                   </View>
                 )}
               </View>
+
+              {additionalServices ? (
+                <>
+                  <View style={styles.summaryDivider} />
+                  <View style={styles.summaryItemRow}>
+                    <View style={[styles.summaryPackageIconBox, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                      <Ionicons name="sparkles" size={18} color="#D97706" />
+                    </View>
+                    <View style={styles.summaryItemInfo}>
+                      <Text style={styles.summaryItemLabel}>ADDITIONAL SERVICES</Text>
+                      <Text style={styles.summaryItemValue} numberOfLines={2}>
+                        {additionalServices}
+                      </Text>
+                    </View>
+                    {additionalAmount ? (
+                      <View style={styles.summaryPriceBox}>
+                        <Text style={styles.summaryPriceText}>+${additionalAmount.toFixed(2)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
             </View>
 
             {/* In-flow Action Button: Always immediately visible right below Order Summary */}
