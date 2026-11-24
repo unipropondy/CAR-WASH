@@ -1,38 +1,71 @@
 const { getPool, sql } = require('../config/db');
 
 /**
- * GET /api/carwash/addons
- * Query: ?activeOnly=true
+ * GET /api/carwash/addons or /api/service-addons
+ * Query: ?activeOnly=true&packageId=1
  */
 exports.getAddons = async (req, res) => {
   try {
-    const { activeOnly } = req.query;
+    const { activeOnly, packageId } = req.query;
     const pool = await getPool();
+
+    const request = pool.request();
+    let whereClauses = [];
+
+    if (activeOnly === 'true' || activeOnly === true) {
+      whereClauses.push('a.IsActive = 1');
+    }
+
+    if (packageId) {
+      const parsedPkgId = parseInt(packageId, 10);
+      if (!isNaN(parsedPkgId)) {
+        request.input('packageId', sql.Int, parsedPkgId);
+        whereClauses.push(`a.AddonId IN (SELECT AddonId FROM dbo.ServicePackageAddonMapping WITH (NOLOCK) WHERE PackageId = @packageId)`);
+      }
+    }
 
     let query = `
       SELECT
-        AddonId AS addonId,
-        AddonCode AS addonCode,
-        AddonName AS addonName,
-        Category AS category,
-        CustomerPrice AS customerPrice,
-        DealerPrice AS dealerPrice,
-        Icon AS icon,
-        Description AS description,
-        DisplayOrder AS displayOrder,
-        IsActive AS isActive,
-        CreatedDate AS createdDate,
-        ModifiedDate AS modifiedDate
-      FROM dbo.ServiceAddonMaster WITH (NOLOCK)
+        a.AddonId AS addonId,
+        a.AddonCode AS addonCode,
+        a.AddonName AS addonName,
+        a.Category AS category,
+        a.CustomerPrice AS customerPrice,
+        a.DealerPrice AS dealerPrice,
+        a.Icon AS icon,
+        a.Description AS description,
+        a.DisplayOrder AS displayOrder,
+        a.IsActive AS isActive,
+        a.CreatedDate AS createdDate,
+        a.ModifiedDate AS modifiedDate
+      FROM dbo.ServiceAddonMaster a WITH (NOLOCK)
     `;
 
-    if (activeOnly === 'true' || activeOnly === true) {
-      query += ` WHERE IsActive = 1`;
+    if (whereClauses.length > 0) {
+      query += ` WHERE ` + whereClauses.join(' AND ');
     }
 
-    query += ` ORDER BY Category DESC, DisplayOrder ASC, AddonName ASC;`;
+    query += ` ORDER BY a.Category DESC, a.DisplayOrder ASC, a.AddonName ASC;`;
 
-    const result = await pool.request().query(query);
+    const result = await request.query(query);
+
+    // Fetch mappings for packages
+    const mappingResult = await pool.request().query(`
+      SELECT m.AddonId, m.PackageId, p.PackageName, p.PackageCode
+      FROM dbo.ServicePackageAddonMapping m WITH (NOLOCK)
+      JOIN dbo.ServicePackageMaster p WITH (NOLOCK) ON p.PackageId = m.PackageId
+      ORDER BY p.DisplayOrder ASC, p.PackageName ASC;
+    `);
+
+    const packageMap = {};
+    for (const row of mappingResult.recordset) {
+      if (!packageMap[row.AddonId]) {
+        packageMap[row.AddonId] = { ids: [], names: [], codes: [] };
+      }
+      packageMap[row.AddonId].ids.push(row.PackageId);
+      packageMap[row.AddonId].names.push(row.PackageName);
+      if (row.PackageCode) packageMap[row.AddonId].codes.push(row.PackageCode);
+    }
 
     return res.status(200).json({
       success: true,
@@ -42,6 +75,9 @@ exports.getAddons = async (req, res) => {
         customerPrice: Number(row.customerPrice),
         dealerPrice: Number(row.dealerPrice),
         isActive: Boolean(row.isActive),
+        packageIds: packageMap[row.addonId]?.ids || [],
+        packageNames: packageMap[row.addonId]?.names || [],
+        packageCodes: packageMap[row.addonId]?.codes || [],
       })),
     });
   } catch (error) {
@@ -69,6 +105,7 @@ exports.createAddon = async (req, res) => {
       description,
       displayOrder,
       isActive,
+      packageIds,
     } = req.body;
 
     if (!addonCode || !addonName) {
@@ -121,10 +158,29 @@ exports.createAddon = async (req, res) => {
         );
       `);
 
+    const newAddonId = insertResult.recordset[0].AddonId;
+
+    // Insert package mappings if provided
+    if (Array.isArray(packageIds) && packageIds.length > 0) {
+      for (const pkgId of packageIds) {
+        const pId = parseInt(pkgId, 10);
+        if (!isNaN(pId)) {
+          await pool.request()
+            .input('addonId', sql.Int, newAddonId)
+            .input('pkgId', sql.Int, pId)
+            .query(`
+              IF NOT EXISTS (SELECT 1 FROM dbo.ServicePackageAddonMapping WHERE AddonId = @addonId AND PackageId = @pkgId)
+              INSERT INTO dbo.ServicePackageAddonMapping (AddonId, PackageId, CreatedAt)
+              VALUES (@addonId, @pkgId, GETDATE());
+            `);
+        }
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Add-on service created successfully.',
-      addonId: insertResult.recordset[0].AddonId,
+      addonId: newAddonId,
     });
   } catch (error) {
     console.error('[AddonController] createAddon error:', error);
@@ -152,6 +208,7 @@ exports.updateAddon = async (req, res) => {
       description,
       displayOrder,
       isActive,
+      packageIds,
     } = req.body;
 
     const pool = await getPool();
@@ -203,6 +260,27 @@ exports.updateAddon = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Add-on service not found.' });
     }
 
+    // Update package mappings if provided
+    if (packageIds !== undefined && Array.isArray(packageIds)) {
+      await pool.request()
+        .input('addonId', sql.Int, addonId)
+        .query(`DELETE FROM dbo.ServicePackageAddonMapping WHERE AddonId = @addonId;`);
+
+      for (const pkgId of packageIds) {
+        const pId = parseInt(pkgId, 10);
+        if (!isNaN(pId)) {
+          await pool.request()
+            .input('addonId', sql.Int, addonId)
+            .input('pkgId', sql.Int, pId)
+            .query(`
+              IF NOT EXISTS (SELECT 1 FROM dbo.ServicePackageAddonMapping WHERE AddonId = @addonId AND PackageId = @pkgId)
+              INSERT INTO dbo.ServicePackageAddonMapping (AddonId, PackageId, CreatedAt)
+              VALUES (@addonId, @pkgId, GETDATE());
+            `);
+        }
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Add-on service updated successfully.',
@@ -228,6 +306,12 @@ exports.deleteAddon = async (req, res) => {
     if (isNaN(addonId)) {
       return res.status(400).json({ success: false, message: 'Invalid addon ID.' });
     }
+
+    // Delete mappings first
+    await pool
+      .request()
+      .input('id', sql.Int, addonId)
+      .query(`DELETE FROM dbo.ServicePackageAddonMapping WHERE AddonId = @id;`);
 
     const result = await pool
       .request()

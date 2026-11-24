@@ -252,12 +252,20 @@ export interface ServiceAddonRecord {
   description?: string;
   displayOrder: number;
   isActive: boolean;
+  packageIds?: number[];
+  packageNames?: string[];
+  packageCodes?: string[];
   createdDate?: string;
   modifiedDate?: string;
 }
 
-export async function fetchAllAddons(activeOnly: boolean = false): Promise<ServiceAddonRecord[]> {
-  const res = await apiFetch(`/api/carwash/addons${activeOnly ? '?activeOnly=true' : ''}`);
+export async function fetchAllAddons(activeOnly: boolean = false, packageId?: number): Promise<ServiceAddonRecord[]> {
+  const params = new URLSearchParams();
+  if (activeOnly) params.append('activeOnly', 'true');
+  if (packageId) params.append('packageId', String(packageId));
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await apiFetch(`/api/carwash/addons${queryStr}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Failed to fetch add-on services');
@@ -276,6 +284,7 @@ export async function createAddon(payload: {
   description?: string;
   displayOrder?: number;
   isActive?: boolean;
+  packageIds?: number[];
 }): Promise<any> {
   const res = await apiFetch('/api/carwash/addons', {
     method: 'POST',
@@ -289,7 +298,7 @@ export async function createAddon(payload: {
   return data;
 }
 
-export async function updateAddon(id: number, payload: Partial<ServiceAddonRecord>): Promise<any> {
+export async function updateAddon(id: number, payload: Partial<ServiceAddonRecord> & { packageIds?: number[] }): Promise<any> {
   const res = await apiFetch(`/api/carwash/addons/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

@@ -1023,6 +1023,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [cActive, setCActive] = useState(true);
   const [cImage, setCImage] = useState('');
   const [cIcon, setCIcon] = useState('');
+  const [categorySortAsc, setCategorySortAsc] = useState<boolean>(true);
 
   const handlePickImage = async (onSuccess: (base64: string) => void) => {
     try {
@@ -1107,6 +1108,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [adDesc, setAdDesc] = useState('');
   const [adOrder, setAdOrder] = useState('1');
   const [adActive, setAdActive] = useState(true);
+  const [adPackageIds, setAdPackageIds] = useState<number[]>([]);
+  const [addonSearch, setAddonSearch] = useState('');
+  const [addonCategoryFilter, setAddonCategoryFilter] = useState<'ALL' | 'INTERIOR' | 'EXTERIOR'>('ALL');
+  const [addonPackageFilter, setAddonPackageFilter] = useState<string>('ALL');
 
   // 3d. Bays
   const [bays, setBays] = useState<BayMasterRecord[]>([]);
@@ -1208,8 +1213,12 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         setCategories(cats);
         if (cats.length > 0 && !pCatId) setPCatId(cats[0].serviceCategoryId);
       } else if (settingsTab === 'ADDONS') {
-        const data = await fetchAllAddons(false);
+        const [data, pkgs] = await Promise.all([
+          fetchAllAddons(false),
+          fetchAllPackages(undefined, true),
+        ]);
         setAddonsList(data);
+        setPackages(pkgs);
       } else if (settingsTab === 'BAYS') {
         const data = await fetchBayMasterList();
         setBays(data);
@@ -1372,6 +1381,24 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
     });
   };
 
+  const handleQuickReorderCategory = async (cat: ServiceCategoryRecord, direction: number) => {
+    const currentOrder = cat.displayOrder ?? 1;
+    const newOrder = Math.max(1, currentOrder + direction);
+    if (newOrder === currentOrder) return;
+    try {
+      await updateServiceCategory(cat.serviceCategoryId, {
+        serviceCategoryCode: cat.serviceCategoryCode,
+        categoryName: cat.categoryName,
+        description: cat.description || '',
+        displayOrder: newOrder,
+        isActive: cat.isActive,
+      });
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to reorder category');
+    }
+  };
+
   // Package Save
   const handleSavePackage = async () => {
     if (!pCode.trim() || !pName.trim()) {
@@ -1485,6 +1512,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: adDesc.trim(),
           displayOrder: parseInt(adOrder || '1', 10),
           isActive: adActive,
+          packageIds: adPackageIds,
         });
         showAlert('Success', `Add-on service "${adName}" updated.`);
       } else {
@@ -1497,6 +1525,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: adDesc.trim(),
           displayOrder: parseInt(adOrder || '1', 10),
           isActive: adActive,
+          packageIds: adPackageIds,
         });
         showAlert('Success', `Add-on service "${adName}" created.`);
       }
@@ -1524,6 +1553,31 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       },
     });
   };
+
+  const filteredAddons = useMemo(() => {
+    return addonsList.filter((addon) => {
+      if (addonCategoryFilter !== 'ALL' && addon.category !== addonCategoryFilter) {
+        return false;
+      }
+      if (addonPackageFilter !== 'ALL') {
+        const matchPkg =
+          addon.packageNames?.some((pn) => pn.toLowerCase().includes(addonPackageFilter.toLowerCase())) ||
+          addon.packageCodes?.some((pc) => pc.toLowerCase() === addonPackageFilter.toLowerCase());
+        if (!matchPkg) return false;
+      }
+      if (addonSearch.trim()) {
+        const q = addonSearch.trim().toLowerCase();
+        const matchName = addon.addonName?.toLowerCase().includes(q);
+        const matchCode = addon.addonCode?.toLowerCase().includes(q);
+        const matchCat = addon.category?.toLowerCase().includes(q);
+        const matchPkg = addon.packageNames?.some((pn) => pn.toLowerCase().includes(q));
+        if (!matchName && !matchCode && !matchCat && !matchPkg) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [addonsList, addonCategoryFilter, addonPackageFilter, addonSearch]);
 
   // Bay Save
   const handleSaveBay = async () => {
@@ -3537,12 +3591,29 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <Text style={[styles.th, { flex: 1.1 }]}>CODE</Text>
             <Text style={[styles.th, { flex: 1.4 }]}>CATEGORY NAME</Text>
             <Text style={[styles.th, { flex: 2 }]}>DESCRIPTION</Text>
-            <Text style={[styles.th, { flex: 0.7 }]}>ORDER</Text>
+            <TouchableOpacity
+              style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 5 }}
+              onPress={() => setCategorySortAsc((prev) => !prev)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
+              <Ionicons
+                name={categorySortAsc ? 'arrow-up' : 'arrow-down'}
+                size={13}
+                color={C.accent}
+              />
+            </TouchableOpacity>
             <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
           </View>
 
-          {categories.map((c) => (
+          {[...categories]
+            .sort((a, b) => {
+              const orderA = a.displayOrder ?? 1;
+              const orderB = b.displayOrder ?? 1;
+              return categorySortAsc ? orderA - orderB : orderB - orderA;
+            })
+            .map((c) => (
             <View key={c.serviceCategoryId} style={styles.tableRow}>
               <View style={{ flex: 0.9, justifyContent: 'center' }}>
                 <BackofficeImageThumb
@@ -3565,7 +3636,27 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <Text style={[styles.td, styles.textAccent, { flex: 1.1, fontWeight: '700' }]}>{c.serviceCategoryCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.4, fontWeight: '700' }]}>{c.categoryName}</Text>
               <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{c.description || '-'}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 0.7 }]}>{c.displayOrder}</Text>
+              <View style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 18 }]}>{c.displayOrder}</Text>
+                <View style={{ flexDirection: 'column', gap: 2 }}>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderCategory(c, -1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-up" size={12} color={C.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderCategory(c, 1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-down" size={12} color={C.white} />
+                  </TouchableOpacity>
+                </View>
+              </View>
               <View style={{ flex: 0.9 }}>
                 <View style={[styles.statusBadge, c.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                   <Text style={[styles.statusBadgeText, c.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
@@ -3729,6 +3820,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setAdDesc('');
                 setAdOrder('1');
                 setAdActive(true);
+                setAdPackageIds([]);
                 setAddonModalOpen(true);
               }}
             >
@@ -3737,83 +3829,315 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </Pressable>
           </View>
 
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 1.2 }]}>CATEGORY</Text>
-            <Text style={[styles.th, { flex: 1.2 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 2 }]}>SERVICE NAME</Text>
-            <Text style={[styles.th, { flex: 1.1 }]}>CUSTOMER PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 1.1 }]}>DEALER PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
-          </View>
+          {/* Search & Filter Bar */}
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginTop: 16,
+              marginBottom: 16,
+            }}
+          >
+            {/* Search Input Box */}
+            <View
+              style={{
+                flex: 1,
+                minWidth: 260,
+                maxWidth: 420,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.1)',
+                borderRadius: 8,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Ionicons name="search" size={16} color={C.textSec} style={{ marginRight: 8 }} />
+              <TextInput
+                style={{ flex: 1, height: 38, color: C.white, fontSize: 13 }}
+                placeholder="Search by service name, code, package..."
+                placeholderTextColor={C.textMuted}
+                value={addonSearch}
+                onChangeText={setAddonSearch}
+              />
+              {addonSearch ? (
+                <Pressable onPress={() => setAddonSearch('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={16} color={C.textSec} />
+                </Pressable>
+              ) : null}
+            </View>
 
-          {addonsList.map((addon) => (
-            <View key={addon.addonId} style={styles.tableRow}>
-              <View style={{ flex: 1.2 }}>
-                <View
+            {/* Quick Filter Buttons */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Pressable
+                style={[
+                  styles.groupPill,
+                  addonCategoryFilter === 'ALL' && styles.groupPillActive,
+                ]}
+                onPress={() => setAddonCategoryFilter('ALL')}
+              >
+                <Text
                   style={[
-                    styles.statusBadge,
-                    addon.category === 'EXTERIOR'
-                      ? { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)' }
-                      : { backgroundColor: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)' },
+                    styles.groupPillText,
+                    addonCategoryFilter === 'ALL' && { color: C.white, fontWeight: '700' },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      addon.category === 'EXTERIOR' ? { color: '#60A5FA' } : { color: '#C084FC' },
-                    ]}
-                  >
-                    {addon.category}
-                  </Text>
-                </View>
-              </View>
-              <Text style={[styles.td, styles.textAccent, { flex: 1.2, fontWeight: '700' }]}>{addon.addonCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 2, fontWeight: '700' }]}>{addon.addonName}</Text>
-              <Text style={[styles.td, { flex: 1.1, color: '#22C55E', fontWeight: '800' }]}>
-                ${addon.customerPrice.toFixed(2)}
-              </Text>
-              <Text style={[styles.td, { flex: 1.1, color: '#F59E0B', fontWeight: '800' }]}>
-                ${addon.dealerPrice.toFixed(2)}
-              </Text>
-              <View style={{ flex: 0.9 }}>
-                <View style={[styles.statusBadge, addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
-                  <Text style={[styles.statusBadgeText, addon.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
-                    {addon.isActive ? 'Active' : 'Inactive'}
-                  </Text>
-                </View>
-              </View>
-              <View style={[styles.actionRow, { flex: 0.9 }]}>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  All ({addonsList.length})
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.groupPill,
+                  addonCategoryFilter === 'INTERIOR' && {
+                    backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                    borderColor: '#A855F7',
+                  },
+                ]}
+                onPress={() => setAddonCategoryFilter('INTERIOR')}
+              >
+                <Ionicons name="sparkles" size={12} color="#C084FC" style={{ marginRight: 4 }} />
+                <Text
+                  style={[
+                    styles.groupPillText,
+                    addonCategoryFilter === 'INTERIOR' && { color: '#C084FC', fontWeight: '700' },
+                  ]}
+                >
+                  Interior ({addonsList.filter((a) => a.category === 'INTERIOR').length})
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.groupPill,
+                  addonCategoryFilter === 'EXTERIOR' && {
+                    backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                    borderColor: '#3B82F6',
+                  },
+                ]}
+                onPress={() => setAddonCategoryFilter('EXTERIOR')}
+              >
+                <Ionicons name="car-sport" size={12} color="#60A5FA" style={{ marginRight: 4 }} />
+                <Text
+                  style={[
+                    styles.groupPillText,
+                    addonCategoryFilter === 'EXTERIOR' && { color: '#60A5FA', fontWeight: '700' },
+                  ]}
+                >
+                  Exterior ({addonsList.filter((a) => a.category === 'EXTERIOR').length})
+                </Text>
+              </Pressable>
+
+              {/* Reset button if any filter is active */}
+              {(addonSearch || addonCategoryFilter !== 'ALL' || addonPackageFilter !== 'ALL') && (
+                <Pressable
                   onPress={() => {
-                    setEditingAddon(addon);
-                    setAdCode(addon.addonCode);
-                    setAdName(addon.addonName);
-                    setAdCategory(addon.category);
-                    setAdCustomerPrice(String(addon.customerPrice));
-                    setAdDealerPrice(String(addon.dealerPrice));
-                    setAdDesc(addon.description || '');
-                    setAdOrder(String(addon.displayOrder));
-                    setAdActive(addon.isActive);
-                    setAddonModalOpen(true);
+                    setAddonSearch('');
+                    setAddonCategoryFilter('ALL');
+                    setAddonPackageFilter('ALL');
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 6,
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
                   }}
                 >
-                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => handleDeleteAddon(addon.addonId)}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
+                  <Ionicons name="refresh" size={13} color="#EF4444" />
+                  <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700' }}>Reset</Text>
+                </Pressable>
+              )}
             </View>
-          ))}
+          </View>
+
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 0.8, paddingRight: 6 }]}>CATEGORY</Text>
+            <Text style={[styles.th, { flex: 1.3, paddingRight: 10 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 1.6, paddingRight: 10 }]}>SERVICE NAME</Text>
+            <Text style={[styles.th, { flex: 2.3, paddingRight: 10 }]}>APPLICABLE PACKAGES</Text>
+            <Text style={[styles.th, { flex: 0.9, paddingRight: 6 }]}>CUSTOMER ($)</Text>
+            <Text style={[styles.th, { flex: 0.9, paddingRight: 6 }]}>DEALER ($)</Text>
+            <Text style={[styles.th, { flex: 0.7, paddingRight: 6 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 0.7 }]}>ACTIONS</Text>
+          </View>
+
+          {filteredAddons.map((addon) => {
+            const isAllPackages = packages.length > 0 && (addon.packageIds?.length || 0) >= packages.length;
+            const packageCount = addon.packageNames?.length || 0;
+
+            return (
+              <View key={addon.addonId} style={styles.tableRow}>
+                <View style={{ flex: 0.8, paddingRight: 6 }}>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      addon.category === 'EXTERIOR'
+                        ? { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)' }
+                        : { backgroundColor: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)' },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusBadgeText,
+                        addon.category === 'EXTERIOR' ? { color: '#60A5FA' } : { color: '#C084FC' },
+                      ]}
+                    >
+                      {addon.category}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flex: 1.3, paddingRight: 10, minWidth: 0 }}>
+                  <Text style={[styles.td, styles.textAccent, { fontWeight: '700', fontSize: 11 }]} numberOfLines={1}>
+                    {addon.addonCode}
+                  </Text>
+                </View>
+                <View style={{ flex: 1.6, paddingRight: 10, minWidth: 0 }}>
+                  <Text style={[styles.td, styles.textWhite, { fontWeight: '700', fontSize: 12 }]} numberOfLines={2}>
+                    {addon.addonName}
+                  </Text>
+                </View>
+                <View style={{ flex: 2.3, paddingRight: 10 }}>
+                  {packageCount === 0 ? (
+                    <View
+                      style={{
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(239, 68, 68, 0.3)',
+                        borderRadius: 4,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      <Text style={{ color: '#F87171', fontSize: 10, fontWeight: '600' }}>No Packages</Text>
+                    </View>
+                  ) : isAllPackages ? (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(16, 185, 129, 0.4)',
+                        borderRadius: 4,
+                        paddingHorizontal: 7,
+                        paddingVertical: 3,
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      <Ionicons name="checkmark-done-circle" size={12} color="#10B981" />
+                      <Text style={{ color: '#34D399', fontSize: 11, fontWeight: '700' }}>
+                        All Packages ({packageCount})
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                      {addon.packageNames!.slice(0, 2).map((pName, idx) => (
+                        <View
+                          key={idx}
+                          style={{
+                            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(239, 68, 68, 0.35)',
+                            borderRadius: 4,
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                          }}
+                        >
+                          <Text style={{ color: '#FCA5A5', fontSize: 10, fontWeight: '700' }} numberOfLines={1}>
+                            {pName.replace(/\s+Package$/i, '')}
+                          </Text>
+                        </View>
+                      ))}
+                      {packageCount > 2 && (
+                        <View
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                            borderRadius: 4,
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                          }}
+                        >
+                          <Text style={{ color: '#E5E7EB', fontSize: 10, fontWeight: '700' }}>
+                            +{packageCount - 2} more
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.td, { flex: 0.9, color: '#22C55E', fontWeight: '800', paddingRight: 6 }]}>
+                  ${addon.customerPrice.toFixed(2)}
+                </Text>
+                <Text style={[styles.td, { flex: 0.9, color: '#F59E0B', fontWeight: '800', paddingRight: 6 }]}>
+                  ${addon.dealerPrice.toFixed(2)}
+                </Text>
+                <View style={{ flex: 0.7, paddingRight: 6 }}>
+                  <View style={[styles.statusBadge, addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                    <Text style={[styles.statusBadgeText, addon.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                      {addon.isActive ? 'Active' : 'Inactive'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.actionRow, { flex: 0.7 }]}>
+                  <TouchableOpacity
+                    style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => {
+                      setEditingAddon(addon);
+                      setAdCode(addon.addonCode);
+                      setAdName(addon.addonName);
+                      setAdCategory(addon.category);
+                      setAdCustomerPrice(String(addon.customerPrice));
+                      setAdDealerPrice(String(addon.dealerPrice));
+                      setAdDesc(addon.description || '');
+                      setAdOrder(String(addon.displayOrder));
+                      setAdActive(addon.isActive);
+                      setAdPackageIds(addon.packageIds || []);
+                      setAddonModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => handleDeleteAddon(addon.addonId)}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+
+          {filteredAddons.length === 0 && (
+            <View style={{ paddingVertical: 45, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="search-outline" size={36} color={C.textMuted} style={{ marginBottom: 8 }} />
+              <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                No À La Carte Services Found
+              </Text>
+              <Text style={{ color: C.textSec, fontSize: 12, marginTop: 4 }}>
+                {addonSearch
+                  ? `No services match "${addonSearch}". Try searching by service name, code, or package name.`
+                  : 'No services match the selected category filter.'}
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -4415,116 +4739,181 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       </Modal>
 
       {/* Category Modal */}
-      <Modal visible={categoryModalOpen} transparent animationType="fade">
+      <Modal visible={categoryModalOpen} transparent animationType="fade" onRequestClose={() => setCategoryModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingCategory ? 'Edit Category' : 'Add Category'}</Text>
-              <Pressable onPress={() => setCategoryModalOpen(false)}><Ionicons name="close" size={22} color={C.textSec} /></Pressable>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CODE *</Text>
-              <TextInput style={styles.fieldInput} value={cCode} onChangeText={setCCode} autoCapitalize="characters" />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CATEGORY NAME *</Text>
-              <TextInput style={styles.fieldInput} value={cName} onChangeText={setCName} />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>DESCRIPTION</Text>
-              <TextInput style={styles.fieldInput} value={cDesc} onChangeText={setCDesc} />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CATEGORY COVER / HERO IMAGE</Text>
-              <View style={styles.uploadRow}>
-                {cImage ? (
-                  <View style={styles.previewBox}>
-                    <Image source={{ uri: resolveApiUrl(cImage) }} style={styles.previewImg} resizeMode="cover" />
-                    <Pressable style={styles.previewRemoveBtn} onPress={() => setCImage('')}>
-                      <Ionicons name="trash" size={12} color="#EF4444" />
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={styles.previewBoxPlaceholder}>
-                    <Ionicons name="image-outline" size={24} color={C.textMuted} />
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Pressable
-                    style={styles.btnUpload}
-                    onPress={() => handlePickImage((base64) => setCImage(base64))}
-                  >
-                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
-                    <Text style={styles.btnUploadText}>{cImage ? 'Change Cover Image' : 'Upload Cover Image'}</Text>
-                  </Pressable>
-                  <Text style={styles.uploadHint}>Top banner image displayed on Kiosk category card</Text>
-                </View>
-              </View>
+              <Pressable onPress={() => setCategoryModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
             </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CATEGORY EMBLEM / ICON</Text>
-              <View style={styles.uploadRow}>
-                {cIcon ? (
-                  <View style={[styles.previewBox, { width: 56, height: 56, borderRadius: 12 }]}>
-                    <Image source={{ uri: resolveApiUrl(cIcon) }} style={[styles.previewImg, { width: 44, height: 44 }]} resizeMode="contain" />
-                    <Pressable style={styles.previewRemoveBtn} onPress={() => setCIcon('')}>
-                      <Ionicons name="trash" size={12} color="#EF4444" />
+            <ScrollView style={styles.modalScrollBody} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1.3 }]}>
+                  <Text style={styles.fieldLabel}>CODE *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={cCode}
+                    onChangeText={setCCode}
+                    autoCapitalize="characters"
+                    placeholder="e.g. CAR_WASH"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>SORT ORDER *</Text>
+                  <View style={styles.orderStepperBox}>
+                    <Pressable
+                      style={styles.orderStepperBtn}
+                      onPress={() => {
+                        const val = Math.max(1, (parseInt(cOrder, 10) || 1) - 1);
+                        setCOrder(String(val));
+                      }}
+                    >
+                      <Ionicons name="remove" size={15} color={C.white} />
+                    </Pressable>
+                    <TextInput
+                      style={styles.orderStepperInput}
+                      value={cOrder}
+                      onChangeText={setCOrder}
+                      keyboardType="numeric"
+                      textAlign="center"
+                    />
+                    <Pressable
+                      style={styles.orderStepperBtn}
+                      onPress={() => {
+                        const val = (parseInt(cOrder, 10) || 1) + 1;
+                        setCOrder(String(val));
+                      }}
+                    >
+                      <Ionicons name="add" size={15} color={C.white} />
                     </Pressable>
                   </View>
-                ) : (
-                  <View style={[styles.previewBoxPlaceholder, { width: 56, height: 56, borderRadius: 12 }]}>
-                    <Ionicons name="sparkles-outline" size={22} color={C.textMuted} />
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Pressable
-                    style={styles.btnUpload}
-                    onPress={() => handlePickImage((base64) => setCIcon(base64))}
-                  >
-                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
-                    <Text style={styles.btnUploadText}>{cIcon ? 'Change Icon' : 'Upload Icon'}</Text>
-                  </Pressable>
-                  <Text style={styles.uploadHint}>Emblem badge icon shown inside the category badge</Text>
                 </View>
               </View>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>STATUS</Text>
-              <View style={styles.groupPickerRow}>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    cActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
-                  ]}
-                  onPress={() => setCActive(true)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="checkmark-circle" size={15} color={cActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, cActive && { color: C.white, fontWeight: '700' }]}>
-                      Active
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    !cActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
-                  ]}
-                  onPress={() => setCActive(false)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="close-circle" size={15} color={!cActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, !cActive && { color: C.white, fontWeight: '700' }]}>
-                      Inactive
-                    </Text>
-                  </View>
-                </Pressable>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CATEGORY NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={cName}
+                  onChangeText={setCName}
+                  placeholder="e.g. Car Wash"
+                  placeholderTextColor={C.textSec}
+                />
               </View>
-            </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={cDesc}
+                  onChangeText={setCDesc}
+                  placeholder="Optional category description"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CATEGORY COVER / HERO IMAGE</Text>
+                <View style={styles.uploadRow}>
+                  {cImage ? (
+                    <View style={styles.previewBox}>
+                      <Image source={{ uri: resolveApiUrl(cImage) }} style={styles.previewImg} resizeMode="cover" />
+                      <Pressable style={styles.previewRemoveBtn} onPress={() => setCImage('')}>
+                        <Ionicons name="trash" size={12} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={styles.previewBoxPlaceholder}>
+                      <Ionicons name="image-outline" size={24} color={C.textMuted} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Pressable
+                      style={styles.btnUpload}
+                      onPress={() => handlePickImage((base64) => setCImage(base64))}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                      <Text style={styles.btnUploadText}>{cImage ? 'Change Cover Image' : 'Upload Cover Image'}</Text>
+                    </Pressable>
+                    <Text style={styles.uploadHint}>Top banner image displayed on Kiosk category card</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CATEGORY EMBLEM / ICON</Text>
+                <View style={styles.uploadRow}>
+                  {cIcon ? (
+                    <View style={[styles.previewBox, { width: 56, height: 56, borderRadius: 12 }]}>
+                      <Image source={{ uri: resolveApiUrl(cIcon) }} style={[styles.previewImg, { width: 44, height: 44 }]} resizeMode="contain" />
+                      <Pressable style={styles.previewRemoveBtn} onPress={() => setCIcon('')}>
+                        <Ionicons name="trash" size={12} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={[styles.previewBoxPlaceholder, { width: 56, height: 56, borderRadius: 12 }]}>
+                      <Ionicons name="sparkles-outline" size={22} color={C.textMuted} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Pressable
+                      style={styles.btnUpload}
+                      onPress={() => handlePickImage((base64) => setCIcon(base64))}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                      <Text style={styles.btnUploadText}>{cIcon ? 'Change Icon' : 'Upload Icon'}</Text>
+                    </Pressable>
+                    <Text style={styles.uploadHint}>Emblem badge icon shown inside the category badge</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>STATUS</Text>
+                <View style={styles.groupPickerRow}>
+                  <Pressable
+                    style={[
+                      styles.groupPill,
+                      cActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                    ]}
+                    onPress={() => setCActive(true)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="checkmark-circle" size={15} color={cActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, cActive && { color: C.white, fontWeight: '700' }]}>
+                        Active
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.groupPill,
+                      !cActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                    ]}
+                    onPress={() => setCActive(false)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="close-circle" size={15} color={!cActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, !cActive && { color: C.white, fontWeight: '700' }]}>
+                        Inactive
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+
             <View style={styles.modalFooter}>
-              <Pressable style={styles.btnSecondary} onPress={() => setCategoryModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
-              <Pressable style={styles.btnPrimary} onPress={handleSaveCategory}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+              <Pressable style={styles.btnSecondary} onPress={() => setCategoryModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} onPress={handleSaveCategory}>
+                <Text style={styles.btnPrimaryText}>Save</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -4536,92 +4925,98 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingPkg ? 'Edit Package' : 'Add Service Package'}</Text>
-              <Pressable onPress={() => setPkgModalOpen(false)}><Ionicons name="close" size={22} color={C.textSec} /></Pressable>
+              <Pressable onPress={() => setPkgModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Ionicons name="close" size={22} color={C.textSec} /></Pressable>
             </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>SERVICE CATEGORY</Text>
-              <View style={styles.groupPickerRow}>
-                {categories.map((c) => (
+            <ScrollView style={styles.modalScrollBody} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>SERVICE CATEGORY</Text>
+                <View style={styles.groupPickerRow}>
+                  {categories.map((c) => (
+                    <Pressable
+                      key={c.serviceCategoryId}
+                      style={[styles.groupPill, pCatId === c.serviceCategoryId && styles.groupPillActive]}
+                      onPress={() => setPCatId(c.serviceCategoryId)}
+                    >
+                      <Text style={[styles.groupPillText, pCatId === c.serviceCategoryId && { color: C.white, fontWeight: '700' }]}>
+                        {c.categoryName}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>CODE *</Text>
+                  <TextInput style={styles.fieldInput} value={pCode} onChangeText={setPCode} autoCapitalize="characters" />
+                </View>
+                <View style={[styles.formGroup, { flex: 1.5 }]}>
+                  <Text style={styles.fieldLabel}>NAME *</Text>
+                  <TextInput style={styles.fieldInput} value={pName} onChangeText={setPName} />
+                </View>
+              </View>
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1.2 }]}>
+                  <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
+                  <TextInput style={styles.fieldInput} value={pPrice} onChangeText={setPPrice} keyboardType="numeric" />
+                </View>
+                <View style={[styles.formGroup, { flex: 1.2 }]}>
+                  <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={pDealerPrice}
+                    onChangeText={setPDealerPrice}
+                    keyboardType="numeric"
+                    placeholder="e.g. 22.40"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>MINS</Text>
+                  <TextInput style={styles.fieldInput} value={pDuration} onChangeText={setPDuration} keyboardType="numeric" />
+                </View>
+                <View style={[styles.formGroup, { flex: 0.9 }]}>
+                  <Text style={styles.fieldLabel}>ORDER *</Text>
+                  <TextInput style={[styles.fieldInput, { textAlign: 'center', fontWeight: '800' }]} value={pOrder} onChangeText={setPOrder} keyboardType="numeric" />
+                </View>
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>FEATURES (one per line)</Text>
+                <TextInput style={[styles.fieldInput, { height: 70 }]} value={pFeatures} onChangeText={setPFeatures} multiline />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>STATUS</Text>
+                <View style={styles.groupPickerRow}>
                   <Pressable
-                    key={c.serviceCategoryId}
-                    style={[styles.groupPill, pCatId === c.serviceCategoryId && styles.groupPillActive]}
-                    onPress={() => setPCatId(c.serviceCategoryId)}
+                    style={[
+                      styles.groupPill,
+                      pActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                    ]}
+                    onPress={() => setPActive(true)}
                   >
-                    <Text style={[styles.groupPillText, pCatId === c.serviceCategoryId && { color: C.white, fontWeight: '700' }]}>
-                      {c.categoryName}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="checkmark-circle" size={15} color={pActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, pActive && { color: C.white, fontWeight: '700' }]}>
+                        Active
+                      </Text>
+                    </View>
                   </Pressable>
-                ))}
+                  <Pressable
+                    style={[
+                      styles.groupPill,
+                      !pActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                    ]}
+                    onPress={() => setPActive(false)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="close-circle" size={15} color={!pActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, !pActive && { color: C.white, fontWeight: '700' }]}>
+                        Inactive
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-            <View style={styles.formRow}>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>CODE *</Text>
-                <TextInput style={styles.fieldInput} value={pCode} onChangeText={setPCode} autoCapitalize="characters" />
-              </View>
-              <View style={[styles.formGroup, { flex: 1.5 }]}>
-                <Text style={styles.fieldLabel}>NAME *</Text>
-                <TextInput style={styles.fieldInput} value={pName} onChangeText={setPName} />
-              </View>
-            </View>
-            <View style={styles.formRow}>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
-                <TextInput style={styles.fieldInput} value={pPrice} onChangeText={setPPrice} keyboardType="numeric" />
-              </View>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={pDealerPrice}
-                  onChangeText={setPDealerPrice}
-                  keyboardType="numeric"
-                  placeholder="e.g. 22.40"
-                  placeholderTextColor={C.textSec}
-                />
-              </View>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>DURATION (MINS)</Text>
-                <TextInput style={styles.fieldInput} value={pDuration} onChangeText={setPDuration} keyboardType="numeric" />
-              </View>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>FEATURES (one per line)</Text>
-              <TextInput style={[styles.fieldInput, { height: 70 }]} value={pFeatures} onChangeText={setPFeatures} multiline />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>STATUS</Text>
-              <View style={styles.groupPickerRow}>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    pActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
-                  ]}
-                  onPress={() => setPActive(true)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="checkmark-circle" size={15} color={pActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, pActive && { color: C.white, fontWeight: '700' }]}>
-                      Active
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    !pActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
-                  ]}
-                  onPress={() => setPActive(false)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="close-circle" size={15} color={!pActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, !pActive && { color: C.white, fontWeight: '700' }]}>
-                      Inactive
-                    </Text>
-                  </View>
-                </Pressable>
-              </View>
-            </View>
+            </ScrollView>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPkgModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSavePackage}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
@@ -4636,115 +5031,209 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingAddon ? 'Edit À La Carte Service' : 'Add À La Carte Service'}</Text>
-              <Pressable onPress={() => setAddonModalOpen(false)}>
+              <Pressable onPress={() => setAddonModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="close" size={22} color={C.textSec} />
               </Pressable>
             </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CATEGORY *</Text>
-              <View style={styles.groupPickerRow}>
-                {(['EXTERIOR', 'INTERIOR'] as const).map((cat) => (
+            <ScrollView style={styles.modalScrollBody} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CATEGORY *</Text>
+                <View style={styles.groupPickerRow}>
+                  {(['EXTERIOR', 'INTERIOR'] as const).map((cat) => (
+                    <Pressable
+                      key={cat}
+                      style={[styles.groupPill, adCategory === cat && styles.groupPillActive]}
+                      onPress={() => setAdCategory(cat)}
+                    >
+                      <Text style={[styles.groupPillText, adCategory === cat && { color: C.white, fontWeight: '700' }]}>
+                        {cat}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>CODE *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={adCode}
+                    onChangeText={setAdCode}
+                    autoCapitalize="characters"
+                    placeholder="e.g. WATER_WAX"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1.5 }]}>
+                  <Text style={styles.fieldLabel}>SERVICE NAME *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={adName}
+                    onChangeText={setAdName}
+                    placeholder="e.g. Water Wax Finish"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={adCustomerPrice}
+                    onChangeText={setAdCustomerPrice}
+                    keyboardType="numeric"
+                    placeholder="10.00"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={adDealerPrice}
+                    onChangeText={setAdDealerPrice}
+                    keyboardType="numeric"
+                    placeholder="7.50"
+                    placeholderTextColor={C.textSec}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { textAlign: 'center', fontWeight: '800' }]}
+                    value={adOrder}
+                    onChangeText={setAdOrder}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              {/* Applicable Packages Multi-Select */}
+              <View style={styles.formGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={styles.fieldLabel}>
+                    APPLICABLE PACKAGES ({adPackageIds.length} of {packages.length} selected)
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => setAdPackageIds(packages.map((p) => p.packageId))}
+                      style={{ paddingVertical: 2, paddingHorizontal: 8, borderRadius: 4, backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
+                    >
+                      <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700' }}>Select All</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setAdPackageIds([])}
+                      style={{ paddingVertical: 2, paddingHorizontal: 8, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.08)' }}
+                    >
+                      <Text style={{ color: '#9CA3AF', fontSize: 11, fontWeight: '700' }}>Clear All</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View
+                  style={{
+                    backgroundColor: '#1E1E28',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#2E2E3E',
+                    padding: 8,
+                    maxHeight: 180,
+                  }}
+                >
+                  <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={true}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {packages.map((pkg) => {
+                        const isSelected = adPackageIds.includes(pkg.packageId);
+                        return (
+                          <TouchableOpacity
+                            key={pkg.packageId}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              setAdPackageIds((prev) =>
+                                prev.includes(pkg.packageId)
+                                  ? prev.filter((id) => id !== pkg.packageId)
+                                  : [...prev, pkg.packageId]
+                              );
+                            }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 8,
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 6,
+                              borderWidth: 1,
+                              borderColor: isSelected ? '#EF4444' : '#374151',
+                              backgroundColor: isSelected ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                              minWidth: '47%',
+                              flexGrow: 1,
+                            }}
+                          >
+                            <Ionicons
+                              name={isSelected ? 'checkbox' : 'square-outline'}
+                              size={18}
+                              color={isSelected ? '#EF4444' : '#9CA3AF'}
+                            />
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{
+                                  color: isSelected ? '#FFFFFF' : '#D1D5DB',
+                                  fontSize: 12,
+                                  fontWeight: isSelected ? '700' : '500',
+                                }}
+                                numberOfLines={1}
+                              >
+                                {pkg.packageName}
+                              </Text>
+                              <Text style={{ color: '#9CA3AF', fontSize: 10 }}>
+                                {pkg.packageCode} • ${pkg.price?.toFixed(2)}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+                <Text style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>
+                  * This add-on service will only be offered to customers who choose one of the selected packages.
+                </Text>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+                <TextInput
+                  style={[styles.fieldInput, { height: 60 }]}
+                  value={adDesc}
+                  onChangeText={setAdDesc}
+                  multiline
+                  placeholder="Brief customer-friendly description of this add-on..."
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>STATUS</Text>
+                <View style={styles.groupPickerRow}>
                   <Pressable
-                    key={cat}
-                    style={[styles.groupPill, adCategory === cat && styles.groupPillActive]}
-                    onPress={() => setAdCategory(cat)}
+                    style={[styles.groupPill, adActive && styles.groupPillActive]}
+                    onPress={() => setAdActive(true)}
                   >
-                    <Text style={[styles.groupPillText, adCategory === cat && { color: C.white, fontWeight: '700' }]}>
-                      {cat}
-                    </Text>
+                    <Text style={[styles.groupPillText, adActive && { color: C.white, fontWeight: '700' }]}>Active</Text>
                   </Pressable>
-                ))}
+                  <Pressable
+                    style={[styles.groupPill, !adActive && styles.groupPillActive]}
+                    onPress={() => setAdActive(false)}
+                  >
+                    <Text style={[styles.groupPillText, !adActive && { color: C.white, fontWeight: '700' }]}>Inactive</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-
-            <View style={styles.formRow}>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>CODE *</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={adCode}
-                  onChangeText={setAdCode}
-                  autoCapitalize="characters"
-                  placeholder="e.g. WATER_WAX"
-                  placeholderTextColor={C.textSec}
-                />
-              </View>
-              <View style={[styles.formGroup, { flex: 1.5 }]}>
-                <Text style={styles.fieldLabel}>SERVICE NAME *</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={adName}
-                  onChangeText={setAdName}
-                  placeholder="e.g. Water Wax Finish"
-                  placeholderTextColor={C.textSec}
-                />
-              </View>
-            </View>
-
-            <View style={styles.formRow}>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>CUSTOMER PRICE ($) *</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={adCustomerPrice}
-                  onChangeText={setAdCustomerPrice}
-                  keyboardType="numeric"
-                  placeholder="10.00"
-                  placeholderTextColor={C.textSec}
-                />
-              </View>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>DEALER PRICE ($) *</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={adDealerPrice}
-                  onChangeText={setAdDealerPrice}
-                  keyboardType="numeric"
-                  placeholder="7.50"
-                  placeholderTextColor={C.textSec}
-                />
-              </View>
-              <View style={[styles.formGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
-                <TextInput
-                  style={styles.fieldInput}
-                  value={adOrder}
-                  onChangeText={setAdOrder}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>DESCRIPTION</Text>
-              <TextInput
-                style={[styles.fieldInput, { height: 60 }]}
-                value={adDesc}
-                onChangeText={setAdDesc}
-                multiline
-                placeholder="Brief customer-friendly description of this add-on..."
-                placeholderTextColor={C.textSec}
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>STATUS</Text>
-              <View style={styles.groupPickerRow}>
-                <Pressable
-                  style={[styles.groupPill, adActive && styles.groupPillActive]}
-                  onPress={() => setAdActive(true)}
-                >
-                  <Text style={[styles.groupPillText, adActive && { color: C.white, fontWeight: '700' }]}>Active</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.groupPill, !adActive && styles.groupPillActive]}
-                  onPress={() => setAdActive(false)}
-                >
-                  <Text style={[styles.groupPillText, !adActive && { color: C.white, fontWeight: '700' }]}>Inactive</Text>
-                </Pressable>
-              </View>
-            </View>
+            </ScrollView>
 
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setAddonModalOpen(false)}>
@@ -6019,20 +6508,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', padding: 20,
   },
   modalCard: {
-    width: '100%', maxWidth: 480,
+    width: '100%', maxWidth: 500,
+    maxHeight: '90%',
     backgroundColor: '#181818',
     borderWidth: 1, borderColor: 'rgba(255,26,26,0.3)',
     borderRadius: 16, padding: 20,
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 20px 50px rgba(0,0,0,0.8)' } as any) : {}),
+    display: 'flex', flexDirection: 'column',
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 20px 50px rgba(0,0,0,0.8)', maxHeight: '88vh' } as any) : {}),
   },
   modalHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 16,
+    flexShrink: 0,
   },
   modalTitle: { color: C.white, fontSize: 16, fontWeight: '800' },
+  modalScrollBody: {
+    flex: 1,
+    width: '100%',
+  },
+  modalScrollContent: {
+    paddingVertical: 2,
+    paddingRight: 2,
+  },
   modalFooter: {
     flexDirection: 'row', justifyContent: 'flex-end', gap: 10,
-    marginTop: 20,
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    flexShrink: 0,
   },
 
   /* Forms */
@@ -6053,6 +6558,101 @@ const styles = StyleSheet.create({
   },
   groupPillActive: { backgroundColor: C.accent },
   groupPillText: { color: C.textSec, fontSize: 11 },
+
+  /* Order Sorting & Step Controls */
+  orderStepperBox: {
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  orderStepperBtn: {
+    width: 38,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  orderStepperInput: {
+    flex: 1,
+    height: 42,
+    color: C.white,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    paddingHorizontal: 4,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+  },
+  orderInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  orderStepBtn: {
+    width: 38,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderFieldInput: {
+    flex: 1,
+    textAlign: 'center',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  orderQuickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+    marginTop: -4,
+  },
+  orderQuickLabel: {
+    fontSize: 11,
+    color: C.textSec,
+    fontWeight: '600',
+  },
+  orderPresetBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderPresetBtnActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  orderPresetBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSec,
+  },
+  orderPresetBtnTextActive: {
+    color: C.white,
+    fontWeight: '900',
+  },
+  orderSmallBtn: {
+    width: 20,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
 
   /* Export Tiles */
   exportTile: {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,249 +29,62 @@ import { fetchAllAddons } from '../../../services/masterApi';
 
 export interface ALaCarteServiceOption {
   id: string;
+  addonId?: number;
   name: string;
   customerPrice: number;
   dealerPrice: number;
   category: 'EXTERIOR' | 'INTERIOR';
   icon: string;
   description: string;
+  packageIds?: number[];
+  packageNames?: string[];
+  packageCodes?: string[];
 }
 
-export const ALL_A_LA_CARTE_SERVICES: ALaCarteServiceOption[] = [
-  // Exterior Services
-  {
-    id: 'snow_foam_wash',
-    name: 'Snow Foam Hand Wash',
-    customerPrice: 12.0,
-    dealerPrice: 9.0,
-    category: 'EXTERIOR',
-    icon: 'water-outline',
-    description: 'High-density pH-neutral snow foam hand wash with clean chamois hand dry',
-  },
-  {
-    id: 'water_wax_finish',
-    name: 'Water Wax Finish',
-    customerPrice: 10.0,
-    dealerPrice: 7.5,
-    category: 'EXTERIOR',
-    icon: 'sparkles-outline',
-    description: 'Spray wax treatment that enhances gloss and beads water off exterior paint',
-  },
-  {
-    id: 'tyre_dressing_shine',
-    name: 'Tyre Dressing & Shine',
-    customerPrice: 3.0,
-    dealerPrice: 2.2,
-    category: 'EXTERIOR',
-    icon: 'disc-outline',
-    description: 'Silicone-based dressing applied to tyres for a rich wet-black shine',
-  },
-  {
-    id: 'rim_detailing',
-    name: 'Rim Detailing',
-    customerPrice: 6.0,
-    dealerPrice: 4.5,
-    category: 'EXTERIOR',
-    icon: 'radio-button-on-outline',
-    description: 'Wheel face cleaner removing stubborn brake dust from rims',
-  },
-  {
-    id: 'headlight_restoration',
-    name: 'Headlight Restoration',
-    customerPrice: 50.0,
-    dealerPrice: 37.5,
-    category: 'EXTERIOR',
-    icon: 'sunny-outline',
-    description: 'Machine-polishing hazy, yellowed headlight lenses back to crystal clear',
-  },
-  {
-    id: 'windscreen_polishing_coating',
-    name: 'Windscreen Polishing & Coating',
-    customerPrice: 40.0,
-    dealerPrice: 30.0,
-    category: 'EXTERIOR',
-    icon: 'rainy-outline',
-    description: 'Glass scrubbed of oil film and coated with a rain-repellent hydrophobic barrier',
-  },
-  {
-    id: 'engine_bay_cleaning',
-    name: 'Engine Bay Cleaning & Dressing',
-    customerPrice: 20.0,
-    dealerPrice: 15.0,
-    category: 'EXTERIOR',
-    icon: 'hardware-chip-outline',
-    description: 'Safe engine compartment degrease, wipe-down and plastic dressing',
-  },
-  {
-    id: 'clay_bar_treatment',
-    name: 'Clay Bar Treatment',
-    customerPrice: 50.0,
-    dealerPrice: 37.5,
-    category: 'EXTERIOR',
-    icon: 'hand-left-outline',
-    description: 'Automotive clay bar removes bonded surface contaminants (tar, fallout, overspray)',
-  },
-  {
-    id: 'quick_3in1_polish',
-    name: '3-in-1 Polishing',
-    customerPrice: 80.0,
-    dealerPrice: 60.0,
-    category: 'EXTERIOR',
-    icon: 'color-wand-outline',
-    description: 'Single-stage machine polish that cleans paint, reduces light swirls and adds sealant',
-  },
-  {
-    id: 'detailed_3layer_polish',
-    name: '3-Layer Polishing & Sealant',
-    customerPrice: 150.0,
-    dealerPrice: 112.5,
-    category: 'EXTERIOR',
-    icon: 'layers-outline',
-    description: 'Multi-stage paint correction: compound cut, swirl-free polish, and synthetic sealant',
-  },
-  {
-    id: 'ceramic_coating',
-    name: 'Ceramic Coating',
-    customerPrice: 60.0,
-    dealerPrice: 45.0,
-    category: 'EXTERIOR',
-    icon: 'shield-checkmark-outline',
-    description: 'Liquid polymer coating that bonds with paint for durable hydrophobic shine',
-  },
-
-  // Interior Services
-  {
-    id: 'interior_vacuuming',
-    name: 'Interior Vacuuming',
-    customerPrice: 8.0,
-    dealerPrice: 6.0,
-    category: 'INTERIOR',
-    icon: 'funnel-outline',
-    description: 'Standard vacuuming of cabin carpets, seats and footwells',
-  },
-  {
-    id: 'deep_interior_vacuuming',
-    name: 'Deep Interior Vacuuming',
-    customerPrice: 15.0,
-    dealerPrice: 11.2,
-    category: 'INTERIOR',
-    icon: 'scan-outline',
-    description: 'Intensive vacuuming under seats, boot/trunk and deep crevices',
-  },
-  {
-    id: 'dashboard_cleaning',
-    name: 'Dashboard Cleaning & Shine',
-    customerPrice: 5.0,
-    dealerPrice: 3.8,
-    category: 'INTERIOR',
-    icon: 'speedometer-outline',
-    description: 'Wipe-down of dashboard and centre console with UV protectant',
-  },
-  {
-    id: 'interior_wipe_down',
-    name: 'Interior Wipe-Down',
-    customerPrice: 10.0,
-    dealerPrice: 7.5,
-    category: 'INTERIOR',
-    icon: 'brush-outline',
-    description: 'All hard interior surfaces wiped clean of fingerprints, dust and marks',
-  },
-  {
-    id: 'interior_dressing_shine',
-    name: 'Interior Dressing & Shine',
-    customerPrice: 10.0,
-    dealerPrice: 7.5,
-    category: 'INTERIOR',
-    icon: 'color-fill-outline',
-    description: 'Plastic and vinyl surfaces dressed for a uniform, non-greasy satin finish',
-  },
-  {
-    id: 'dettol_interior_wipe',
-    name: 'Dettol Interior Wipe-Down',
-    customerPrice: 12.0,
-    dealerPrice: 9.0,
-    category: 'INTERIOR',
-    icon: 'medkit-outline',
-    description: 'Disinfectant wipe-down using Dettol-based solution on high-touch cabin surfaces',
-  },
-  {
-    id: 'interior_fumigation',
-    name: 'Interior Fumigation',
-    customerPrice: 30.0,
-    dealerPrice: 22.5,
-    category: 'INTERIOR',
-    icon: 'cloud-outline',
-    description: 'Sanitising antibacterial fog neutralising odours and bacteria in cabin vents',
-  },
-  {
-    id: 'leather_conditioning',
-    name: 'Leather Cleaning & Conditioning',
-    customerPrice: 20.0,
-    dealerPrice: 15.0,
-    category: 'INTERIOR',
-    icon: 'ribbon-outline',
-    description: 'Leather seats cleaned and conditioned to prevent cracking and restore softness',
-  },
-  {
-    id: 'upholstery_steam_cleaning',
-    name: 'Upholstery Steam Cleaning',
-    customerPrice: 60.0,
-    dealerPrice: 45.0,
-    category: 'INTERIOR',
-    icon: 'flame-outline',
-    description: 'Hot steam extraction deep-cleaning fabric/leather seats, lifting embedded dirt',
-  },
-  {
-    id: 'vomit_odour_removal',
-    name: 'Vomit & Odour Removal',
-    customerPrice: 80.0,
-    dealerPrice: 60.0,
-    category: 'INTERIOR',
-    icon: 'trash-bin-outline',
-    description: 'Specialised decontamination removing bio-waste residue and persistent foul odours',
-  },
-];
+export const ALL_A_LA_CARTE_SERVICES: ALaCarteServiceOption[] = [];
 
 /**
- * Filter à la carte services depending on the selected package according to the official Red Bay menu matrix:
- * Avoid recommending items already included in the package. Suggest high-value upgrades.
+ * Filter à la carte services strictly based on the database package mapping (dbo.ServicePackageAddonMapping).
+ * If a service is not mapped to the selected package, it is strictly excluded.
+ * Interior items appear first, followed by Exterior items.
  */
 export function getAvailableALaCarteForPackage(pkg?: ServicePackage, customList?: ALaCarteServiceOption[]): ALaCarteServiceOption[] {
-  const source = customList && customList.length > 0 ? customList : ALL_A_LA_CARTE_SERVICES;
-  if (!pkg) return source;
-  const code = (pkg.packageCode || pkg.name || '').toUpperCase();
-
-  const isExcluded = (item: ALaCarteServiceOption, excluded: string[]) => {
-    const itemNorm = item.id.toLowerCase().replace(/[^a-z0-9]/g, '_');
-    return excluded.some((ex) => itemNorm.includes(ex) || ex.includes(itemNorm));
-  };
-
-  if (code.includes('CARLING')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'interior_vacuuming', 'dashboard_cleaning'];
-    return source.filter((item) => !isExcluded(item, includedIds));
-  }
-  if (code.includes('PREMIER')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'water_wax', 'interior_vacuuming', 'dashboard_cleaning', 'dettol'];
-    return source.filter((item) => !isExcluded(item, includedIds));
-  }
-  if (code.includes('CHAMPION')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'water_wax', 'interior_vacuuming', 'deep_interior_vacuuming', 'dashboard_cleaning', 'dettol', 'leather', 'fumigation', 'engine_bay'];
-    return source.filter((item) => !isExcluded(item, includedIds));
-  }
-  if (code.includes('CLUB')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'water_wax', 'interior_vacuuming', 'dashboard_cleaning', 'dettol', '3_in_1_polish', 'clay_bar', 'interior_wipe', 'interior_dressing'];
-    return source.filter((item) => !isExcluded(item, includedIds));
-  }
-  if (code.includes('EURO')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'water_wax', 'interior_vacuuming', 'deep_interior_vacuuming', 'dashboard_cleaning', 'dettol', 'leather', 'fumigation', 'engine_bay', 'clay_bar', '3_in_1_polish', '3_layer_polish', 'windscreen'];
-    return source.filter((item) => !isExcluded(item, includedIds));
-  }
-  if (code.includes('WORLD')) {
-    const includedIds = ['snow_foam_wash', 'tyre_dressing', 'rim_detailing', 'water_wax', 'interior_vacuuming', 'deep_interior_vacuuming', 'dashboard_cleaning', 'dettol', 'leather', 'fumigation', 'engine_bay', 'clay_bar', '3_in_1_polish', '3_layer_polish', 'windscreen', 'steam_cleaning'];
-    return source.filter((item) => !isExcluded(item, includedIds));
+  if (!pkg) {
+    const list = customList || [];
+    return [...list].sort((a, b) => {
+      const aIsInt = (a.category || '').toUpperCase() === 'INTERIOR' ? 0 : 1;
+      const bIsInt = (b.category || '').toUpperCase() === 'INTERIOR' ? 0 : 1;
+      return aIsInt - bIsInt;
+    });
   }
 
-  return source;
+  const list = customList && customList.length > 0 ? customList : [];
+  if (list.length === 0) {
+    return [];
+  }
+
+  const pkgId = pkg.packageId;
+  const pkgCode = (pkg.packageCode || pkg.name || '').toUpperCase();
+
+  // Filter strictly by packageId or packageCode
+  const filtered = list.filter((item) => {
+    // 1. Direct packageId match
+    if (pkgId && Array.isArray(item.packageIds) && item.packageIds.includes(pkgId)) {
+      return true;
+    }
+    // 2. PackageCode match
+    if (pkgCode && Array.isArray(item.packageCodes) && item.packageCodes.some((c) => c.toUpperCase() === pkgCode)) {
+      return true;
+    }
+    return false;
+  });
+
+  // Always enforce Interior services first, Exterior services next
+  return [...filtered].sort((a, b) => {
+    const aIsInt = (a.category || '').toUpperCase() === 'INTERIOR' ? 0 : 1;
+    const bIsInt = (b.category || '').toUpperCase() === 'INTERIOR' ? 0 : 1;
+    return aIsInt - bIsInt;
+  });
 }
 
 // Retain backward-compatible alias
@@ -424,32 +237,45 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   // Committed selected add-ons (after clicking Confirm in the modal)
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
-  const [addonsList, setAddonsList] = useState<ALaCarteServiceOption[]>(ALL_A_LA_CARTE_SERVICES);
+  const [addonsList, setAddonsList] = useState<ALaCarteServiceOption[]>([]);
 
   // À La Carte popup modal state
   const [showALaCarteModal, setShowALaCarteModal] = useState(false);
   // Pending selections inside the modal (not committed until Confirm)
   const [pendingAddonIds, setPendingAddonIds] = useState<string[]>([]);
+  // Active category filter tab in modal: 'ALL' | 'INTERIOR' | 'EXTERIOR'
+  const [activeAddonTab, setActiveAddonTab] = useState<'ALL' | 'INTERIOR' | 'EXTERIOR'>('ALL');
 
   // Fetch dynamic add-ons from database
   useEffect(() => {
     let active = true;
     fetchAllAddons(true)
       .then((records) => {
-        if (!active || !records || records.length === 0) return;
-        const mapped: ALaCarteServiceOption[] = records.map((r) => ({
+        if (!active) return;
+        const mapped: ALaCarteServiceOption[] = (records || []).map((r) => ({
           id: r.addonCode.toLowerCase(),
+          addonId: r.addonId,
           name: r.addonName,
           customerPrice: r.customerPrice,
           dealerPrice: r.dealerPrice,
-          category: r.category,
-          icon: r.icon || 'sparkles-outline',
+          category: (r.category && r.category.toUpperCase() === 'INTERIOR' ? 'INTERIOR' : 'EXTERIOR') as 'EXTERIOR' | 'INTERIOR',
+          icon: r.icon || ((r.category && r.category.toUpperCase() === 'INTERIOR') ? 'sparkles-outline' : 'car-outline'),
           description: r.description || '',
+          packageIds: r.packageIds || [],
+          packageNames: r.packageNames || [],
+          packageCodes: r.packageCodes || [],
         }));
-        setAddonsList(mapped);
+        // Sort Interior first, Exterior next
+        const sorted = [...mapped].sort((a, b) => {
+          const aIsInt = a.category === 'INTERIOR' ? 0 : 1;
+          const bIsInt = b.category === 'INTERIOR' ? 0 : 1;
+          return aIsInt - bIsInt;
+        });
+        setAddonsList(sorted);
       })
       .catch((err) => {
         console.warn('[Page3ServiceScreen] Could not load dynamic add-ons from DB:', err);
+        setAddonsList([]);
       });
     return () => {
       active = false;
@@ -551,19 +377,67 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   /**
    * When a package card is tapped:
-   * 1. Update selected package state
-   * 2. Clean any stale addon selections that are no longer available for this package
-   * 3. Open the À La Carte popup modal with pre-loaded (cleaned) addon selections
+   * 1. Query the database mapping table (dbo.ServicePackageAddonMapping) for this package
+   * 2. Filter strictly by package assignment from the DB
+   * 3. Clean any stale addon selections that are not assigned to this package
+   * 4. Open the À La Carte popup modal
    */
-  const handleSelectPackage = (pkg: ServicePackage) => {
-    const available = getAvailableALaCarteForPackage(pkg, addonsList);
+  const handleSelectPackage = async (pkg: ServicePackage) => {
+    setSelectedPackage(pkg);
+    setActiveAddonTab('ALL');
+
+    let currentAddons = addonsList;
+    if (pkg.packageId) {
+      try {
+        const records = await fetchAllAddons(true, pkg.packageId);
+        if (records) {
+          const mapped: ALaCarteServiceOption[] = records.map((r) => {
+            const pIds = (r.packageIds && r.packageIds.length > 0) ? r.packageIds : (pkg.packageId ? [pkg.packageId] : []);
+            return {
+              id: r.addonCode.toLowerCase(),
+              addonId: r.addonId,
+              name: r.addonName,
+              customerPrice: r.customerPrice,
+              dealerPrice: r.dealerPrice,
+              category: (r.category && r.category.toUpperCase() === 'INTERIOR' ? 'INTERIOR' : 'EXTERIOR') as 'EXTERIOR' | 'INTERIOR',
+              icon: r.icon || ((r.category && r.category.toUpperCase() === 'INTERIOR') ? 'sparkles-outline' : 'car-outline'),
+              description: r.description || '',
+              packageIds: pIds,
+              packageNames: r.packageNames || [],
+              packageCodes: r.packageCodes || [],
+            };
+          });
+          currentAddons = mapped;
+          setAddonsList(mapped);
+        }
+      } catch (err) {
+        console.warn('[Page3ServiceScreen] Failed to fetch package addons from DB:', err);
+      }
+    }
+
+    const available = getAvailableALaCarteForPackage(pkg, currentAddons);
     const availableIdSet = new Set(available.map((a) => a.id));
     const cleanedAddons = selectedAddonIds.filter((id) => availableIdSet.has(id));
 
-    setSelectedPackage(pkg);
     setSelectedAddonIds(cleanedAddons);
-    // Pre-load pending with cleaned addons so previous selections survive package re-selection
     setPendingAddonIds(cleanedAddons);
+
+    // If the package does NOT have any à la carte add-ons in the DB, skip popup and continue directly
+    if (available.length === 0) {
+      setShowALaCarteModal(false);
+      const cat = selectedCategory || initialCategory || (categories.length > 0 ? categories[0] : undefined);
+      if (cat) {
+        onContinue(
+          cat,
+          pkg,
+          selectedServiceCategoryId || cat.serviceCategoryId,
+          undefined,
+          0
+        );
+      }
+      return;
+    }
+
     setShowALaCarteModal(true);
   };
 
@@ -616,6 +490,22 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     ? getAvailableALaCarteForPackage(selectedPackage, addonsList)
     : [];
   const aLaCarteActiveAddons = aLaCarteAvailableAddons.filter((a) => pendingAddonIds.includes(a.id));
+
+  const interiorAddons = useMemo(
+    () => aLaCarteAvailableAddons.filter((a) => (a.category || '').toUpperCase() === 'INTERIOR'),
+    [aLaCarteAvailableAddons]
+  );
+  const exteriorAddons = useMemo(
+    () => aLaCarteAvailableAddons.filter((a) => (a.category || '').toUpperCase() !== 'INTERIOR'),
+    [aLaCarteAvailableAddons]
+  );
+  const pendingInteriorCount = pendingAddonIds.filter((id) =>
+    interiorAddons.some((a) => a.id === id)
+  ).length;
+  const pendingExteriorCount = pendingAddonIds.filter((id) =>
+    exteriorAddons.some((a) => a.id === id)
+  ).length;
+
   const aLaCarteBasePkgPrice = selectedPackage
     ? isDealer && selectedPackage.dealerPrice != null
       ? selectedPackage.dealerPrice
@@ -626,6 +516,83 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     0
   );
   const aLaCarteGrandTotal = Number((aLaCarteBasePkgPrice + aLaCarteAddonsTotal).toFixed(2));
+
+  const renderAddonCard = (addon: ALaCarteServiceOption) => {
+    const isAdded = pendingAddonIds.includes(addon.id);
+    const itemPrice = isDealer ? addon.dealerPrice : addon.customerPrice;
+    const isInterior = (addon.category || '').toUpperCase() === 'INTERIOR';
+
+    return (
+      <TouchableOpacity
+        key={addon.id}
+        style={[
+          styles.aLaCarteAddonCard,
+          { width: modalAddonCardWidth },
+          isAdded && styles.aLaCarteAddonCardSelected,
+        ]}
+        onPress={() => togglePendingAddon(addon.id)}
+        activeOpacity={0.85}
+      >
+        {/* Top row: Checkbox, Category Chip, Price Tag */}
+        <View style={styles.addonTopRow}>
+          <View style={styles.addonCheckAndCat}>
+            <View style={[styles.addonCheckbox, isAdded && styles.addonCheckboxSelected]}>
+              {isAdded && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+            </View>
+            <View
+              style={[
+                styles.addonCatChip,
+                isInterior ? styles.addonCatChipInterior : styles.addonCatChipExterior,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.addonCatChipText,
+                  isInterior ? styles.addonCatChipTextInterior : styles.addonCatChipTextExterior,
+                ]}
+              >
+                {isInterior ? 'INTERIOR' : 'EXTERIOR'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.addonPriceTag, isAdded && styles.addonPriceTagSelected]}>
+            <Text style={[styles.addonPriceTagText, isAdded && { color: RED_BAY_COLORS.primary }]}>
+              +${itemPrice.toFixed(2)}
+            </Text>
+            {isDealer && (
+              <Text style={styles.dealerDiscountTag}>-25%</Text>
+            )}
+          </View>
+        </View>
+
+        {/* Body: Icon + Title + Description */}
+        <View style={styles.addonContent}>
+          <View
+            style={[
+              styles.addonIconBox,
+              isInterior ? styles.addonIconBoxInterior : styles.addonIconBoxExterior,
+              isAdded && styles.addonIconBoxSelected,
+            ]}
+          >
+            <Ionicons
+              name={addon.icon as any}
+              size={18}
+              color={isAdded ? RED_BAY_COLORS.primary : (isInterior ? '#7C3AED' : '#2563EB')}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.addonName, isAdded && styles.addonNameSelected]} numberOfLines={1}>
+              {addon.name}
+            </Text>
+            <Text style={styles.addonDesc} numberOfLines={2}>
+              {addon.description}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -675,14 +642,14 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           <View style={[
             styles.aLaCarteModalContainer,
             {
-              height: Math.min(screenHeight * 0.82, 720),
-              maxHeight: Math.min(screenHeight * 0.90, 850),
+              height: Math.min(screenHeight * 0.85, 750),
+              maxHeight: Math.min(screenHeight * 0.92, 860),
             },
           ]}>
             {/* Modal Header */}
             <View style={styles.aLaCarteModalHeader}>
               <View style={styles.aLaCarteBadgeIcon}>
-                <Ionicons name="sparkles" size={16} color="#D97706" />
+                <Ionicons name="sparkles" size={18} color="#D97706" />
               </View>
               <View style={styles.aLaCarteHeaderTextCol}>
                 <Text style={styles.aLaCarteModalTitle} numberOfLines={1}>
@@ -703,84 +670,262 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Addon Cards Scrollable Grid */}
+            {/* Category Filter Tabs Bar */}
+            <View style={styles.modalFilterBar}>
+              <View style={styles.modalTabsList}>
+                {/* Tab: All */}
+                <TouchableOpacity
+                  style={[
+                    styles.modalTabPill,
+                    activeAddonTab === 'ALL' && styles.modalTabPillActive,
+                  ]}
+                  onPress={() => setActiveAddonTab('ALL')}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.modalTabPillText,
+                      activeAddonTab === 'ALL' && styles.modalTabPillTextActive,
+                    ]}
+                  >
+                    All Services
+                  </Text>
+                  <View
+                    style={[
+                      styles.modalTabPillBadge,
+                      activeAddonTab === 'ALL' && styles.modalTabPillBadgeActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.modalTabPillBadgeText,
+                        activeAddonTab === 'ALL' && styles.modalTabPillBadgeTextActive,
+                      ]}
+                    >
+                      {aLaCarteAvailableAddons.length}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Tab: Interior (First) */}
+                <TouchableOpacity
+                  style={[
+                    styles.modalTabPill,
+                    activeAddonTab === 'INTERIOR' && styles.modalTabPillActive,
+                  ]}
+                  onPress={() => setActiveAddonTab('INTERIOR')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="sparkles-outline"
+                    size={14}
+                    color={activeAddonTab === 'INTERIOR' ? '#FFFFFF' : '#7C3AED'}
+                  />
+                  <Text
+                    style={[
+                      styles.modalTabPillText,
+                      activeAddonTab === 'INTERIOR' && styles.modalTabPillTextActive,
+                    ]}
+                  >
+                    Interior
+                  </Text>
+                  <View
+                    style={[
+                      styles.modalTabPillBadge,
+                      activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.modalTabPillBadgeText,
+                        activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeTextActive,
+                      ]}
+                    >
+                      {interiorAddons.length}
+                    </Text>
+                  </View>
+                  {pendingInteriorCount > 0 && (
+                    <View style={styles.modalTabSelectionIndicator}>
+                      <Text style={styles.modalTabSelectionIndicatorText}>
+                        {pendingInteriorCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Tab: Exterior (Next) */}
+                <TouchableOpacity
+                  style={[
+                    styles.modalTabPill,
+                    activeAddonTab === 'EXTERIOR' && styles.modalTabPillActive,
+                  ]}
+                  onPress={() => setActiveAddonTab('EXTERIOR')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="car-sport-outline"
+                    size={14}
+                    color={activeAddonTab === 'EXTERIOR' ? '#FFFFFF' : '#2563EB'}
+                  />
+                  <Text
+                    style={[
+                      styles.modalTabPillText,
+                      activeAddonTab === 'EXTERIOR' && styles.modalTabPillTextActive,
+                    ]}
+                  >
+                    Exterior
+                  </Text>
+                  <View
+                    style={[
+                      styles.modalTabPillBadge,
+                      activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.modalTabPillBadgeText,
+                        activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeTextActive,
+                      ]}
+                    >
+                      {exteriorAddons.length}
+                    </Text>
+                  </View>
+                  {pendingExteriorCount > 0 && (
+                    <View style={styles.modalTabSelectionIndicator}>
+                      <Text style={styles.modalTabSelectionIndicatorText}>
+                        {pendingExteriorCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {pendingAddonIds.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setPendingAddonIds([])}
+                  style={styles.aLaCarteClearBtn}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                  <Text style={styles.aLaCarteClearText}>
+                    Reset ({pendingAddonIds.length})
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Addon Cards Scrollable Area */}
             <ScrollView
               style={styles.aLaCarteScrollBody}
               contentContainerStyle={styles.aLaCarteScrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {pendingAddonIds.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setPendingAddonIds([])}
-                  style={styles.aLaCarteClearBtn}
-                >
-                  <Ionicons name="trash-outline" size={13} color="#64748B" />
-                  <Text style={styles.aLaCarteClearText}>
-                    Clear selections ({pendingAddonIds.length})
-                  </Text>
-                </TouchableOpacity>
-              )}
-
               {aLaCarteAvailableAddons.length === 0 ? (
                 <View style={styles.aLaCarteEmptyState}>
-                  <Ionicons name="checkmark-done-circle" size={48} color="#10B981" />
-                  <Text style={styles.aLaCarteEmptyTitle}>All services are included!</Text>
+                  <Ionicons name="sparkles-outline" size={48} color="#9CA3AF" />
+                  <Text style={styles.aLaCarteEmptyTitle}>No Add-ons Configured</Text>
                   <Text style={styles.aLaCarteEmptySubtitle}>
-                    This package already includes all available add-ons.
+                    There are no additional à la carte services assigned to {selectedPackage?.name ?? 'this package'}.
                   </Text>
                 </View>
               ) : (
-                <View style={styles.aLaCarteAddonsGrid}>
-                  {aLaCarteAvailableAddons.map((addon) => {
-                    const isAdded = pendingAddonIds.includes(addon.id);
-                    const itemPrice = isDealer ? addon.dealerPrice : addon.customerPrice;
-                    return (
-                      <TouchableOpacity
-                        key={addon.id}
-                        style={[
-                          styles.aLaCarteAddonCard,
-                          { width: modalAddonCardWidth },
-                          isAdded && styles.aLaCarteAddonCardSelected,
-                        ]}
-                        onPress={() => togglePendingAddon(addon.id)}
-                        activeOpacity={0.85}
-                      >
-                        {/* Top row: checkbox + price */}
-                        <View style={styles.addonTopRow}>
-                          <View style={[styles.addonCheckbox, isAdded && styles.addonCheckboxSelected]}>
-                            {isAdded && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                <>
+                  {/* ================= 1. INTERIOR SERVICES (SHOWN FIRST) ================= */}
+                  {(activeAddonTab === 'ALL' || activeAddonTab === 'INTERIOR') && interiorAddons.length > 0 && (
+                    <View style={styles.categorySectionWrapper}>
+                      <View style={styles.categorySectionHeader}>
+                        <View style={styles.categoryHeaderLeft}>
+                          <View style={[styles.categorySectionIconBadge, styles.categorySectionIconBadgeInterior]}>
+                            <Ionicons name="sparkles" size={16} color="#7C3AED" />
                           </View>
-                          <View style={[styles.addonPriceTag, isAdded && { backgroundColor: '#FEE2E2' }]}>
-                            <Text style={[styles.addonPriceTagText, isAdded && { color: RED_BAY_COLORS.primary }]}>
-                              +${itemPrice.toFixed(2)}
-                            </Text>
-                            {isDealer && (
-                              <Text style={styles.dealerDiscountTag}>-25%</Text>
-                            )}
-                          </View>
-                        </View>
-                        {/* Icon + Name + Description */}
-                        <View style={styles.addonContent}>
-                          <View style={[styles.addonIconBox, isAdded && { backgroundColor: '#FEE2E2' }]}>
-                            <Ionicons
-                              name={addon.icon as any}
-                              size={20}
-                              color={isAdded ? RED_BAY_COLORS.primary : '#475569'}
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.addonName, isAdded && styles.addonNameSelected]} numberOfLines={1}>
-                              {addon.name}
-                            </Text>
-                            <Text style={styles.addonDesc} numberOfLines={2}>
-                              {addon.description}
+                          <View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Text style={styles.categorySectionTitle}>Interior Services</Text>
+                              <View style={[styles.categoryCountBadge, styles.categoryCountBadgeInterior]}>
+                                <Text style={[styles.categoryCountBadgeText, { color: '#7C3AED' }]}>
+                                  {interiorAddons.length} options
+                                </Text>
+                              </View>
+                              {pendingInteriorCount > 0 && (
+                                <View style={styles.categorySelectedPill}>
+                                  <Ionicons name="checkmark-circle" size={12} color="#FFFFFF" />
+                                  <Text style={styles.categorySelectedPillText}>
+                                    {pendingInteriorCount} selected
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={styles.categorySectionSubtitle}>
+                              Deep cabin vacuuming, sanitization, leather conditioning & freshness
                             </Text>
                           </View>
                         </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                      </View>
+
+                      <View style={styles.aLaCarteAddonsGrid}>
+                        {interiorAddons.map(renderAddonCard)}
+                      </View>
+                    </View>
+                  )}
+
+                  {activeAddonTab === 'INTERIOR' && interiorAddons.length === 0 && (
+                    <View style={styles.aLaCarteEmptyCategoryState}>
+                      <Ionicons name="checkmark-circle-outline" size={36} color="#10B981" />
+                      <Text style={styles.aLaCarteEmptyCategoryTitle}>All Interior Services Included</Text>
+                      <Text style={styles.aLaCarteEmptyCategorySub}>
+                        This package already includes all interior services.
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* ================= 2. EXTERIOR SERVICES (SHOWN NEXT) ================= */}
+                  {(activeAddonTab === 'ALL' || activeAddonTab === 'EXTERIOR') && exteriorAddons.length > 0 && (
+                    <View style={[styles.categorySectionWrapper, { marginTop: activeAddonTab === 'ALL' ? 18 : 0 }]}>
+                      <View style={styles.categorySectionHeader}>
+                        <View style={styles.categoryHeaderLeft}>
+                          <View style={[styles.categorySectionIconBadge, styles.categorySectionIconBadgeExterior]}>
+                            <Ionicons name="car-sport" size={16} color="#2563EB" />
+                          </View>
+                          <View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Text style={styles.categorySectionTitle}>Exterior Services</Text>
+                              <View style={[styles.categoryCountBadge, styles.categoryCountBadgeExterior]}>
+                                <Text style={[styles.categoryCountBadgeText, { color: '#2563EB' }]}>
+                                  {exteriorAddons.length} options
+                                </Text>
+                              </View>
+                              {pendingExteriorCount > 0 && (
+                                <View style={styles.categorySelectedPill}>
+                                  <Ionicons name="checkmark-circle" size={12} color="#FFFFFF" />
+                                  <Text style={styles.categorySelectedPillText}>
+                                    {pendingExteriorCount} selected
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={styles.categorySectionSubtitle}>
+                              Snow foam wash, wheel detailing, wax & paint protection
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      <View style={styles.aLaCarteAddonsGrid}>
+                        {exteriorAddons.map(renderAddonCard)}
+                      </View>
+                    </View>
+                  )}
+
+                  {activeAddonTab === 'EXTERIOR' && exteriorAddons.length === 0 && (
+                    <View style={styles.aLaCarteEmptyCategoryState}>
+                      <Ionicons name="checkmark-circle-outline" size={36} color="#10B981" />
+                      <Text style={styles.aLaCarteEmptyCategoryTitle}>All Exterior Services Included</Text>
+                      <Text style={styles.aLaCarteEmptyCategorySub}>
+                        This package already includes all exterior services.
+                      </Text>
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
 
@@ -795,13 +940,20 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                   <View style={styles.footerPriceBanner}>
                     <View style={styles.footerPriceDetails}>
                       <Text style={styles.footerBaseText}>
-                        Base: <Text style={styles.footerBaseAmount}>${aLaCarteBasePkgPrice.toFixed(2)}</Text>
+                        Base Package: <Text style={styles.footerBaseAmount}>${aLaCarteBasePkgPrice.toFixed(2)}</Text>
                       </Text>
                       {aLaCarteAddonsTotal > 0 && (
-                        <Text style={styles.footerUpgradesText}>
-                          + Upgrades ({aLaCarteActiveAddons.length}):{' '}
-                          <Text style={styles.footerUpgradesAmount}>+${aLaCarteAddonsTotal.toFixed(2)}</Text>
-                        </Text>
+                        <View style={{ marginTop: 2 }}>
+                          <Text style={styles.footerUpgradesText}>
+                            + Upgrades ({aLaCarteActiveAddons.length}):{' '}
+                            <Text style={styles.footerUpgradesAmount}>+${aLaCarteAddonsTotal.toFixed(2)}</Text>
+                          </Text>
+                          <Text style={styles.footerBreakdownSub}>
+                            {pendingInteriorCount > 0 ? `${pendingInteriorCount} Interior` : ''}
+                            {pendingInteriorCount > 0 && pendingExteriorCount > 0 ? ' • ' : ''}
+                            {pendingExteriorCount > 0 ? `${pendingExteriorCount} Exterior` : ''}
+                          </Text>
+                        </View>
                       )}
                     </View>
                     <View style={styles.footerTotalPill}>
@@ -831,9 +983,16 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                     </View>
                     {aLaCarteAddonsTotal > 0 && (
                       <View style={styles.aLaCartePriceRow}>
-                        <Text style={styles.aLaCartePriceLabel}>
-                          Upgrades ({aLaCarteActiveAddons.length}):
-                        </Text>
+                        <View>
+                          <Text style={styles.aLaCartePriceLabel}>
+                            Upgrades ({aLaCarteActiveAddons.length}):
+                          </Text>
+                          <Text style={styles.footerBreakdownSub}>
+                            {pendingInteriorCount > 0 ? `${pendingInteriorCount} Interior` : ''}
+                            {pendingInteriorCount > 0 && pendingExteriorCount > 0 ? ' • ' : ''}
+                            {pendingExteriorCount > 0 ? `${pendingExteriorCount} Exterior` : ''}
+                          </Text>
+                        </View>
                         <Text style={[styles.aLaCartePriceVal, { color: RED_BAY_COLORS.primary }]}>
                           +${aLaCarteAddonsTotal.toFixed(2)}
                         </Text>
@@ -1591,6 +1750,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  addonCheckAndCat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   addonCheckbox: {
     width: 22,
     height: 22,
@@ -1605,13 +1769,44 @@ const styles = StyleSheet.create({
     backgroundColor: RED_BAY_COLORS.primary,
     borderColor: RED_BAY_COLORS.primary,
   },
+  addonCatChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  addonCatChipInterior: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#DDD6FE',
+  },
+  addonCatChipExterior: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  addonCatChipText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  addonCatChipTextInterior: {
+    color: '#7C3AED',
+  },
+  addonCatChipTextExterior: {
+    color: '#2563EB',
+  },
   addonPriceTag: {
     backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  addonPriceTagSelected: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
   },
   addonPriceTagText: {
     fontSize: 12,
@@ -1626,17 +1821,25 @@ const styles = StyleSheet.create({
   },
   addonContent: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 9,
     alignItems: 'flex-start',
   },
   addonIconBox: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 8,
-    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
+    marginTop: 1,
+  },
+  addonIconBoxInterior: {
+    backgroundColor: '#F5F3FF',
+  },
+  addonIconBoxExterior: {
+    backgroundColor: '#EFF6FF',
+  },
+  addonIconBoxSelected: {
+    backgroundColor: '#FEE2E2',
   },
   addonName: {
     fontSize: 13,
@@ -1667,7 +1870,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     width: '100%',
-    maxWidth: 780,
+    maxWidth: 820,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
@@ -1677,7 +1880,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingTop: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
@@ -1685,9 +1888,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
   },
   aLaCarteBadgeIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     backgroundColor: '#FEF3C7',
     borderWidth: 1,
     borderColor: '#FDE68A',
@@ -1697,11 +1900,11 @@ const styles = StyleSheet.create({
   },
   aLaCarteHeaderTextCol: {
     flex: 1,
-    marginHorizontal: 10,
+    marginHorizontal: 12,
     justifyContent: 'center',
   },
   aLaCarteModalTitle: {
-    fontSize: 16,
+    fontSize: 16.5,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.2,
@@ -1722,39 +1925,191 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
+
+  /* Category Filter Tabs Bar */
+  modalFilterBar: {
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  modalTabsList: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalTabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  modalTabPillActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  modalTabPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  modalTabPillTextActive: {
+    color: '#FFFFFF',
+  },
+  modalTabPillBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+  },
+  modalTabPillBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  modalTabPillBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  modalTabPillBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  modalTabSelectionIndicator: {
+    backgroundColor: RED_BAY_COLORS.primary,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 10,
+    marginLeft: 1,
+  },
+  modalTabSelectionIndicatorText: {
+    color: '#FFFFFF',
+    fontSize: 9.5,
+    fontWeight: '900',
+  },
+
   aLaCarteScrollBody: {
     flex: 1,
     width: '100%',
-    minHeight: 260,
+    minHeight: 280,
   },
   aLaCarteScrollContent: {
-    padding: 14,
+    padding: 16,
     paddingBottom: 24,
     flexGrow: 1,
   },
   aLaCarteClearBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-end',
+    gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FEE2E2',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 10,
+    borderColor: '#FECACA',
   },
   aLaCarteClearText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#DC2626',
   },
+
+  /* Section Headers inside Modal */
+  categorySectionWrapper: {
+    marginBottom: 6,
+  },
+  categorySectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  categoryHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  categorySectionIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  categorySectionIconBadgeInterior: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#DDD6FE',
+  },
+  categorySectionIconBadgeExterior: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  categorySectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  categorySectionSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+    fontWeight: '500',
+  },
+  categoryCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  categoryCountBadgeInterior: {
+    backgroundColor: '#FAF5FF',
+    borderColor: '#E9D5FF',
+  },
+  categoryCountBadgeExterior: {
+    backgroundColor: '#F0F9FF',
+    borderColor: '#BAE6FD',
+  },
+  categoryCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  categorySelectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: '#10B981',
+  },
+  categorySelectedPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
   aLaCarteAddonsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 10,
+    justifyContent: 'flex-start',
+    gap: 10,
   },
   aLaCarteAddonCard: {
     backgroundColor: '#FFFFFF',
@@ -1763,13 +2118,14 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     padding: 12,
     justifyContent: 'space-between',
-    minHeight: 104,
-    marginBottom: 10,
+    minHeight: 112,
+    marginBottom: 6,
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 6, 1),
   },
   aLaCarteAddonCardSelected: {
     borderColor: RED_BAY_COLORS.primary,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: '#FFF7F7',
+    ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 3 }, 0.12, 8, 2),
   },
   aLaCarteEmptyState: {
     alignItems: 'center',
@@ -1784,6 +2140,22 @@ const styles = StyleSheet.create({
   },
   aLaCarteEmptySubtitle: {
     fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  aLaCarteEmptyCategoryState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 36,
+    gap: 8,
+  },
+  aLaCarteEmptyCategoryTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  aLaCarteEmptyCategorySub: {
+    fontSize: 12,
     color: '#64748B',
     textAlign: 'center',
   },
@@ -1839,6 +2211,12 @@ const styles = StyleSheet.create({
   },
   footerUpgradesAmount: {
     fontWeight: '800',
+  },
+  footerBreakdownSub: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '600',
+    marginTop: 1,
   },
   footerTotalPill: {
     alignItems: 'flex-end',
