@@ -12,11 +12,12 @@ import Constants from 'expo-constants';
 
 export const DEFAULT_BACKEND_PORT = 5000;
 export const STORAGE_CUSTOM_API_KEY = '@redbay_custom_api_url';
+export const DEFAULT_LAN_API_URL = 'http://192.168.0.128:5000';
 
 // ===========================================================================
-// PRODUCTION BACKEND URL — Railway Public HTTPS (no port needed)
+// PRODUCTION / FALLBACK BACKEND URL
 // ===========================================================================
-export const PRODUCTION_API_URL = 'https://car-wash.up.railway.app';
+export const PRODUCTION_API_URL = 'http://192.168.0.128:5000';
 
 /**
  * Normalizes URL with protocol (http:// or https://)
@@ -112,7 +113,7 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 3. Environment variable (configured for production or LAN builds)
+  // 3. Direct environment variable (inlined by Babel / Metro compiler at build time)
   const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
   if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
     const envUrl = envApiUrl.trim();
@@ -125,7 +126,7 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  // 4. Extra configuration in app.json (production public HTTPS URL)
+  // 4. Extra configuration in app.json (apiUrl from expo config)
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (
     extraUrl &&
@@ -136,9 +137,8 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(extraUrl);
   }
 
-  // 5. Final safe production fallback — Railway Public HTTPS
-  // This is what both hosted Web and Android APK production builds use across any network / mobile data
-  return PRODUCTION_API_URL;
+  // 5. Default fallback to LAN Backend for local POS and Android APK
+  return DEFAULT_LAN_API_URL;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
@@ -265,23 +265,26 @@ export async function apiFetch(
 
 /**
  * Resolves an image path or URL into a fully-qualified, device-reachable URL.
- * Automatically rewrites localhost/127.0.0.1 to the current device's LAN base URL.
+ * Automatically rewrites localhost/127.0.0.1 to the current device's LAN base URL,
+ * normalizes slashes, and handles both relative paths and absolute URLs.
  */
 export function resolveApiUrl(pathOrUrl?: string | null): string {
   if (!pathOrUrl || typeof pathOrUrl !== 'string') return '';
   if (pathOrUrl.startsWith('data:')) return pathOrUrl;
 
-  const baseUrl = getApiBaseUrl();
+  const baseUrl = getApiBaseUrl().replace(/\/+$/, '');
+  const cleanPath = pathOrUrl.replace(/\\/g, '/').trim();
 
-  // If path is relative (/api/...)
-  if (pathOrUrl.startsWith('/')) {
-    return `${baseUrl}${pathOrUrl}`;
+  // If already absolute http:// or https://
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    // If URL contains localhost or 127.0.0.1, rewrite to the active reachable baseUrl
+    if (cleanPath.includes('://localhost') || cleanPath.includes('://127.0.0.1')) {
+      return cleanPath.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, baseUrl);
+    }
+    return cleanPath;
   }
 
-  // If URL contains localhost or 127.0.0.1, rewrite to the active baseUrl
-  if (pathOrUrl.includes('://localhost') || pathOrUrl.includes('://127.0.0.1')) {
-    return pathOrUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, baseUrl);
-  }
-
-  return pathOrUrl;
+  // Relative path (e.g. /uploads/promotions/... or uploads/promotions/...)
+  const normalizedPath = cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`;
+  return `${baseUrl}${normalizedPath}`;
 }

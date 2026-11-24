@@ -1,8 +1,8 @@
 import { apiFetch, getApiBaseUrl } from './apiConfig';
 
 export interface ProcessYeahPayRequest {
-  orderId: number;
-  payMode: 'YEAHPAY_QR' | 'YEAHPAY_CARD';
+  orderId?: number;
+  payMode: 'YEAHPAY_QR' | 'YEAHPAY_CARD' | string;
   cashierName?: string;
   amount?: number;
   deviceSn?: string;
@@ -32,7 +32,7 @@ export async function processYeahPayPayment(
   token?: string,
   timeoutMs: number = 180000
 ): Promise<YeahPayResponse> {
-  const isCard = payload.payMode === 'YEAHPAY_CARD';
+  const isCard = String(payload.payMode).toUpperCase().includes('CARD');
   const endpoint = isCard ? '/api/yeahpay/card-payment' : '/api/yeahpay/paynow-payment';
   const url = `${getApiBaseUrl()}${endpoint}`;
 

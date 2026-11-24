@@ -674,7 +674,10 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
         <View style={styles.aLaCarteOverlay}>
           <View style={[
             styles.aLaCarteModalContainer,
-            { maxHeight: Math.min(screenHeight * 0.90, 850) },
+            {
+              height: Math.min(screenHeight * 0.82, 720),
+              maxHeight: Math.min(screenHeight * 0.90, 850),
+            },
           ]}>
             {/* Modal Header */}
             <View style={styles.aLaCarteModalHeader}>
@@ -1666,6 +1669,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 780,
     overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
     ...makeShadow('#000000', { width: 0, height: -6 }, 0.15, 20, 8),
   },
   aLaCarteModalHeader: {
@@ -1719,10 +1724,13 @@ const styles = StyleSheet.create({
   },
   aLaCarteScrollBody: {
     flex: 1,
+    width: '100%',
+    minHeight: 260,
   },
   aLaCarteScrollContent: {
     padding: 14,
-    paddingBottom: 16,
+    paddingBottom: 24,
+    flexGrow: 1,
   },
   aLaCarteClearBtn: {
     flexDirection: 'row',
@@ -1756,6 +1764,7 @@ const styles = StyleSheet.create({
     padding: 12,
     justifyContent: 'space-between',
     minHeight: 104,
+    marginBottom: 10,
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 6, 1),
   },
   aLaCarteAddonCardSelected: {

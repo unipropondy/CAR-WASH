@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { View, StyleSheet, Alert, Platform } from 'react-native';
 import { Page1UserTypeScreen } from './Page1UserTypeScreen';
 import { DealerChooseScreen } from './DealerChooseScreen';
@@ -9,6 +9,8 @@ import { Page4DetailsScreen } from './Page4DetailsScreen';
 import { Page5PaymentScreen } from './Page5PaymentScreen';
 import { DealerCreditConfirmScreen } from './DealerCreditConfirmScreen';
 import { Page6SuccessScreen } from './Page6SuccessScreen';
+import { KioskPromotionSlideshow } from '../components/KioskPromotionSlideshow';
+import { InactivityPromptModal } from '../components/InactivityPromptModal';
 import { 
   KioskPage, 
   KioskUserType, 
@@ -86,6 +88,122 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
   // Staff POS Authentication Modal State
   const [isStaffLoginModalOpen, setIsStaffLoginModalOpen] = useState<boolean>(false);
+
+  // Idle Promotional Slideshow State
+  // Default to showing promotional idle slideshow if no ongoing order in progress
+  const [isIdleActive, setIsIdleActive] = useState<boolean>(() => {
+    return !savedSession?.selectedVehicle && !savedSession?.selectedDealer && !savedSession?.customerDetails;
+  });
+
+  // Inactivity Confirmation Modal State (Order In-Progress Timeout)
+  const [showInactivityModal, setShowInactivityModal] = useState<boolean>(false);
+  const [inactivityCountdown, setInactivityCountdown] = useState<number>(30);
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState<boolean>(false);
+
+  const inactivityTimerRef = useRef<any>(null);
+  const countdownTimerRef = useRef<any>(null);
+
+  // Clear countdown timer utility
+  const clearCountdownTimer = useCallback(() => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+  }, []);
+
+  // Universal Inactivity Timer Handler (1 Minute = 60,000ms)
+  const resetInactivityTimer = useCallback(() => {
+    // If confirmation modal is currently visible, let the countdown handle auto-cancel
+    if (showInactivityModal) return;
+
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+
+    // If promotional slideshow is currently covering the screen, no background timer needed
+    if (isIdleActive) return;
+
+    inactivityTimerRef.current = setTimeout(() => {
+      // CASE 1: Kiosk Idle Screen (Customer Login / Welcome)
+      if (currentPage === 'PAGE_1_USER_TYPE') {
+        setIsIdleActive(true);
+        return;
+      }
+
+      // CASE 2: Order Success Screen
+      if (currentPage === 'PAGE_6_SUCCESS') {
+        handleResetSession();
+        return;
+      }
+
+      // CASE 3: Customer is placing an order (Vehicles, Services, Details, Payment, Dealer)
+      // Never interrupt active payment terminal / card processing
+      if (isPaymentProcessing) {
+        resetInactivityTimer();
+        return;
+      }
+
+      // Pause ordering screen and display confirmation popup
+      setShowInactivityModal(true);
+      setInactivityCountdown(30);
+
+      clearCountdownTimer();
+      countdownTimerRef.current = setInterval(() => {
+        setInactivityCountdown((prev) => {
+          if (prev <= 1) {
+            clearCountdownTimer();
+            setShowInactivityModal(false);
+            handleResetSession();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }, 60000);
+  }, [isIdleActive, showInactivityModal, currentPage, isPaymentProcessing, clearCountdownTimer]);
+
+  // Handle customer continuing their existing order from the inactivity popup
+  const handleContinueOrderFromInactivity = () => {
+    clearCountdownTimer();
+    setShowInactivityModal(false);
+    resetInactivityTimer();
+  };
+
+  // Handle customer cancelling their order from the inactivity popup
+  const handleCancelOrderFromInactivity = () => {
+    clearCountdownTimer();
+    setShowInactivityModal(false);
+    handleResetSession();
+  };
+
+  // Any screen touch/interaction resets the inactivity timer
+  const handleScreenTouchActivity = () => {
+    if (!showInactivityModal) {
+      resetInactivityTimer();
+    }
+  };
+
+  const handleDismissIdle = () => {
+    setIsIdleActive(false);
+    resetInactivityTimer();
+    if (currentPage !== 'PAGE_1_USER_TYPE') {
+      navigateToPage('PAGE_1_USER_TYPE', '/customer-login');
+    }
+  };
+
+  useEffect(() => {
+    if (!isIdleActive) {
+      resetInactivityTimer();
+    } else if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    return () => {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      clearCountdownTimer();
+    };
+  }, [isIdleActive, currentPage, resetInactivityTimer, clearCountdownTimer]);
 
   const handleOpenStaffLogin = () => {
     setIsStaffLoginModalOpen(true);
@@ -559,6 +677,12 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
   // ================= RESET STATE: NEW CUSTOMER OR DEALER =================
   const handleResetSession = () => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    clearCountdownTimer();
+    setShowInactivityModal(false);
     clearKioskSession();
     setUserType('CUSTOMER');
     setSelectedDealer(undefined);
@@ -580,10 +704,30 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     setActiveOrderNo(undefined);
     setCompletedOrder(null);
     navigateToPage('PAGE_1_USER_TYPE', '/customer-login');
+    setIsIdleActive(true);
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        handleScreenTouchActivity();
+        return false;
+      }}
+      onMoveShouldSetResponderCapture={() => {
+        handleScreenTouchActivity();
+        return false;
+      }}
+      onTouchStart={handleScreenTouchActivity}
+    >
+      {/* Full-screen Idle Promotional Slideshow */}
+      {isIdleActive && (
+        <KioskPromotionSlideshow
+          onTouchAnywhere={handleDismissIdle}
+          onNoPromotions={() => setIsIdleActive(false)}
+        />
+      )}
+
       <View style={styles.portraitWrapper}>
         {/* PAGE 1: Customer vs Dealer */}
         {currentPage === 'PAGE_1_USER_TYPE' && (
@@ -671,6 +815,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             onConfirmPayment={handleConfirmCustomerPayment}
             onBack={() => navigateToPage('PAGE_4_DETAILS', '/details')}
             onExitToPos={handleOpenStaffLogin}
+            onPaymentProcessingChange={setIsPaymentProcessing}
           />
         )}
 
@@ -697,6 +842,14 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
           />
         )}
       </View>
+
+      {/* Inactivity Order Continuation Confirmation Modal */}
+      <InactivityPromptModal
+        visible={showInactivityModal}
+        countdownSeconds={inactivityCountdown}
+        onContinueOrder={handleContinueOrderFromInactivity}
+        onCancelOrder={handleCancelOrderFromInactivity}
+      />
 
       {/* Staff POS Authorization Modal */}
       <StaffPosLoginModal

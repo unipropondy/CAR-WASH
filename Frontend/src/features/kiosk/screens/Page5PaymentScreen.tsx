@@ -34,6 +34,7 @@ interface Page5PaymentScreenProps {
   onExitToPos?: () => void;
   orderNo?: string;
   savedOrder?: CreatedOrderResponse | null;
+  onPaymentProcessingChange?: (isProcessing: boolean) => void;
 }
 
 export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
@@ -47,6 +48,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
   onExitToPos,
   orderNo,
   savedOrder,
+  onPaymentProcessingChange,
 }) => {
   const { 
     isTallKiosk, 
@@ -84,6 +86,10 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
     typeof initialPaymentMode === 'string' ? initialPaymentMode : undefined
   );
   const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    onPaymentProcessingChange?.(isProcessing);
+  }, [isProcessing, onPaymentProcessingChange]);
 
   // Totals - Strictly GST Exclusive pricing calculation
   const baseAmount = savedOrder?.packagePrice != null ? Number(savedOrder.packagePrice) : selectedPackage.price;

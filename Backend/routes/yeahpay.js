@@ -127,6 +127,10 @@ async function resolveDeviceDetails(requestedDeviceSn, requestedSalt, payMode) {
         }
     }
 
+    // Fallback to configured physical device credentials if missing from DB
+    deviceSn = deviceSn || process.env.YEAPAY_DEVICE_SN || process.env.DEVICE_SN || 'P30224BSJ0633';
+    salt = salt || process.env.YEAPAY_DEVICE_SALT || process.env.DEVICE_SALT || 'HPIZLZA1SY2NTFHAUQ9HRSRJTWDULPUJ';
+
     return {
         deviceSn: (deviceSn || '').trim(),
         salt: (salt || '').trim()

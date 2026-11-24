@@ -12,7 +12,8 @@ if (typeof Promise.withResolvers !== 'function') {
 
 const sql = require('mssql');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const logger = require('../utils/logger');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
 
 const config = {
   user: process.env.DB_USER || 'ups',
@@ -36,12 +37,104 @@ const config = {
 
 let pool = null;
 let poolConnecting = null;
+let isConnected = false;
+let hasReportedStartup = false;
+let monitorInterval = null;
+
+function markStartupReported() {
+  hasReportedStartup = true;
+}
+
+function isDbConnected() {
+  return isConnected && pool && pool.connected;
+}
+
+function attachPoolErrorListener(targetPool) {
+  if (!targetPool || targetPool._hasCustomErrorHandler) return;
+  targetPool._hasCustomErrorHandler = true;
+
+  targetPool.on('error', (err) => {
+    if (isConnected) {
+      isConnected = false;
+      if (hasReportedStartup) {
+        logger.logDbDisconnected(err.message);
+      }
+    }
+  });
+}
+
+/**
+ * Initial fast connection probe for startup status report
+ */
+async function checkInitialConnection() {
+  const currentConfig = { ...config };
+  try {
+    const probePool = new sql.ConnectionPool({
+      ...currentConfig,
+      connectionTimeout: 5000,
+      requestTimeout: 5000,
+    });
+    await probePool.connect();
+    pool = probePool;
+    isConnected = true;
+    attachPoolErrorListener(pool);
+
+    return {
+      connected: true,
+      database: currentConfig.database,
+      server: `${currentConfig.server}:${currentConfig.port}`,
+    };
+  } catch (err) {
+    isConnected = false;
+    return {
+      connected: false,
+      database: currentConfig.database,
+      server: `${currentConfig.server}:${currentConfig.port}`,
+      error: err.message,
+    };
+  }
+}
+
+/**
+ * Periodic background monitor to detect disconnections and automatic reconnects
+ */
+function startConnectionMonitor(intervalMs = 15000) {
+  if (monitorInterval) return;
+
+  monitorInterval = setInterval(async () => {
+    if (pool && isConnected) {
+      try {
+        await pool.request().query('SELECT 1');
+      } catch (err) {
+        if (isConnected) {
+          isConnected = false;
+          if (hasReportedStartup) {
+            logger.logDbDisconnected(err.message);
+          }
+          try { await pool.close(); } catch (_) {}
+          pool = null;
+        }
+      }
+    } else if (!isConnected && hasReportedStartup) {
+      try {
+        await getPool(1, 1000);
+      } catch (_) {
+        // Silently retry on the next cycle
+      }
+    }
+  }, intervalMs);
+
+  if (monitorInterval.unref) {
+    monitorInterval.unref();
+  }
+}
 
 /**
  * Get or initialize the MSSQL connection pool
  */
 async function getPool(retries = 3, delayMs = 2000) {
   if (pool && pool.connected) {
+    isConnected = true;
     return pool;
   }
   if (poolConnecting) {
@@ -49,6 +142,8 @@ async function getPool(retries = 3, delayMs = 2000) {
   }
 
   poolConnecting = (async () => {
+    const wasDisconnected = !isConnected && hasReportedStartup;
+
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         if (pool && !pool.connected) {
@@ -62,15 +157,26 @@ async function getPool(retries = 3, delayMs = 2000) {
         const newPool = new sql.ConnectionPool(currentConfig);
         await newPool.connect();
         pool = newPool;
-        console.log(`[Database] Connected to SQL Server database "${currentConfig.database}" at ${currentConfig.server}:${currentConfig.port}`);
+        isConnected = true;
+        attachPoolErrorListener(pool);
+
+        if (wasDisconnected) {
+          logger.logDbReconnected(currentConfig.database, `${currentConfig.server}:${currentConfig.port}`);
+        }
+
         return pool;
       } catch (err) {
-        console.error(`[Database] Connection attempt ${attempt}/${retries} failed:`, err.message);
         if (pool) {
           try { await pool.close(); } catch (_) {}
           pool = null;
         }
         if (attempt === retries) {
+          if (isConnected) {
+            isConnected = false;
+            if (hasReportedStartup) {
+              logger.logDbDisconnected(err.message);
+            }
+          }
           throw err;
         }
         await new Promise((res) => setTimeout(res, delayMs));
@@ -88,5 +194,8 @@ async function getPool(retries = 3, delayMs = 2000) {
 module.exports = {
   sql,
   getPool,
+  checkInitialConnection,
+  startConnectionMonitor,
+  markStartupReported,
+  isDbConnected,
 };
-

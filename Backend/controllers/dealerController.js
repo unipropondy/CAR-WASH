@@ -112,15 +112,22 @@ function saveLocalDealers(dealers) {
 let inMemoryDealers = loadLocalDealers();
 
 let dealerTableEnsured = false;
-// In-memory cache for ultra-fast kiosk response
+// In-memory dual cache for ultra-fast kiosk & POS response
 let dealerCache = {
-  data: null,
-  timestamp: 0,
+  active: { data: null, timestamp: 0 },
+  all: { data: null, timestamp: 0 },
 };
 
+// Cache for outstanding bills (short TTL to keep fresh but prevent rapid refetches)
+let outstandingBillsCache = new Map();
+
 function invalidateDealerCache() {
-  dealerCache.data = null;
-  dealerCache.timestamp = 0;
+  dealerCache.active = { data: null, timestamp: 0 };
+  dealerCache.all = { data: null, timestamp: 0 };
+}
+
+function invalidateOutstandingBillsCache() {
+  outstandingBillsCache.clear();
 }
 
 // Ensure MSSQL table exists
@@ -160,9 +167,11 @@ async function getDealers(req, res) {
   try {
     const { all, search } = req.query || {};
     const includeAll = all === 'true' || all === '1';
+    const cacheSlot = includeAll ? dealerCache.all : dealerCache.active;
 
-    if (!includeAll && !search && dealerCache.data && (Date.now() - dealerCache.timestamp < 120000)) {
-      return res.status(200).json(dealerCache.data);
+    // Fast In-Memory Cache (2 minutes TTL) when not performing a targeted text search
+    if (!search && cacheSlot.data && (Date.now() - cacheSlot.timestamp < 120000)) {
+      return res.status(200).json(cacheSlot.data);
     }
 
     try {
@@ -179,7 +188,7 @@ async function getDealers(req, res) {
           Address,
           SecurityPin,
           BillingCycle,
-          LogoData,
+          ISNULL(LogoData, '') AS LogoData,
           LogoContentType,
           IsActive,
           CreatedDate
@@ -220,9 +229,12 @@ async function getDealers(req, res) {
         }));
 
         const payload = { success: true, count: dealers.length, data: dealers };
-        if (!includeAll && !search) {
-          dealerCache.data = payload;
-          dealerCache.timestamp = Date.now();
+        if (!search) {
+          if (includeAll) {
+            dealerCache.all = { data: payload, timestamp: Date.now() };
+          } else {
+            dealerCache.active = { data: payload, timestamp: Date.now() };
+          }
         }
         return res.json(payload);
       }
@@ -248,9 +260,12 @@ async function getDealers(req, res) {
     }
 
     const payload = { success: true, count: list.length, data: list };
-    if (!includeAll && !search) {
-      dealerCache.data = payload;
-      dealerCache.timestamp = Date.now();
+    if (!search) {
+      if (includeAll) {
+        dealerCache.all = { data: payload, timestamp: Date.now() };
+      } else {
+        dealerCache.active = { data: payload, timestamp: Date.now() };
+      }
     }
     return res.json(payload);
   } catch (err) {
@@ -648,40 +663,44 @@ async function getDealerCreditHistory(req, res) {
 
       if (orderIds.length > 0) {
         try {
-          const paymentsRes = await pool.request().query(`
-            SELECT 
-              pb.OrderId,
-              pb.AllocatedAmount,
-              pb.PreviousOutstanding,
-              pb.NewOutstanding,
-              pb.BillStatusAfterPayment,
-              p.PaymentId,
-              p.ReceiptNo,
-              p.PaymentDate,
-              p.PaymentMode,
-              p.ReferenceNo,
-              p.ProcessedBy,
-              p.Remarks
-            FROM dbo.DealerCreditPaymentBill pb
-            JOIN dbo.DealerCreditPayment p ON p.PaymentId = pb.PaymentId
-            ORDER BY p.PaymentDate DESC;
-          `);
-          paymentsRes.recordset.forEach((p) => {
-            if (!paymentMap[p.OrderId]) paymentMap[p.OrderId] = [];
-            paymentMap[p.OrderId].push({
-              paymentId: p.PaymentId,
-              receiptNo: p.ReceiptNo,
-              paymentDate: p.PaymentDate,
-              paymentMode: p.PaymentMode,
-              allocatedAmount: Number(p.AllocatedAmount),
-              previousOutstanding: Number(p.PreviousOutstanding),
-              newOutstanding: Number(p.NewOutstanding),
-              billStatusAfterPayment: p.BillStatusAfterPayment,
-              referenceNo: p.ReferenceNo,
-              remarks: p.Remarks,
-              processedBy: p.ProcessedBy,
+          const safeOrderIds = orderIds.map(Number).filter((n) => !isNaN(n) && n > 0);
+          if (safeOrderIds.length > 0) {
+            const paymentsRes = await pool.request().query(`
+              SELECT 
+                pb.OrderId,
+                pb.AllocatedAmount,
+                pb.PreviousOutstanding,
+                pb.NewOutstanding,
+                pb.BillStatusAfterPayment,
+                p.PaymentId,
+                p.ReceiptNo,
+                p.PaymentDate,
+                p.PaymentMode,
+                p.ReferenceNo,
+                p.ProcessedBy,
+                p.Remarks
+              FROM dbo.DealerCreditPaymentBill pb
+              JOIN dbo.DealerCreditPayment p ON p.PaymentId = pb.PaymentId
+              WHERE pb.OrderId IN (${safeOrderIds.slice(0, 1000).join(',')})
+              ORDER BY p.PaymentDate DESC;
+            `);
+            paymentsRes.recordset.forEach((p) => {
+              if (!paymentMap[p.OrderId]) paymentMap[p.OrderId] = [];
+              paymentMap[p.OrderId].push({
+                paymentId: p.PaymentId,
+                receiptNo: p.ReceiptNo,
+                paymentDate: p.PaymentDate,
+                paymentMode: p.PaymentMode,
+                allocatedAmount: Number(p.AllocatedAmount),
+                previousOutstanding: Number(p.PreviousOutstanding),
+                newOutstanding: Number(p.NewOutstanding),
+                billStatusAfterPayment: p.BillStatusAfterPayment,
+                referenceNo: p.ReferenceNo,
+                remarks: p.Remarks,
+                processedBy: p.ProcessedBy,
+              });
             });
-          });
+          }
         } catch (pErr) {
           console.warn('[DealerController] paymentMap notice:', pErr.message);
         }
@@ -790,6 +809,13 @@ async function getDealerOutstandingBills(req, res) {
   try {
     const { dealerId } = req.query;
     const dId = dealerId ? parseInt(dealerId, 10) : null;
+    const cacheKey = dId ? `dealer_${dId}` : 'all';
+
+    // Fast memory cache check (15 seconds TTL)
+    const cached = outstandingBillsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 15000)) {
+      return res.json(cached.payload);
+    }
 
     try {
       const pool = await getPool(1, 500);
@@ -857,12 +883,15 @@ async function getDealerOutstandingBills(req, res) {
         };
       });
 
-      return res.json({
+      const payload = {
         success: true,
         count: bills.length,
         totalOutstanding: Number(totalOutstanding.toFixed(2)),
         data: bills,
-      });
+      };
+
+      outstandingBillsCache.set(cacheKey, { timestamp: Date.now(), payload });
+      return res.json(payload);
     } catch (dbErr) {
       console.warn('[DealerController.getDealerOutstandingBills] DB offline, using local store:', dbErr.message);
     }
@@ -875,12 +904,14 @@ async function getDealerOutstandingBills(req, res) {
 
     const totalOutstanding = bills.reduce((acc, b) => acc + Number(b.outstandingAmount || 0), 0);
 
-    return res.json({
+    const payload = {
       success: true,
       count: bills.length,
       totalOutstanding: Number(totalOutstanding.toFixed(2)),
       data: bills,
-    });
+    };
+    outstandingBillsCache.set(cacheKey, { timestamp: Date.now(), payload });
+    return res.json(payload);
   } catch (err) {
     console.error('[DealerController.getDealerOutstandingBills Error]', err);
     return res.status(500).json({ success: false, message: 'Failed to retrieve outstanding bills', error: err.message });
@@ -1113,6 +1144,7 @@ async function settleDealerCredit(req, res) {
         }
 
         await transaction.commit();
+        invalidateOutstandingBillsCache();
 
         return res.status(200).json({
           success: true,
@@ -1190,6 +1222,7 @@ async function settleDealerCredit(req, res) {
     if (!store.payments) store.payments = [];
     store.payments.push(newPayment);
     saveLocalCreditStore(store);
+    invalidateOutstandingBillsCache();
 
     return res.json({
       success: true,

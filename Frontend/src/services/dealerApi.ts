@@ -31,6 +31,7 @@ export interface CreateDealerPayload {
 
 const DEALER_CACHE_KEY = '@redbay_cached_dealers';
 let memoryDealerCache: DealerRecord[] | null = null;
+let memoryPaymodeCache: PayModeOption[] | null = null;
 
 export function getCachedDealers(): DealerRecord[] {
   if (memoryDealerCache && memoryDealerCache.length > 0) {
@@ -74,7 +75,7 @@ export async function fetchAllDealers(includeAll: boolean = true, search?: strin
     }
     const data = await res.json();
     const list = data.data || [];
-    if (!includeAll && !search && list.length > 0) {
+    if (!search && list.length > 0) {
       setCachedDealers(list);
     }
     return list;
@@ -353,18 +354,38 @@ export interface DealerDetailedVisit {
 }
 
 export async function fetchDealerPaymodes(): Promise<PayModeOption[]> {
+  if (memoryPaymodeCache && memoryPaymodeCache.length > 0) {
+    // Revalidate in background asynchronously
+    apiFetch('/api/dealers/paymodes')
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+            memoryPaymodeCache = json.data;
+          }
+        }
+      })
+      .catch(() => {});
+    return memoryPaymodeCache;
+  }
+
   try {
     const res = await apiFetch('/api/dealers/paymodes');
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        memoryPaymodeCache = json.data;
         return json.data;
       }
     }
   } catch {
     // fallback
   }
-  return fetchPaymodes();
+  const fallbackModes = await fetchPaymodes();
+  if (Array.isArray(fallbackModes) && fallbackModes.length > 0) {
+    memoryPaymodeCache = fallbackModes;
+  }
+  return fallbackModes;
 }
 
 export async function fetchDealerDetailedVisits(dealerId?: number, search?: string): Promise<DealerDetailedVisit[]> {

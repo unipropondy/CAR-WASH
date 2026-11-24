@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   fetchDealerCreditHistory,
   fetchAllDealers,
+  getCachedDealers,
   DealerRecord,
   DealerCreditBillItem,
   DealerCreditSummary,
@@ -31,7 +32,8 @@ export const DealerCreditHistoryView: React.FC<DealerCreditHistoryViewProps> = (
 }) => {
   const isLight = theme === 'light';
   const styles = useMemo(() => getStyles(isLight), [isLight]);
-  const [dealers, setDealers] = useState<DealerRecord[]>([]);
+  const cachedInitialDealers = useMemo(() => getCachedDealers(), []);
+  const [dealers, setDealers] = useState<DealerRecord[]>(cachedInitialDealers);
   const [selectedDealerId, setSelectedDealerId] = useState<number | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');

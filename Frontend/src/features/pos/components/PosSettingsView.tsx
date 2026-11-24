@@ -522,7 +522,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
           <Text
             style={[styles.subTabText, activeSection === 'PRINTERS' && styles.subTabTextActive]}
           >
-            Printers (PrintMaster)
+            Printers
           </Text>
         </TouchableOpacity>
 
@@ -1090,7 +1090,7 @@ export const PosSettingsView: React.FC<PosSettingsViewProps> = ({
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Ionicons name="print-outline" size={20} color="#ED0712" />
-              <Text style={styles.cardTitle}>Primary Receipt Printer (PrintMaster)</Text>
+              <Text style={styles.cardTitle}>Primary Receipt Printer</Text>
             </View>
             <View style={styles.hardwareRow}>
               <View>

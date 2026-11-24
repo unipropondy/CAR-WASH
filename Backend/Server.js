@@ -15,7 +15,7 @@ const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 
 const authRoutes = require('./routes/authRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
@@ -33,7 +33,9 @@ const accountTypeRoutes = require('./routes/accountTypeRoutes');
 const paymodeRoutes = require('./routes/paymodeRoutes');
 const yeahpayRoutes = require('./routes/yeahpay');
 const addonRoutes = require('./routes/addonRoutes');
-const { getPool } = require('./config/db');
+const promotionRoutes = require('./routes/promotionRoutes');
+const { getPool, checkInitialConnection, startConnectionMonitor, markStartupReported } = require('./config/db');
+const logger = require('./utils/logger');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -53,10 +55,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Request logger
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-  next();
-});
+app.use(logger.requestLogger);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -83,7 +82,15 @@ app.use('/api/paymodes', paymodeRoutes);
 app.use('/api/yeahpay', yeahpayRoutes);
 app.use('/api/day-management', dayManagementRoutes);
 app.use('/api/carwash', carwashRoutes);
+app.use('/api/promotions', promotionRoutes);
 app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
+
+// Serve static uploaded promotional images & media
+const uploadsPath = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsPath));
 
 // Fast Connectivity Ping
 app.get('/api/ping', (req, res) => {
@@ -171,7 +178,7 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('[Global Error]', err);
+  logger.logError(`[Global Error] ${req.method} ${req.originalUrl}`, err);
   res.status(500).json({
     success: false,
     message: err.message || 'Internal Server Error',
@@ -182,30 +189,27 @@ app.use((err, req, res, next) => {
 async function startServer() {
   const HOST = process.env.HOST || '0.0.0.0';
 
-  app.listen(PORT, HOST, () => {
-    console.log(`=========================================`);
-    console.log(`Car Wash POS Backend running on http://${HOST}:${PORT}`);
-    console.log(`Local Access: http://localhost:${PORT}/api/health`);
-    
-    // Dynamically list non-internal network IPs
-    const interfaces = os.networkInterfaces();
-    Object.keys(interfaces).forEach((name) => {
-      interfaces[name]?.forEach((net) => {
-        if (net.family === 'IPv4' && !net.internal) {
-          console.log(`Network (${name}): http://${net.address}:${PORT}/api/health`);
-        }
-      });
-    });
-    console.log(`=========================================`);
-  });
+  app.listen(PORT, HOST, async () => {
+    const localUrl = `http://localhost:${PORT}`;
+    const detectedIp = logger.getNetworkIp();
+    const networkUrl = detectedIp ? `http://${detectedIp}:${PORT}` : null;
 
-  // Connect to database asynchronously in the background
-  try {
-    await getPool();
-    console.log('[Database] Initial connection established successfully.');
-  } catch (err) {
-    console.warn('[Database] Initial connection check failed. Will retry on request:', err.message);
-  }
+    // Fast initial check of database connection
+    const dbStatus = await checkInitialConnection();
+
+    // Print clean terminal startup status report
+    logger.printStartupReport({
+      port: PORT,
+      localUrl,
+      networkUrl,
+      dbStatus,
+    });
+
+    markStartupReported();
+
+    // Background monitor to detect disconnects / reconnects without blocking requests
+    startConnectionMonitor(15000);
+  });
 }
 
 startServer();

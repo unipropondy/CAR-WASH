@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,12 +19,14 @@ import {
   settleDealerCreditPayment,
   fetchDealerPaymentHistory,
   fetchDealerPaymodes,
+  getCachedDealers,
   PayModeOption,
   DealerRecord,
   DealerCreditBillItem,
   DealerPaymentRecord,
   SettleDealerCreditResult,
 } from '../../../services/dealerApi';
+import { processYeahPayPayment } from '../../../services/yeahpayApi';
 import { formatSgDateTime } from '../../../services/timeService';
 import { RED_BAY_COLORS } from '../../../theme/colors';
 import { makeShadow } from '../../../theme/shadows';
@@ -43,12 +45,18 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
   const { width } = useWindowDimensions();
   const isStacked = width < 980;
 
-  const [dealers, setDealers] = useState<DealerRecord[]>([]);
-  const [selectedDealerId, setSelectedDealerId] = useState<number | null>(null);
+  // Initialize dealers immediately from cache (0ms instant display)
+  const cachedInitialDealers = useMemo(() => getCachedDealers(), []);
+  const [dealers, setDealers] = useState<DealerRecord[]>(cachedInitialDealers);
+  const [loadingDealers, setLoadingDealers] = useState<boolean>(cachedInitialDealers.length === 0);
+  const [selectedDealerId, setSelectedDealerId] = useState<number | null>(
+    cachedInitialDealers.length > 0 ? cachedInitialDealers[0].dealerId : null
+  );
   const [currentView, setCurrentView] = useState<SubView>('SETTLE');
 
-  // Settlement Bills State
-  const [loadingBills, setLoadingBills] = useState<boolean>(false);
+  // Settlement Bills State & In-Memory Cache
+  const billsCacheRef = useRef<Map<number, DealerCreditBillItem[]>>(new Map());
+  const [loadingBills, setLoadingBills] = useState<boolean>(cachedInitialDealers.length > 0);
   const [bills, setBills] = useState<DealerCreditBillItem[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
 
@@ -60,6 +68,10 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
   const [referenceNo, setReferenceNo] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // YeahPay Physical Terminal State
+  const [terminalProcessing, setTerminalProcessing] = useState<boolean>(false);
+  const [terminalPrompt, setTerminalPrompt] = useState<string>('');
 
   // Settlement Success Receipt Modal State
   const [settlementSuccess, setSettlementSuccess] = useState<SettleDealerCreditResult | null>(null);
@@ -96,6 +108,7 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
   // Load Dealers List
   const loadDealers = async () => {
     try {
+      if (dealers.length === 0) setLoadingDealers(true);
       const data = await fetchAllDealers(true);
       setDealers(data);
       if (data.length > 0 && selectedDealerId === null) {
@@ -103,6 +116,8 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
       }
     } catch (err: any) {
       console.warn('[DealerCreditSettlementView] loadDealers error:', err.message);
+    } finally {
+      setLoadingDealers(false);
     }
   };
 
@@ -113,10 +128,22 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
 
   // Load Outstanding Bills for Selected Dealer
   const loadBills = async (dealerId: number) => {
-    try {
+    // Instant cache-hit rendering if available
+    const cached = billsCacheRef.current.get(dealerId);
+    if (cached) {
+      setBills(cached);
+      const allIds = cached.map((b) => b.orderId);
+      setSelectedOrderIds(allIds);
+      const totalOut = cached.reduce((acc, b) => acc + b.outstandingAmount, 0);
+      setPaymentAmountStr(totalOut > 0 ? totalOut.toFixed(2) : '');
+    } else {
       setLoadingBills(true);
+    }
+
+    try {
       const res = await fetchDealerOutstandingBills(dealerId);
       const fetchedBills = res.data || [];
+      billsCacheRef.current.set(dealerId, fetchedBills);
       setBills(fetchedBills);
 
       // Auto-select all bills by default
@@ -211,6 +238,9 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
         id: pm.payMode.toUpperCase(),
         label: pm.description || pm.payMode,
         icon: getPaymodeIcon(pm.payMode),
+        yeahPayEnabled: pm.yeahPayEnabled,
+        deviceSN: pm.deviceSN,
+        deviceSalt: pm.deviceSalt,
       }));
     }
     return [
@@ -221,6 +251,19 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
       { id: 'CHEQUE', label: 'Cheque', icon: 'receipt-outline' as const },
     ];
   }, [paymodes]);
+
+  // Identify whether payment mode uses YeahPay physical terminal
+  const isYeahPayMode = (mode: string) => {
+    const m = (mode || '').toUpperCase();
+    const matched = paymodes.find((pm) => pm.payMode.toUpperCase() === m);
+    if (matched?.yeahPayEnabled) return true;
+    return m.includes('YEAHPAY') || m.includes('YEAPAY');
+  };
+
+  const isCardMode = (mode: string) => {
+    const m = (mode || '').toUpperCase();
+    return m.includes('CARD');
+  };
 
   // Real-time settlement distribution simulation
   const allocationSimulation = useMemo(() => {
@@ -248,25 +291,72 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
       Alert.alert('Validation Error', 'Please select a dealer.');
       return;
     }
-    if (selectedOrderIds.length === 0) {
-      Alert.alert('Validation Error', 'Please select at least one outstanding bill to settle.');
-      return;
-    }
     const payAmt = parseFloat(paymentAmountStr);
     if (!payAmt || isNaN(payAmt) || payAmt <= 0) {
       Alert.alert('Validation Error', 'Please enter a valid positive payment amount.');
       return;
     }
 
+    // Determine target bills to settle (if bills exist and none selected, auto-allocate to all)
+    let billsToSettle = [...selectedOrderIds];
+    if (billsToSettle.length === 0 && bills.length > 0) {
+      billsToSettle = bills.map((b) => b.orderId);
+    }
+
+    const isYeahPay = isYeahPayMode(paymentMode);
+    let finalReferenceNo = referenceNo.trim();
+
     try {
       setIsSubmitting(true);
+
+      // ── IF YEAHPAY: CALL THE PHYSICAL TERMINAL DEVICE ──
+      if (isYeahPay) {
+        const isCard = isCardMode(paymentMode);
+        const promptText = isCard
+          ? '💳 Calling YeahPay Physical Terminal...\nPlease tap, insert card or enter PIN on the device.'
+          : '📱 Calling YeahPay Physical Terminal...\nPlease scan PayNow QR code on the device.';
+
+        setTerminalProcessing(true);
+        setTerminalPrompt(promptText);
+
+        const matchedPm = paymodes.find(
+          (pm) => pm.payMode.toUpperCase() === paymentMode.toUpperCase()
+        );
+
+        console.log(`[DealerSettlement] Calling YeahPay physical device for $${payAmt.toFixed(2)} (${isCard ? 'CARD' : 'PAYNOW'})`);
+
+        const terminalRes = await processYeahPayPayment({
+          payMode: isCard ? 'YEAHPAY_CARD' : 'YEAHPAY_QR',
+          amount: payAmt,
+          cashierName: 'BACKOFFICE',
+          deviceSn: matchedPm?.deviceSN || undefined,
+          salt: matchedPm?.deviceSalt || undefined,
+          timeoutMs: 180000,
+        });
+
+        if (!terminalRes.success && terminalRes.code !== 0) {
+          throw new Error(
+            terminalRes.msg || terminalRes.message || 'Transaction was not approved on the physical terminal.'
+          );
+        }
+
+        // Attach official terminal gateway bizOrderId
+        const bizOrderId = terminalRes.bizOrderId || terminalRes.data?.tradeScanPaymentResponse?.bizOrderId;
+        if (bizOrderId) {
+          finalReferenceNo = finalReferenceNo ? `${finalReferenceNo} (${bizOrderId})` : bizOrderId;
+        }
+      }
+
+      // ── RECORD SETTLEMENT TRANSACTION IN DATABASE ──
       const res = await settleDealerCreditPayment({
         dealerId: selectedDealerId,
         paymentAmount: payAmt,
         paymentMode,
-        referenceNo: referenceNo.trim() || undefined,
-        remarks: remarks.trim() || undefined,
-        selectedBillIds: selectedOrderIds,
+        referenceNo: finalReferenceNo || undefined,
+        remarks: remarks.trim()
+          ? (isYeahPay ? `${remarks.trim()} [YeahPay Device Paid]` : remarks.trim())
+          : (isYeahPay ? '[YeahPay Device Paid]' : undefined),
+        selectedBillIds: billsToSettle,
         processedBy: 'BACKOFFICE',
       });
 
@@ -275,10 +365,17 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
       loadBills(selectedDealerId);
       setReferenceNo('');
       setRemarks('');
+      setPaymentAmountStr('');
+      setSelectedOrderIds([]);
     } catch (err: any) {
-      Alert.alert('Settlement Error', err.message || 'Failed to process payment settlement');
+      Alert.alert(
+        isYeahPay ? 'YeahPay Terminal Payment Error' : 'Settlement Error',
+        err.message || 'Failed to process payment settlement'
+      );
     } finally {
       setIsSubmitting(false);
+      setTerminalProcessing(false);
+      setTerminalPrompt('');
     }
   };
 
@@ -296,32 +393,41 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
           <Text style={styles.topSelectorLabel}>SELECT DEALER FOR SETTLEMENT</Text>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dealerListScroll}>
-          {dealers.map((d) => {
-            const isSelected = selectedDealerId === d.dealerId;
-            return (
-              <TouchableOpacity
-                key={d.dealerId}
-                style={[styles.dealerOptionCard, isSelected && styles.dealerOptionCardSelected]}
-                onPress={() => setSelectedDealerId(d.dealerId)}
-                activeOpacity={0.85}
-              >
-                <View style={styles.dealerOptionTop}>
-                  <Text style={[styles.dealerOptionName, isSelected && styles.dealerOptionNameSelected]}>
-                    {d.dealerName}
-                  </Text>
-                  <View style={styles.codeTag}>
-                    <Text style={styles.codeTagText}>{d.uniqueCode}</Text>
+        {loadingDealers && dealers.length === 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, gap: 10 }}>
+            <ActivityIndicator size="small" color={RED_BAY_COLORS.primary} />
+            <Text style={{ fontSize: 13, color: isLight ? '#64748B' : '#94A3B8', fontWeight: '600' }}>
+              Loading commercial accounts...
+            </Text>
+          </View>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dealerListScroll}>
+            {dealers.map((d) => {
+              const isSelected = selectedDealerId === d.dealerId;
+              return (
+                <TouchableOpacity
+                  key={d.dealerId}
+                  style={[styles.dealerOptionCard, isSelected && styles.dealerOptionCardSelected]}
+                  onPress={() => setSelectedDealerId(d.dealerId)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.dealerOptionTop}>
+                    <Text style={[styles.dealerOptionName, isSelected && styles.dealerOptionNameSelected]}>
+                      {d.dealerName}
+                    </Text>
+                    <View style={styles.codeTag}>
+                      <Text style={styles.codeTagText}>{d.uniqueCode}</Text>
+                    </View>
                   </View>
-                </View>
-                <Text style={styles.dealerOptionTerms}>{d.billingCycle || '30-Day Commercial Credit'}</Text>
-                {d.contactPerson && (
-                  <Text style={styles.dealerOptionContact}>Rep: {d.contactPerson} ({d.contactNumber || '-'})</Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+                  <Text style={styles.dealerOptionTerms}>{d.billingCycle || '30-Day Commercial Credit'}</Text>
+                  {d.contactPerson && (
+                    <Text style={styles.dealerOptionContact}>Rep: {d.contactPerson} ({d.contactNumber || '-'})</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       {/* ── NAVIGATION TABS: Settle vs Payment History ── */}
@@ -391,12 +497,20 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
                 <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
                 <Text style={styles.loadingText}>Fetching outstanding bills...</Text>
               </View>
+            ) : !selectedDealerId ? (
+              <View style={styles.centerContainer}>
+                <Ionicons name="business-outline" size={48} color={isLight ? '#94A3B8' : '#64748B'} />
+                <Text style={styles.allClearTitle}>Select a Dealer</Text>
+                <Text style={styles.allClearSub}>
+                  Choose a commercial fleet account above to view bills.
+                </Text>
+              </View>
             ) : bills.length === 0 ? (
               <View style={styles.centerContainer}>
                 <Ionicons name="checkmark-circle-outline" size={48} color="#22C55E" />
                 <Text style={styles.allClearTitle}>All Clear! No Outstanding Bills</Text>
                 <Text style={styles.allClearSub}>
-                  {selectedDealer?.dealerName} has no pending or partially paid invoices.
+                  {selectedDealer?.dealerName || 'Selected dealer'} has no pending or partially paid invoices.
                 </Text>
               </View>
             ) : (
@@ -597,19 +711,31 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
                 <TouchableOpacity
                   style={[
                     styles.settleSubmitBtn,
-                    (selectedOrderIds.length === 0 || !parseFloat(paymentAmountStr) || isSubmitting) && styles.settleSubmitBtnDisabled,
+                    (!parseFloat(paymentAmountStr) || isSubmitting) && styles.settleSubmitBtnDisabled,
+                    isYeahPayMode(paymentMode) && { backgroundColor: isLight ? '#059669' : '#16A34A' },
                   ]}
                   onPress={handleProcessSettlement}
-                  disabled={selectedOrderIds.length === 0 || !parseFloat(paymentAmountStr) || isSubmitting}
+                  disabled={!parseFloat(paymentAmountStr) || isSubmitting}
                   activeOpacity={0.88}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <Text style={styles.settleSubmitBtnText}>
+                        {terminalProcessing ? 'Calling YeahPay Device...' : 'Processing Settlement...'}
+                      </Text>
+                    </View>
                   ) : (
                     <>
-                      <Ionicons name="checkmark-done" size={18} color="#FFFFFF" />
+                      <Ionicons
+                        name={isYeahPayMode(paymentMode) ? (isCardMode(paymentMode) ? 'card' : 'qr-code') : 'checkmark-done'}
+                        size={18}
+                        color="#FFFFFF"
+                      />
                       <Text style={styles.settleSubmitBtnText}>
-                        Process Settlement (${(parseFloat(paymentAmountStr) || 0).toFixed(2)})
+                        {isYeahPayMode(paymentMode)
+                          ? `Pay on YeahPay ${isCardMode(paymentMode) ? 'Card' : 'PayNow'} Device ($${(parseFloat(paymentAmountStr) || 0).toFixed(2)})`
+                          : `Process Settlement ($${(parseFloat(paymentAmountStr) || 0).toFixed(2)})`}
                       </Text>
                     </>
                   )}
@@ -691,6 +817,91 @@ export const DealerCreditSettlementView: React.FC<DealerCreditSettlementViewProp
           )}
         </View>
       )}
+
+      {/* ── YEAHPAY PHYSICAL TERMINAL PROCESSING MODAL ── */}
+      <Modal
+        visible={terminalProcessing}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 440, padding: 24, alignItems: 'center' }]}>
+            <View
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: 36,
+                backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}
+            >
+              <Ionicons
+                name={isCardMode(paymentMode) ? 'card-outline' : 'qr-code-outline'}
+                size={36}
+                color="#22C55E"
+              />
+            </View>
+
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: '800',
+                color: isLight ? '#0F172A' : '#F8FAFC',
+                marginBottom: 6,
+                textAlign: 'center',
+              }}
+            >
+              YeahPay Physical Terminal
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 32,
+                fontWeight: '900',
+                color: '#22C55E',
+                marginBottom: 12,
+              }}
+            >
+              ${(parseFloat(paymentAmountStr) || 0).toFixed(2)}
+            </Text>
+
+            <View
+              style={{
+                backgroundColor: isLight ? '#F1F5F9' : '#222222',
+                borderRadius: 12,
+                padding: 16,
+                width: '100%',
+                alignItems: 'center',
+              }}
+            >
+              <ActivityIndicator size="large" color="#22C55E" style={{ marginBottom: 12 }} />
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: '700',
+                  color: isLight ? '#334155' : '#E2E8F0',
+                  textAlign: 'center',
+                  lineHeight: 22,
+                }}
+              >
+                {terminalPrompt || 'Communicating with YeahPay physical device...'}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: isLight ? '#64748B' : '#94A3B8',
+                  marginTop: 10,
+                  textAlign: 'center',
+                }}
+              >
+                Please follow the prompt on the physical terminal screen to complete the transaction.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── SETTLEMENT SUCCESS RECEIPT MODAL ── */}
       {settlementSuccess && (

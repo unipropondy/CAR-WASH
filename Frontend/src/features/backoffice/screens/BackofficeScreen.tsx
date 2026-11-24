@@ -41,6 +41,7 @@ import { PosNavTab } from '../../pos/components/PosSidebar';
 import { DealerCreditHistoryView } from '../components/DealerCreditHistoryView';
 import { DealerCreditSettlementView } from '../components/DealerCreditSettlementView';
 import { DealerVehicleHistoryView } from '../components/DealerVehicleHistoryView';
+import { OffersPromotionsView } from '../components/OffersPromotionsView';
 
 // ── Services & APIs ──
 import {
@@ -328,6 +329,7 @@ type NavId =
   | 'dealer-credit'
   | 'dealer-settlement'
   | 'dealer-history'
+  | 'promotions'
   | 'paymodes'
   | 'users'
   | 'user-groups'
@@ -1446,6 +1448,17 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         }
       },
     });
+  };
+
+  const handleTogglePackageStatus = async (pkg: ServicePackageRecord) => {
+    const nextStatus = !pkg.isActive;
+    try {
+      await updatePackage(pkg.packageId, { isActive: nextStatus });
+      showAlert('Success', `Package "${pkg.packageName}" is now ${nextStatus ? 'Active' : 'Inactive'}.`);
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to update package status');
+    }
   };
 
   // 3c2. À La Carte Add-on Handlers
@@ -3244,7 +3257,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
               <View style={styles.formRow}>
                 <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
-                  <Text style={styles.fieldLabel}>DEVICE SERIAL NUMBER (DeviceSN)</Text>
+                  <Text style={styles.fieldLabel}>DEVICE SERIAL NUMBER</Text>
                   <TextInput
                     style={[styles.fieldInput, { fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}
                     value={pmDeviceSN}
@@ -3253,11 +3266,11 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     placeholderTextColor={C.textMuted}
                     autoCapitalize="none"
                   />
-                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Terminal serial number in dbo.Paymode</Text>
+                  <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Terminal serial number for payment processing</Text>
                 </View>
 
                 <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
-                  <Text style={styles.fieldLabel}>DEVICE ENCRYPTION SALT (DeviceSalt)</Text>
+                  <Text style={styles.fieldLabel}>DEVICE ENCRYPTION SALT</Text>
                   <TextInput
                     style={[styles.fieldInput, { fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}
                     value={pmDeviceSalt}
@@ -3376,7 +3389,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       <View style={styles.screenHeader}>
         <View>
           <Text style={styles.screenTitle}>System Configuration</Text>
-          <Text style={styles.screenSub}>Manage masters, vehicle classifications, pricing, and hardware devices</Text>
+          <Text style={styles.screenSub}>Manage vehicle classifications, pricing, services, and hardware devices</Text>
         </View>
       </View>
 
@@ -3411,7 +3424,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'VEHICLES' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Vehicle Classifications (VehicleTypeMaster)</Text>
+            <Text style={styles.cardHeading}>Vehicle Classifications</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -3498,7 +3511,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'CATEGORIES' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Service Categories (ServiceCategoryMaster)</Text>
+            <Text style={styles.cardHeading}>Service Categories</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -3597,7 +3610,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'PACKAGES' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Service Packages & Rates (ServicePackageMaster)</Text>
+            <Text style={styles.cardHeading}>Service Packages & Rates</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -3639,11 +3652,26 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 {pkg.dealerPrice != null ? `$${Number(pkg.dealerPrice).toFixed(2)}` : `$${pkg.price.toFixed(2)}`}
               </Text>
               <View style={{ flex: 0.9 }}>
-                <View style={[styles.statusBadge, pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => handleTogglePackageStatus(pkg)}
+                  style={[
+                    styles.statusBadge,
+                    pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                    { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' } as any,
+                  ]}
+                >
+                  <Ionicons
+                    name={pkg.isActive ? 'checkmark-circle' : 'close-circle'}
+                    size={12}
+                    color={pkg.isActive ? '#22C55E' : '#EF4444'}
+                    style={{ marginRight: 4 }}
+                  />
                   <Text style={[styles.statusBadgeText, pkg.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                     {pkg.isActive ? 'Active' : 'Inactive'}
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
               <View style={[styles.actionRow, { flex: 0.9 }]}>
                 <TouchableOpacity
@@ -3686,7 +3714,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
             <View>
-              <Text style={styles.cardHeading}>À La Carte & Upgrades Master (ServiceAddonMaster)</Text>
+              <Text style={styles.cardHeading}>À La Carte Services & Upgrades</Text>
               <Text style={styles.cardSubhead}>Individual services, add-on upgrades, and customer/dealer prices</Text>
             </View>
             <Pressable
@@ -3793,7 +3821,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'BAYS' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Washing Bay Master</Text>
+            <Text style={styles.cardHeading}>Washing Bays</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -3879,7 +3907,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
             <View>
-              <Text style={styles.cardHeading}>Dealer Accounts (DealerMaster)</Text>
+              <Text style={styles.cardHeading}>Dealer Accounts</Text>
               <Text style={styles.cardSubhead}>
                 Manage commercial dealer accounts, unique IDs, contact details, and custom logos
               </Text>
@@ -4015,7 +4043,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
             <View>
-              <Text style={styles.cardHeading}>Kiosk Account Types (AccountTypeMaster)</Text>
+              <Text style={styles.cardHeading}>Kiosk Account Types</Text>
               <Text style={styles.cardSubhead}>
                 Manage welcome screen customer/dealer account cards, names, descriptions, order, and badges
               </Text>
@@ -4144,7 +4172,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {/* Tab 3e: Company Profile */}
       {settingsTab === 'COMPANY' && (
         <View style={styles.glassCard}>
-          <Text style={styles.cardHeading}>Company & Tax Settings (CompanySettings)</Text>
+          <Text style={styles.cardHeading}>Company & Tax Settings</Text>
           <Text style={styles.cardSubhead}>Applied to receipts, GST calculations, and official kiosk tickets</Text>
 
           <View style={{ marginTop: 20, gap: 14 }}>
@@ -4214,7 +4242,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       {settingsTab === 'PRINTERS' && (
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderAction}>
-            <Text style={styles.cardHeading}>Hardware & Network Receipt Printers (PrintMaster)</Text>
+            <Text style={styles.cardHeading}>Hardware & Network Receipt Printers</Text>
             <Pressable
               style={styles.btnPrimary}
               onPress={() => {
@@ -4345,6 +4373,39 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
             </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>STATUS</Text>
+              <View style={styles.groupPickerRow}>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    vActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                  ]}
+                  onPress={() => setVActive(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="checkmark-circle" size={15} color={vActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, vActive && { color: C.white, fontWeight: '700' }]}>
+                      Active
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    !vActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                  ]}
+                  onPress={() => setVActive(false)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="close-circle" size={15} color={!vActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, !vActive && { color: C.white, fontWeight: '700' }]}>
+                      Inactive
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setVehicleModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSaveVehicleType}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
@@ -4428,6 +4489,39 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
             </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>STATUS</Text>
+              <View style={styles.groupPickerRow}>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    cActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                  ]}
+                  onPress={() => setCActive(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="checkmark-circle" size={15} color={cActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, cActive && { color: C.white, fontWeight: '700' }]}>
+                      Active
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    !cActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                  ]}
+                  onPress={() => setCActive(false)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="close-circle" size={15} color={!cActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, !cActive && { color: C.white, fontWeight: '700' }]}>
+                      Inactive
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setCategoryModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSaveCategory}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
@@ -4494,6 +4588,39 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={styles.formGroup}>
               <Text style={styles.fieldLabel}>FEATURES (one per line)</Text>
               <TextInput style={[styles.fieldInput, { height: 70 }]} value={pFeatures} onChangeText={setPFeatures} multiline />
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>STATUS</Text>
+              <View style={styles.groupPickerRow}>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    pActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                  ]}
+                  onPress={() => setPActive(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="checkmark-circle" size={15} color={pActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, pActive && { color: C.white, fontWeight: '700' }]}>
+                      Active
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.groupPill,
+                    !pActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                  ]}
+                  onPress={() => setPActive(false)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="close-circle" size={15} color={!pActive ? '#FFFFFF' : C.textSec} />
+                    <Text style={[styles.groupPillText, !pActive && { color: C.white, fontWeight: '700' }]}>
+                      Inactive
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
             </View>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPkgModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
@@ -5226,6 +5353,23 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         return <DealerCreditSettlementView />;
       case 'dealer-history':
         return <DealerVehicleHistoryView />;
+      case 'promotions':
+        return (
+          <OffersPromotionsView
+            onShowAlert={showAlert}
+            onConfirm={(title, message, onYes) => {
+              setPopup({
+                visible: true,
+                type: 'confirm',
+                title,
+                message,
+                confirmText: 'Delete',
+                confirmButtonColor: '#EF4444',
+                onConfirm: onYes,
+              });
+            }}
+          />
+        );
       case 'users':
         return renderUsers();
       case 'user-groups':
@@ -5304,6 +5448,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
         {/* Navigation Group: SYSTEM */}
         <Text style={styles.navGroupLabel}>SYSTEM</Text>
         {[
+          { id: 'promotions', icon: 'images-outline', label: 'Offers & Promotions' },
           { id: 'paymodes', icon: 'wallet-outline', label: 'Payment Modes' },
           { id: 'users', icon: 'people-outline', label: 'User Management' },
           { id: 'settings', icon: 'settings-outline', label: 'Configuration' },
@@ -5374,7 +5519,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               </View>
               <Text style={styles.topbarTitle}>RedBay Backoffice</Text>
               <View style={styles.topbarSep} />
-              <Text style={styles.topbarPageName}>{activeNav === 'paymodes' ? 'PAYMENT MODES' : activeNav.replace('-', ' ').toUpperCase()}</Text>
+              <Text style={styles.topbarPageName}>
+                {activeNav === 'promotions'
+                  ? 'OFFERS & PROMOTIONS'
+                  : activeNav === 'paymodes'
+                  ? 'PAYMENT MODES'
+                  : activeNav.replace('-', ' ').toUpperCase()}
+              </Text>
               <ScreenNameBadge name="BackofficeScreen.tsx" variant="dark" style={{ marginLeft: 8 }} />
             </>
           )}

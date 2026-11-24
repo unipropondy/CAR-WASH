@@ -35,12 +35,22 @@ const ALLOWED_TRANSITIONS = {
   80: [],                 // CANCELLED is final
 };
 
+// In-memory cache for Paymodes (5 minutes TTL)
+let paymodeCache = {
+  data: null,
+  timestamp: 0,
+};
+
 /**
  * 1. GET /api/carwash/paymodes
  * Fetch active payment modes directly from dbo.Paymode
  */
 async function getPaymodes(req, res) {
   try {
+    if (paymodeCache.data && (Date.now() - paymodeCache.timestamp < 300000)) {
+      return res.status(200).json(paymodeCache.data);
+    }
+
     const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
@@ -70,11 +80,14 @@ async function getPaymodes(req, res) {
       deviceSalt: (row.DeviceSalt || '').trim(),
     }));
 
-    return res.status(200).json({
+    const payload = {
       success: true,
       count: paymodes.length,
       data: paymodes,
-    });
+    };
+    paymodeCache = { data: payload, timestamp: Date.now() };
+
+    return res.status(200).json(payload);
   } catch (err) {
     console.error('[CarWash getPaymodes Error]', err);
     return res.status(500).json({
