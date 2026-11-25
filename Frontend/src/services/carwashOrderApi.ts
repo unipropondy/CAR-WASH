@@ -103,6 +103,7 @@ export interface ApiOrder {
   waitMinutes: number;
   dealerId?: number;
   dealerName?: string;
+  additionalServices?: string;
   creditStatus?: string;
   createdDate: string;
   paidDate?: string;

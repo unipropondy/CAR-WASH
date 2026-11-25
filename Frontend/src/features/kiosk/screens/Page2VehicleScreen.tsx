@@ -103,16 +103,7 @@ export function getVehicleImageSource(item?: VehicleOption | null, hasLoadFailed
   const code = (item.vehicleTypeCode || '').toLowerCase().trim();
   const name = (item.name || '').toLowerCase().trim();
 
-  // If network image failed or not provided, return local asset immediately
-  if (hasLoadFailed || !item.imageUrl) {
-    if (VEHICLE_LOCAL_ASSETS[code]) return VEHICLE_LOCAL_ASSETS[code];
-    if (VEHICLE_LOCAL_ASSETS[name]) return VEHICLE_LOCAL_ASSETS[name];
-    for (const [k, src] of Object.entries(VEHICLE_LOCAL_ASSETS)) {
-      if (code.includes(k) || name.includes(k) || k.replace('_', ' ') === name) return src;
-    }
-  }
-
-  // If item has a server/network imageUrl
+  // If item has a server/network database imageUrl, prioritize it dynamically
   if (item.imageUrl && !hasLoadFailed) {
     const resolved = resolveApiUrl(item.imageUrl);
     if (resolved) {
@@ -120,6 +111,7 @@ export function getVehicleImageSource(item?: VehicleOption | null, hasLoadFailed
     }
   }
 
+  // Graceful fallback when network image fails or is unavailable
   if (VEHICLE_LOCAL_ASSETS[code]) return VEHICLE_LOCAL_ASSETS[code];
   if (VEHICLE_LOCAL_ASSETS[name]) return VEHICLE_LOCAL_ASSETS[name];
   for (const [k, src] of Object.entries(VEHICLE_LOCAL_ASSETS)) {

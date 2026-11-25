@@ -9,6 +9,7 @@ import {
   fetchCompanySettings,
   subscribeCompanySettings,
 } from '../../../services/companySettingsApi';
+import { getCompanyLogoUrl } from '../../../services/companySettingsApi';
 
 interface PosHeaderProps {
   currentLanguage: 'EN' | 'ZH';
@@ -48,7 +49,7 @@ export const PosHeader: React.FC<PosHeaderProps> = ({
       {/* Brand Identity with Logo */}
       <View style={styles.brandRow}>
         <Image
-          source={require('../../../../assets/images/red_bay_logo.png')}
+          source={{ uri: getCompanyLogoUrl(companySettings) }}
           style={styles.logoImage}
           resizeMode="contain"
         />

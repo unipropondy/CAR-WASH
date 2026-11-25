@@ -26,6 +26,13 @@ import {
   FALLBACK_ACCOUNT_TYPES 
 } from '../../../services/accountTypeApi';
 import { resolveApiUrl } from '../../../services/apiConfig';
+import {
+  CompanySettings,
+  getCachedCompanySettings,
+  fetchCompanySettings,
+  subscribeCompanySettings,
+  getCompanyBannerUrl,
+} from '../../../services/companySettingsApi';
 
 interface Page1UserTypeScreenProps {
   onSelectCustomer: () => void;
@@ -62,6 +69,13 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
     return getCachedAccountTypes() || [];
   });
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(() => !getCachedAccountTypes());
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(() => getCachedCompanySettings());
+
+  useEffect(() => {
+    const unsub = subscribeCompanySettings((s) => { if (s) setCompanySettings(s); });
+    fetchCompanySettings().then(setCompanySettings).catch(() => {});
+    return unsub;
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -171,7 +185,7 @@ export const Page1UserTypeScreen: React.FC<Page1UserTypeScreenProps> = ({
               isLandscapeShort && { paddingVertical: 4, paddingHorizontal: 14, marginBottom: 6 }
             ]}>
               <Image
-                source={require('../../../../assets/images/red_bay_banner.jpg')}
+                source={{ uri: getCompanyBannerUrl(companySettings) }}
                 style={[
                   styles.logoBanner, 
                   { width: dynamicLogoWidth, height: dynamicLogoHeight },

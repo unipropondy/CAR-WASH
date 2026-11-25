@@ -8,6 +8,13 @@ import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
 import { sendKioskHelpRequest } from '../../../services/helpNotificationService';
 import { RedBayAlertModal } from '../../../components/common/RedBayAlertModal';
 import { useKioskResponsive } from '../utils/useKioskResponsive';
+import {
+  CompanySettings,
+  getCachedCompanySettings,
+  fetchCompanySettings,
+  subscribeCompanySettings,
+  getCompanyBannerUrl,
+} from '../../../services/companySettingsApi';
 
 export interface KioskTopHeaderProps {
   subtitle?: string;
@@ -31,6 +38,13 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
   const { isTallKiosk, isLandscapeShort, contentMaxWidth, horizontalPadding, scaleSize } = useKioskResponsive();
   const [isHelpRequested, setIsHelpRequested] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(() => getCachedCompanySettings());
+
+  React.useEffect(() => {
+    const unsub = subscribeCompanySettings((s) => { if (s) setCompanySettings(s); });
+    fetchCompanySettings().then(setCompanySettings).catch(() => {});
+    return unsub;
+  }, []);
 
   const handleRequestHelp = async () => {
     setIsHelpRequested(true);
@@ -77,7 +91,7 @@ export const KioskTopHeader: React.FC<KioskTopHeaderProps> = ({
           delayLongPress={1800}
         >
           <Image
-            source={require('../../../../assets/images/red_bay_banner.jpg')}
+            source={{ uri: getCompanyBannerUrl(companySettings) }}
             style={[styles.logoImage, { width: dynamicLogoWidth, height: dynamicLogoHeight }]}
             resizeMode="contain"
           />

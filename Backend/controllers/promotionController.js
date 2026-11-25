@@ -11,6 +11,49 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
+let promoImageColumnsChecked = false;
+async function ensurePromotionImageColumns(pool) {
+  if (promoImageColumnsChecked) return;
+  try {
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.KioskPromotionMaster') AND name = 'ImageData')
+      BEGIN
+        ALTER TABLE dbo.KioskPromotionMaster ADD ImageData VARBINARY(MAX) NULL;
+      END
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.KioskPromotionMaster') AND name = 'ImageMimeType')
+      BEGIN
+        ALTER TABLE dbo.KioskPromotionMaster ADD ImageMimeType NVARCHAR(100) NULL;
+      END
+    `);
+    promoImageColumnsChecked = true;
+  } catch (err) {
+    console.warn('[ensurePromotionImageColumns Warning]', err.message);
+  }
+}
+
+function getMimeTypeFromPath(filePath) {
+  const ext = path.extname(String(filePath || '')).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/png';
+}
+
+function readLocalPromoImage(imagePath) {
+  if (!imagePath || typeof imagePath !== 'string') return null;
+  if (!imagePath.startsWith('/uploads/promotions/')) return null;
+  const fileName = path.basename(imagePath);
+  const fullPath = path.join(UPLOADS_DIR, fileName);
+  if (!fs.existsSync(fullPath)) return null;
+  try {
+    const buffer = fs.readFileSync(fullPath);
+    if (!buffer || buffer.length === 0) return null;
+    return { buffer, mimeType: getMimeTypeFromPath(fileName) };
+  } catch (err) {
+    console.warn('[readLocalPromoImage Warning]', err.message);
+    return null;
+  }
+}
+
 /**
  * Handle promotional image upload (Multipart or Base64)
  * POST /api/promotions/upload
@@ -329,11 +372,16 @@ async function createPromotion(req, res) {
     }
 
     const pool = await getPool();
+    await ensurePromotionImageColumns(pool);
+    const localImg = readLocalPromoImage(imagePath.trim());
+
     const request = pool.request();
 
     request.input('name', sql.NVarChar(150), promotionName.trim());
     request.input('desc', sql.NVarChar(500), description ? description.trim() : null);
     request.input('img', sql.NVarChar(500), imagePath.trim());
+    request.input('imgData', sql.VarBinary(sql.MAX), localImg ? localImg.buffer : null);
+    request.input('imgMime', sql.NVarChar(100), localImg ? localImg.mimeType : null);
     request.input('start', sql.Date, startDate);
     request.input('end', sql.Date, endDate);
     request.input('order', sql.Int, parseInt(displayOrder || '1', 10));
@@ -344,6 +392,8 @@ async function createPromotion(req, res) {
         PromotionName,
         Description,
         ImagePath,
+        ImageData,
+        ImageMimeType,
         StartDate,
         EndDate,
         DisplayOrder,
@@ -365,6 +415,8 @@ async function createPromotion(req, res) {
         @name,
         @desc,
         @img,
+        @imgData,
+        @imgMime,
         @start,
         @end,
         @order,
@@ -412,6 +464,7 @@ async function updatePromotion(req, res) {
     } = req.body || {};
 
     const pool = await getPool();
+    await ensurePromotionImageColumns(pool);
 
     // Check if exists
     const checkReq = pool.request();
@@ -436,8 +489,16 @@ async function updatePromotion(req, res) {
     }
 
     if (imagePath !== undefined && imagePath.trim()) {
-      updateReq.input('img', sql.NVarChar(500), imagePath.trim());
+      const trimmedPath = imagePath.trim();
+      updateReq.input('img', sql.NVarChar(500), trimmedPath);
       updates.push('ImagePath = @img');
+
+      const localImg = readLocalPromoImage(trimmedPath);
+      if (localImg) {
+        updateReq.input('imgData', sql.VarBinary(sql.MAX), localImg.buffer);
+        updateReq.input('imgMime', sql.NVarChar(100), localImg.mimeType);
+        updates.push('ImageData = @imgData', 'ImageMimeType = @imgMime');
+      }
     }
 
     if (startDate !== undefined && startDate) {
@@ -560,11 +621,96 @@ async function deletePromotion(req, res) {
   }
 }
 
+/**
+ * GET /api/promotions/:id/image
+ * Stream promotion poster image from SQL Server ImageData (or local disk fallback)
+ */
+async function getPromotionImageById(req, res) {
+  try {
+    const promotionId = parseInt(req.params.id, 10);
+    if (isNaN(promotionId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Promotion ID.' });
+    }
+
+    const pool = await getPool();
+    await ensurePromotionImageColumns(pool);
+
+    const request = pool.request();
+    request.input('id', sql.Int, promotionId);
+    const result = await request.query(`
+      SELECT ImagePath, ImageData, ImageMimeType
+      FROM dbo.KioskPromotionMaster
+      WHERE PromotionId = @id;
+    `);
+
+    const row = result.recordset && result.recordset[0];
+    if (!row) {
+      return res.status(404).json({ success: false, message: 'Promotion not found.' });
+    }
+
+    if (row.ImageData) {
+      res.set('Content-Type', row.ImageMimeType || getMimeTypeFromPath(row.ImagePath));
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(row.ImageData);
+    }
+
+    const localImg = readLocalPromoImage(row.ImagePath);
+    if (localImg) {
+      res.set('Content-Type', localImg.mimeType);
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(localImg.buffer);
+    }
+
+    return res.status(404).json({ success: false, message: 'Promotion image not found.' });
+  } catch (err) {
+    console.error('[getPromotionImageById Error]', err);
+    return res.status(500).json({ success: false, message: 'Failed to serve promotion image.' });
+  }
+}
+
+/**
+ * GET /uploads/promotions/:filename
+ * Fallback handler when uploaded poster file is missing on local disk (e.g. cloud deployment)
+ */
+async function servePromotionImageByFilename(req, res) {
+  try {
+    const safeFileName = path.basename(String(req.params.filename || ''));
+    if (!safeFileName) {
+      return res.status(404).json({ success: false, message: 'Endpoint not found' });
+    }
+
+    const pool = await getPool();
+    await ensurePromotionImageColumns(pool);
+
+    const request = pool.request();
+    request.input('pattern', sql.NVarChar(500), `%${safeFileName}`);
+    const result = await request.query(`
+      SELECT TOP 1 ImagePath, ImageData, ImageMimeType
+      FROM dbo.KioskPromotionMaster
+      WHERE ImagePath LIKE @pattern AND ImageData IS NOT NULL;
+    `);
+
+    const row = result.recordset && result.recordset[0];
+    if (!row || !row.ImageData) {
+      return res.status(404).json({ success: false, message: 'Endpoint not found' });
+    }
+
+    res.set('Content-Type', row.ImageMimeType || getMimeTypeFromPath(safeFileName));
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(row.ImageData);
+  } catch (err) {
+    console.error('[servePromotionImageByFilename Error]', err);
+    return res.status(404).json({ success: false, message: 'Endpoint not found' });
+  }
+}
+
 module.exports = {
   uploadPromotionImage,
   getAllPromotions,
   getActivePromotions,
   getPromotionById,
+  getPromotionImageById,
+  servePromotionImageByFilename,
   createPromotion,
   updatePromotion,
   deletePromotion,

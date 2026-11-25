@@ -46,10 +46,13 @@ export const KioskPromotionSlideshow: React.FC<KioskPromotionSlideshowProps> = (
   const [isLoading, setIsLoading] = useState<boolean>(() => promotions.length === 0);
   const [imageError, setImageError] = useState<boolean>(false);
 
-  // Reset image error state whenever slide index changes
+  const currentPromo = promotions[currentIndex];
+  const imageUrl = currentPromo ? resolveApiUrl(currentPromo.imagePath) : '';
+
+  // Reset image error state whenever slide index or resolved URL changes
   useEffect(() => {
     setImageError(false);
-  }, [currentIndex]);
+  }, [currentIndex, imageUrl]);
 
   // Animation values for smooth cross-fade transition
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -136,9 +139,6 @@ export const KioskPromotionSlideshow: React.FC<KioskPromotionSlideshowProps> = (
   if (!isLoading && promotions.length === 0) {
     return null;
   }
-
-  const currentPromo = promotions[currentIndex];
-  const imageUrl = currentPromo ? resolveApiUrl(currentPromo.imagePath) : '';
 
   return (
     <Pressable

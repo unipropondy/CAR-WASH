@@ -385,7 +385,7 @@ export const Page5PaymentScreen: React.FC<Page5PaymentScreenProps> = ({
                 </View>
               </View>
 
-              {customerDetails?.customerName && customerDetails.customerName !== 'Walk-in Customer' && (
+              {customerDetails?.customerName && customerDetails.customerName !== 'Walk-in Customer' && customerDetails.customerName !== 'Walk-in' && (
                 <View style={styles.customerInfoBlock}>
                   <Text style={styles.customerNameTag}>
                     👤 {customerDetails.customerName}

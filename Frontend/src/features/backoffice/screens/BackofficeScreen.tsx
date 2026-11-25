@@ -1333,6 +1333,9 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       return;
     }
     try {
+      const payloadImageData = cImage === '' ? '' : (cImage.startsWith('data:') ? cImage : undefined);
+      const payloadIconData = cIcon === '' ? '' : (cIcon.startsWith('data:') ? cIcon : undefined);
+
       if (editingCategory) {
         await updateServiceCategory(editingCategory.serviceCategoryId, {
           serviceCategoryCode: cCode.trim(),
@@ -1340,8 +1343,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: cDesc.trim(),
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
-          imageData: cImage || undefined,
-          iconData: cIcon || undefined,
+          imageData: payloadImageData,
+          iconData: payloadIconData,
         });
         showAlert('Success', `Category "${cName}" updated.`);
       } else {
@@ -1351,8 +1354,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: cDesc.trim(),
           displayOrder: parseInt(cOrder || '1', 10),
           isActive: cActive,
-          imageData: cImage || undefined,
-          iconData: cIcon || undefined,
+          imageData: payloadImageData || undefined,
+          iconData: payloadIconData || undefined,
         });
         showAlert('Success', `Category "${cName}" created.`);
       }

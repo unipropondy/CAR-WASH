@@ -67,7 +67,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
   const dynamicInputHeight = scaleSize(52, 46, 68);
   const dynamicInputFontSize = scaleFont(14.5, 13, 19);
 
-  const [customerName, setCustomerName] = useState(initialDetails?.customerName === 'Walk-in Customer' ? '' : (initialDetails?.customerName || ''));
+  const [customerName, setCustomerName] = useState((initialDetails?.customerName === 'Walk-in Customer' || initialDetails?.customerName === 'Walk-in') ? '' : (initialDetails?.customerName || ''));
   const [mobileNumber, setMobileNumber] = useState(initialDetails?.mobileNumber || '');
   const [vehicleNumber, setVehicleNumber] = useState(initialDetails?.vehicleNumber === 'WALK-IN' ? '' : (initialDetails?.vehicleNumber || ''));
 
@@ -128,7 +128,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
         const finalPlate = vehicleNumber.trim()
           ? vehicleNumber.trim().toUpperCase()
           : 'WALK-IN';
-        const finalName = customerName.trim() || 'Walk-in Customer';
+        const finalName = customerName.trim() || 'Walk-in';
         const finalMobile = cleanMobile;
 
         await onContinue({

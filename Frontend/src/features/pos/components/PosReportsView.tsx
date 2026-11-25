@@ -1324,7 +1324,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <tr>
             <td><strong>#${w.orderNo || w.orderId}</strong></td>
             <td><span class="plate-badge">${w.vehicleNumber || w.plateNumber || '—'}</span></td>
-            <td>${w.customerName || 'Walk-in Customer'}</td>
+            <td>${(w.customerName && w.customerName !== 'Walk-in Customer') ? w.customerName : 'Walk-in'}</td>
             <td>${w.packageName || w.serviceName || 'Standard Wash'}</td>
             <td style="text-align: right; font-weight: 700; color: #0F172A;">$${Number(w.totalAmount || w.amount || 0).toFixed(2)}</td>
             <td><span class="status-badge status-done">${w.statusName || w.status || 'Completed'}</span></td>
@@ -4022,7 +4022,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     <View style={styles.txInfoCol}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={styles.txCustomerName} numberOfLines={1}>
-                          {tx.customerName || 'Walk-in Customer'}
+                          {(tx.customerName && tx.customerName !== 'Walk-in Customer') ? tx.customerName : 'Walk-in'}
                         </Text>
                         <Text style={styles.txOrderTag}>#{formatOrderNo(tx.orderNo)}</Text>
                       </View>
@@ -4115,7 +4115,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <View style={[styles.modalKeyCard, { borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }]}>
                 <Text style={styles.modalKeyLabel}>CUSTOMER NAME</Text>
                 <Text style={styles.modalKeyValueBold} numberOfLines={1}>
-                  {selectedWashOrder?.customerName || 'Walk-in Customer'}
+                  {(selectedWashOrder?.customerName && selectedWashOrder.customerName !== 'Walk-in Customer') ? selectedWashOrder.customerName : 'Walk-in'}
                 </Text>
                 <Text style={styles.modalKeySub}>Retail Walk-in</Text>
               </View>

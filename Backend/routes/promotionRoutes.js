@@ -62,6 +62,7 @@ function optionalMulter(req, res, next) {
 router.post('/upload', optionalMulter, promotionController.uploadPromotionImage);
 router.get('/active', promotionController.getActivePromotions);
 router.get('/', promotionController.getAllPromotions);
+router.get('/:id/image', promotionController.getPromotionImageById);
 router.get('/:id', promotionController.getPromotionById);
 router.post('/', promotionController.createPromotion);
 router.put('/:id', promotionController.updatePromotion);

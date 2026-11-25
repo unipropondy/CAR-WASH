@@ -75,7 +75,8 @@ function buildEscPosReceipt(order, printerName, company = {}) {
     .replace(/[\u202F\u00A0\u2000-\u200B\uFEFF]/g, ' ');
   text += padLine(`Date: ${dateStr}`, `Time: ${timeStr}`) + LF;
 
-  const custName = order.customerDetails?.customerName || order.customerName || 'Walk-in Customer';
+  const rawCustName = order.customerDetails?.customerName || order.customerName;
+  const custName = (!rawCustName || rawCustName === 'Walk-in Customer') ? 'Walk-in' : rawCustName;
   text += `Customer: ${custName}` + LF;
 
   const plate = order.customerDetails?.vehicleNumber || order.vehicleNumber || 'WALK-IN';

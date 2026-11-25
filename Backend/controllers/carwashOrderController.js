@@ -124,7 +124,7 @@ async function createOrder(req, res) {
     } = req.body || {};
 
     // Validate required service fields (customer details are optional)
-    const safeCustomerName = (customerName && customerName.trim()) ? customerName.trim() : 'Walk-in Customer';
+    const safeCustomerName = (customerName && customerName.trim() && customerName.trim() !== 'Walk-in Customer') ? customerName.trim() : 'Walk-in';
     const safeVehicleNumber = (vehicleNumber && vehicleNumber.trim()) ? vehicleNumber.trim().toUpperCase() : 'WALK-IN';
     const safeMobileNumber = (mobileNumber && mobileNumber.trim()) ? mobileNumber.trim() : '-';
 

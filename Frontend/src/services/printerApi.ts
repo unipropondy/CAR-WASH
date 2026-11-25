@@ -364,7 +364,8 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
     const raw = String(billNo).replace(/\D/g, '');
     return raw.length >= 4 ? raw.slice(-4) : (String(billNo).length > 4 ? String(billNo).slice(-4) : String(billNo));
   })();
-  const custName = order.customerDetails?.customerName || order.customerName || order.CustomerName || 'Walk-in Customer';
+  const rawCustName = order.customerDetails?.customerName || order.customerName || order.CustomerName;
+  const custName = (!rawCustName || rawCustName === 'Walk-in Customer') ? 'Walk-in' : rawCustName;
   const plate = order.customerDetails?.vehicleNumber || order.vehicleNumber || order.VehicleNo || order.VehicleNumber || 'WALK-IN';
   const mobile = order.customerDetails?.mobileNumber || order.mobileNumber || order.Phone || order.ContactNo || '-';
   const pkgName = order.selectedPackage?.name || order.packageName || order.PackageName || 'Express Foam Wash';

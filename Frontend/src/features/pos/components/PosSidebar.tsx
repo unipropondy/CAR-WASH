@@ -6,6 +6,7 @@ import {
   getCachedCompanySettings,
   fetchCompanySettings,
   subscribeCompanySettings,
+  getCompanyLogoUrl,
 } from '../../../services/companySettingsApi';
 
 export type PosNavTab = 'ORDERS' | 'BAYS' | 'CUSTOMERS' | 'DEALERS' | 'HISTORY' | 'REPORTS' | 'SETTINGS';
@@ -309,7 +310,7 @@ export const PosSidebar: React.FC<PosSidebarProps> = ({
         <View style={styles.brandHeader}>
           <View style={styles.logoBadgeContainer}>
             <Image
-              source={require('../../../../assets/images/red_bay_badge.jpg')}
+              source={{ uri: getCompanyLogoUrl(companySettings) }}
               style={styles.logoBadge}
               resizeMode="cover"
             />

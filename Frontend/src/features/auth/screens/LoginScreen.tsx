@@ -18,6 +18,14 @@ import { loginUser } from '../../../services/authApi';
 import { useAuthStore } from '../store/authStore';
 import { AuthenticatedUser } from '../../../types/auth.types';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
+import {
+  getCachedCompanySettings,
+  fetchCompanySettings,
+  subscribeCompanySettings,
+  getCompanyLogoUrl,
+  getCompanyBannerUrl,
+  CompanySettings,
+} from '../../../services/companySettingsApi';
 
 export interface LoginScreenProps {
   onLoginSuccess?: (user?: AuthenticatedUser) => void;
@@ -30,7 +38,7 @@ export interface LoginScreenProps {
 const BACKOFFICE_USER_ID = '123';
 const BACKOFFICE_PASSWORD = '9976';
 
-/* ---------- assets (src/features/auth/screens -> Frontend/assets/images) ---------- */
+/* ---------- Fallback static assets (used only when API unavailable) ---------- */
 const LOGIN_BG_IMAGE = require('../../../../assets/images/login-bg.jpg');
 const CAR_WASH_IMAGE = require('../../../../assets/images/car wash.png');
 
@@ -96,6 +104,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(() => getCachedCompanySettings());
+
+  useEffect(() => {
+    const unsub = subscribeCompanySettings((s) => { if (s) setCompanySettings(s); });
+    fetchCompanySettings().then(setCompanySettings).catch(() => {});
+    return unsub;
+  }, []);
 
   // pre-fill saved user ID
   useEffect(() => {
@@ -203,7 +218,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {/* ================= LEFT 65% (unchanged) ================= */}
           {isWide && (
             <View style={styles.left}>
-              <Image source={CAR_WASH_IMAGE} style={styles.hero} resizeMode="contain" />
+              <Image 
+                source={companySettings ? { uri: getCompanyBannerUrl(companySettings) } : CAR_WASH_IMAGE} 
+                style={styles.hero} 
+                resizeMode="contain" 
+              />
 
               <View style={styles.tagline}>
                 <Text style={styles.taglineWhite}>CLEANER</Text>

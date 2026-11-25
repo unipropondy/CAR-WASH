@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
+  TextInput,
   TouchableOpacity, 
   StyleSheet, 
   Modal, 
@@ -35,16 +36,74 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('YEAHPAY_QR');
   const [cashTendered, setCashTendered] = useState<number>(50.0);
+  const [cashInputStr, setCashInputStr] = useState<string>('50.00');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [statusPrompt, setStatusPrompt] = useState<string>('');
+
+  useEffect(() => {
+    if (visible && order) {
+      const initAmt = Number(order.totalAmount || 0);
+      setCashTendered(initAmt);
+      setCashInputStr(initAmt.toFixed(2));
+    }
+  }, [visible, order?.id, order?.totalAmount]);
 
   if (!order) return null;
 
   const total = order.totalAmount;
+  const isCashInsufficient = selectedMethod === 'CASH' && cashTendered < total - 0.001;
+  const shortBy = Math.max(0, total - cashTendered);
   const changeDue = Math.max(0, cashTendered - total);
   const numericOrderId = order.orderId || parseInt(order.id, 10);
 
+  const handleCashStrUpdate = (raw: string) => {
+    // Allow digits and at most one decimal point with up to 2 decimal places
+    let cleaned = raw.replace(/[^0-9.]/g, '');
+    const dotIdx = cleaned.indexOf('.');
+    if (dotIdx !== -1) {
+      cleaned = cleaned.slice(0, dotIdx + 1) + cleaned.slice(dotIdx + 1).replace(/\./g, '');
+      const parts = cleaned.split('.');
+      if (parts[1] && parts[1].length > 2) {
+        cleaned = `${parts[0]}.${parts[1].slice(0, 2)}`;
+      }
+    }
+    if (cleaned.length > 8) {
+      cleaned = cleaned.slice(0, 8);
+    }
+    setCashInputStr(cleaned);
+    const parsed = parseFloat(cleaned);
+    setCashTendered(Number.isFinite(parsed) ? parsed : 0);
+  };
+
+  const handleNumpadPress = (key: string) => {
+    if (isProcessing) return;
+    if (key === 'CLEAR') {
+      setCashInputStr('');
+      setCashTendered(0);
+      return;
+    }
+    if (key === 'BACK') {
+      const next = cashInputStr.slice(0, -1);
+      setCashInputStr(next);
+      const parsed = parseFloat(next);
+      setCashTendered(Number.isFinite(parsed) ? parsed : 0);
+      return;
+    }
+    // If current input is the auto-prefilled exact total (ends with .00 etc.) or 0, allow typing cleanly
+    if (key === '.' && cashInputStr.includes('.')) return;
+    const next = cashInputStr === '0' && key !== '.' ? key : `${cashInputStr}${key}`;
+    handleCashStrUpdate(next);
+  };
+
   const handlePay = async () => {
+    if (selectedMethod === 'CASH' && cashTendered < total - 0.001) {
+      Alert.alert(
+        'Insufficient Cash Amount',
+        `Cash tendered ($${cashTendered.toFixed(2)}) is less than the order total ($${total.toFixed(2)}). Please enter at least $${total.toFixed(2)}.`
+      );
+      return;
+    }
+
     try {
       setIsProcessing(true);
 
@@ -325,30 +384,125 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <View style={styles.cashBox}>
                 <Text style={styles.cashSectionTitle}>QUICK CASH TENDERED</Text>
                 <View style={styles.quickCashButtons}>
-                  {[total, 30, 50, 100].map((amt, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={[styles.quickCashBtn, cashTendered === amt && styles.quickCashBtnActive]}
-                      onPress={() => setCashTendered(amt)}
-                      disabled={isProcessing}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.quickCashText, cashTendered === amt && styles.quickCashTextActive]}>
-                        {amt === total ? `Exact ($${amt.toFixed(2)})` : `$${amt.toFixed(0)}`}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {[total, 30, 50, 100].map((amt, idx) => {
+                    const isActive = Math.abs(cashTendered - amt) < 0.001;
+                    const isBelowTotal = amt < total - 0.001;
+                    return (
+                      <TouchableOpacity
+                        key={idx}
+                        style={[
+                          styles.quickCashBtn,
+                          isBelowTotal && styles.quickCashBtnLow,
+                          isActive && (isBelowTotal ? styles.quickCashBtnError : styles.quickCashBtnActive),
+                        ]}
+                        onPress={() => {
+                          setCashTendered(amt);
+                          setCashInputStr(amt.toFixed(2));
+                        }}
+                        disabled={isProcessing}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.quickCashText,
+                            isBelowTotal && { color: '#94A3B8' },
+                            isActive && styles.quickCashTextActive,
+                          ]}
+                        >
+                          {amt === total ? `Exact ($${amt.toFixed(2)})` : `$${amt.toFixed(0)}`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
-                {/* Change Due Highlight */}
-                <View style={[styles.changeDueBox, changeDue > 0 && styles.changeDueBoxPositive]}>
-                  <View>
-                    <Text style={styles.changeDueLabel}>Change Due to Customer</Text>
-                    <Text style={styles.changeDueSub}>
-                      Tendered: ${cashTendered.toFixed(2)} - Total: ${total.toFixed(2)}
+                {/* Custom Cash Input + Touch Numpad */}
+                <View style={styles.numpadSection}>
+                  <View style={styles.cashInputRow}>
+                    <Text style={styles.cashCurrencyPrefix}>$</Text>
+                    <TextInput
+                      style={styles.cashTextInput}
+                      value={cashInputStr}
+                      onChangeText={handleCashStrUpdate}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor="#94A3B8"
+                      editable={!isProcessing}
+                    />
+                    <TouchableOpacity
+                      style={styles.cashClearChip}
+                      onPress={() => handleNumpadPress('CLEAR')}
+                      disabled={isProcessing}
+                    >
+                      <Text style={styles.cashClearChipText}>CLEAR</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.numpadGrid}>
+                    {[
+                      ['1', '2', '3'],
+                      ['4', '5', '6'],
+                      ['7', '8', '9'],
+                      ['.', '0', 'BACK'],
+                    ].map((row, rIdx) => (
+                      <View key={rIdx} style={styles.numpadRow}>
+                        {row.map((key) => (
+                          <TouchableOpacity
+                            key={key}
+                            style={[styles.numpadKey, key === 'BACK' && styles.numpadKeyAction]}
+                            onPress={() => handleNumpadPress(key)}
+                            disabled={isProcessing}
+                            activeOpacity={0.75}
+                          >
+                            {key === 'BACK' ? (
+                              <Ionicons name="backspace-outline" size={20} color="#334155" />
+                            ) : (
+                              <Text style={styles.numpadKeyText}>{key}</Text>
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Change Due or Insufficient Warning Highlight */}
+                <View
+                  style={[
+                    styles.changeDueBox,
+                    isCashInsufficient
+                      ? styles.changeDueBoxInsufficient
+                      : changeDue > 0 && styles.changeDueBoxPositive,
+                  ]}
+                >
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text
+                      style={[
+                        styles.changeDueLabel,
+                        isCashInsufficient && { color: '#DC2626' },
+                      ]}
+                    >
+                      {isCashInsufficient ? 'Insufficient Cash Tendered' : 'Change Due to Customer'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.changeDueSub,
+                        isCashInsufficient && { color: '#B91C1C', fontWeight: '600' },
+                      ]}
+                    >
+                      {isCashInsufficient
+                        ? `Tendered: $${cashTendered.toFixed(2)} • Short by $${shortBy.toFixed(2)}`
+                        : `Tendered: $${cashTendered.toFixed(2)} - Total: $${total.toFixed(2)}`}
                     </Text>
                   </View>
-                  <Text style={styles.changeDueAmount}>$ {changeDue.toFixed(2)}</Text>
+                  <Text
+                    style={[
+                      styles.changeDueAmount,
+                      isCashInsufficient && { color: '#DC2626' },
+                    ]}
+                  >
+                    {isCashInsufficient ? `-$ ${shortBy.toFixed(2)}` : `$ ${changeDue.toFixed(2)}`}
+                  </Text>
                 </View>
               </View>
             )}
@@ -395,14 +549,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={[styles.confirmPayBtn, isProcessing && styles.confirmPayBtnDisabled]} 
+              style={[styles.confirmPayBtn, (isProcessing || isCashInsufficient) && styles.confirmPayBtnDisabled]} 
               onPress={handlePay}
-              disabled={isProcessing}
+              disabled={isProcessing || isCashInsufficient}
               activeOpacity={0.85}
             >
               <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.confirmPayBtnText}>
-                {isProcessing ? 'Processing Transaction...' : `Confirm & Pay $ ${total.toFixed(2)}`}
+                {isProcessing
+                  ? 'Processing Transaction...'
+                  : isCashInsufficient
+                    ? `Short by $ ${shortBy.toFixed(2)}`
+                    : `Confirm & Pay $ ${total.toFixed(2)}`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -881,6 +1039,82 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     borderColor: '#059669',
   },
+  quickCashBtnLow: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  quickCashBtnError: {
+    backgroundColor: '#EF4444',
+    borderColor: '#DC2626',
+  },
+  numpadSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
+  },
+  cashInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 6,
+  },
+  cashCurrencyPrefix: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  cashTextInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    paddingVertical: 0,
+  },
+  cashClearChip: {
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  cashClearChipText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  numpadGrid: {
+    gap: 6,
+  },
+  numpadRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  numpadKey: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: '#CBD5E1',
+  },
+  numpadKeyAction: {
+    backgroundColor: '#E2E8F0',
+    borderBottomColor: '#94A3B8',
+  },
+  numpadKeyText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
   quickCashText: {
     fontSize: 12.5,
     fontWeight: '800',
@@ -902,6 +1136,10 @@ const styles = StyleSheet.create({
   changeDueBoxPositive: {
     backgroundColor: '#ECFDF5',
     borderColor: '#A7F3D0',
+  },
+  changeDueBoxInsufficient: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   changeDueLabel: {
     fontSize: 12.5,

@@ -91,6 +91,7 @@ export interface PosOrder {
   serviceCategoryName?: string;
   carColor?: string;    // e.g. "#EF4444"
   packageName: string;  // "Premium", "Deluxe", "Basic"
+  additionalServices?: string;
   services?: ServiceItem[];
   packagePrice?: number;
   subtotal: number;

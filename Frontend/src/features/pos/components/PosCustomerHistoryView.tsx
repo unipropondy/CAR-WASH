@@ -233,7 +233,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
 
     for (const order of periodFilteredOrders) {
       const isDealer = isDealerOrder(order);
-      const rawName = (order.customerName || (isDealer ? 'Dealer Account' : 'Walk-in Customer')).trim();
+      const rawName = ((order.customerName && order.customerName !== 'Walk-in Customer' ? order.customerName : '') || (isDealer ? 'Dealer Account' : 'Walk-in')).trim();
       const rawMobile = (order.mobileNumber || '').trim();
 
       // For dealers: group by dealerId or dealer name so all fleet vehicles/washes group together
@@ -415,7 +415,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
     return orders
       .filter((o) => {
         if (isDealerOrder(o)) return false;
-        const rawName = (o.customerName || 'Walk-in Customer').trim().toLowerCase();
+        const rawName = ((o.customerName && o.customerName !== 'Walk-in Customer' ? o.customerName : '') || 'Walk-in').trim().toLowerCase();
         const rawMobile = (o.mobileNumber || '').trim();
         return `${rawName}::${rawMobile}` === selectedCustomer.customerKey.replace('customer::', '');
       })
@@ -803,7 +803,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.tableCustomerName} numberOfLines={1}>
-                          {order.customerName || 'Walk-in Customer'}
+                          {(order.customerName && order.customerName !== 'Walk-in Customer') ? order.customerName : 'Walk-in'}
                         </Text>
                         <Text style={[styles.tableCustomerPhone, isDealer && { color: '#2563EB', fontWeight: '700' }]}>
                           {isDealer ? 'Dealer' : (order.mobileNumber ? `📞 ${order.mobileNumber}` : 'Walk-in')}
@@ -991,7 +991,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                             ) : cust.mobileNumber ? (
                               `📞 ${cust.mobileNumber}`
                             ) : (
-                              '👤 Walk-in Customer'
+                              '👤 Walk-in'
                             )}
                           </Text>
                         </View>
@@ -1133,7 +1133,7 @@ export const PosCustomerHistoryView: React.FC<PosCustomerHistoryViewProps> = ({
                           ? `Commercial Fleet Account • ${selectedCustomerLifetimeOrders.length} Lifetime Wash Visits`
                           : (selectedCustomer.mobileNumber
                               ? `Phone: ${selectedCustomer.mobileNumber}`
-                              : 'Walk-in Customer') + ` • Total ${selectedCustomerLifetimeOrders.length} Lifetime Visits`}
+                              : 'Walk-in') + ` • Total ${selectedCustomerLifetimeOrders.length} Lifetime Visits`}
                       </Text>
                     </View>
                   </View>

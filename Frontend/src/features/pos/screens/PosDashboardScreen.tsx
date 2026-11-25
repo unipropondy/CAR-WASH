@@ -208,6 +208,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       hasImage: vt?.hasImage,
       serviceCategoryName: api.serviceCategoryName,
       packageName: api.packageName,
+      additionalServices: api.additionalServices,
       packagePrice: api.packagePrice,
       subtotal: api.packagePrice,
       gstRate: api.gstPercent,
@@ -1532,6 +1533,29 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                     <Text style={styles.viewVal}>{selectedOrderForView.packageName} ({selectedOrderForView.serviceCategoryName || 'Car Wash'})</Text>
                   </View>
 
+                  {Boolean(selectedOrderForView.additionalServices) && (
+                    <View style={[styles.viewInfoRow, { alignItems: 'flex-start', flexDirection: 'column', gap: 6 }]}>
+                      <Text style={styles.viewLabel}>À La Carte Add-ons:</Text>
+                      <View style={{ width: '100%', backgroundColor: '#FFFBEB', borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', paddingHorizontal: 12, paddingVertical: 8, gap: 5 }}>
+                        {selectedOrderForView.additionalServices!.split(/,\s*/).filter(Boolean).map((svc, idx) => {
+                          const match = svc.match(/^(.*?)\s*\(\$?([0-9.]+)\)$/);
+                          return (
+                            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#0F172A', flex: 1 }}>
+                                • {match ? match[1].trim() : svc}
+                              </Text>
+                              {match && (
+                                <Text style={{ fontSize: 13, fontWeight: '800', color: '#D97706' }}>
+                                  +${Number(match[2]).toFixed(2)}
+                                </Text>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
+
                   <View style={styles.viewInfoRow}>
                     <Text style={styles.viewLabel}>Payment Mode:</Text>
                     <Text style={[styles.viewVal, isDealerForView && { color: '#1D4ED8', fontWeight: '800' }]}>
@@ -1707,7 +1731,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                 <View style={styles.cancelDetailRow}>
                   <Text style={styles.cancelDetailLabel}>CUSTOMER</Text>
                   <Text style={styles.cancelDetailValue} numberOfLines={1}>
-                    {orderToCancel.customerName || 'Walk-in Customer'}
+                    {(orderToCancel.customerName && orderToCancel.customerName !== 'Walk-in Customer') ? orderToCancel.customerName : 'Walk-in'}
                   </Text>
                 </View>
                 <View style={styles.cancelDetailRow}>

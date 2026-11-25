@@ -75,7 +75,14 @@ export function getCategoryVisualMeta(title: string): CategoryVisualMeta {
   if (t.includes('polish') || t.includes('paint')) {
     return CATEGORY_VISUAL_CONFIG.polish;
   }
-  if (t.includes('alcare') || t.includes('interior') || t.includes('sanitiz')) {
+  if (
+    t.includes('carte') ||
+    t.includes('a la') ||
+    t.includes('alacarte') ||
+    t.includes('alcare') ||
+    t.includes('interior') ||
+    t.includes('sanitiz')
+  ) {
     return CATEGORY_VISUAL_CONFIG.alcare;
   }
   return CATEGORY_VISUAL_CONFIG.wash;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, useWindowDimensions, Image } from 'react-native';
 import { WashingBay } from '../../../types/pos.types';
 import { VehicleOption } from '../../kiosk/types/kiosk.types';
+import { resolveApiUrl } from '../../../services/apiConfig';
 import {
   IconSettings,
   IconClock,
@@ -63,8 +64,8 @@ export const BayVehicleImage: React.FC<BayVehicleImageProps> = ({ bay, vehicleTy
       );
 
   const customUri =
-    !imgFailed && (bay.hasImage || vt?.hasImage)
-      ? bay.vehicleImageUrl || vt?.imageUrl
+    !imgFailed && (bay.vehicleImageUrl || vt?.imageUrl)
+      ? resolveApiUrl(bay.vehicleImageUrl || vt?.imageUrl)
       : null;
 
   // 2. Identify normalized vehicle key for local asset fallback

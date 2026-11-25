@@ -72,10 +72,12 @@ let categoryCache = {
   data: null,
   timestamp: 0,
 };
+let cacheBustVersion = Date.now();
 
 function invalidateCategoryCache() {
   categoryCache.data = null;
   categoryCache.timestamp = 0;
+  cacheBustVersion = Date.now();
 }
 
 /**
@@ -136,8 +138,8 @@ async function getServiceCategories(req, res) {
       const hasIcon = Boolean(row.HasIcon);
       const version = row.CreatedDate ? new Date(row.CreatedDate).getTime() : 1;
 
-      const imageUrl = `/api/service-categories/${row.ServiceCategoryId}/image?v=${version}`;
-      const iconUrl = `/api/service-categories/${row.ServiceCategoryId}/icon?v=${version}`;
+      const imageUrl = `/api/service-categories/${row.ServiceCategoryId}/image?v=${cacheBustVersion}-${version}`;
+      const iconUrl = `/api/service-categories/${row.ServiceCategoryId}/icon?v=${cacheBustVersion}-${version}`;
 
       return {
         serviceCategoryId: row.ServiceCategoryId,
@@ -214,7 +216,7 @@ async function getCategoryImage(req, res) {
 
     const contentType = row.ImageContentType || 'image/png';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     return res.send(row.ImageData);
   } catch (err) {
     console.error('[getCategoryImage Error]', err);
@@ -260,7 +262,7 @@ async function getCategoryIcon(req, res) {
 
     const contentType = row.IconContentType || 'image/png';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     return res.send(row.IconData);
   } catch (err) {
     console.error('[getCategoryIcon Error]', err);
@@ -443,42 +445,54 @@ async function updateServiceCategory(req, res) {
     }
     if (imageData !== undefined) {
       if (imageData && typeof imageData === 'string') {
-        let imgBuffer = null;
-        let imgContentType = null;
-        if (imageData.startsWith('data:')) {
-          const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            imgContentType = match[1];
-            imgBuffer = Buffer.from(match[2], 'base64');
+        const trimmedImg = imageData.trim();
+        // Guard: ignore existing API/HTTP URLs so we don't corrupt DB binary with URL text
+        if (!trimmedImg.startsWith('/api/') && !trimmedImg.startsWith('http://') && !trimmedImg.startsWith('https://')) {
+          let imgBuffer = null;
+          let imgContentType = null;
+          if (trimmedImg.startsWith('data:')) {
+            const match = trimmedImg.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              imgContentType = match[1];
+              imgBuffer = Buffer.from(match[2], 'base64');
+            }
+          } else {
+            imgContentType = 'image/png';
+            imgBuffer = Buffer.from(trimmedImg, 'base64');
           }
-        } else {
-          imgContentType = 'image/png';
-          imgBuffer = Buffer.from(imageData, 'base64');
+          if (imgBuffer && imgBuffer.length > 0) {
+            reqDb.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
+            reqDb.input('imgContentType', sql.NVarChar(100), imgContentType);
+            updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
+          }
         }
-        reqDb.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
-        reqDb.input('imgContentType', sql.NVarChar(100), imgContentType);
-        updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
       } else if (imageData === null || imageData === '') {
         updates.push(`ImageData = NULL, ImageContentType = NULL`);
       }
     }
     if (iconData !== undefined) {
       if (iconData && typeof iconData === 'string') {
-        let iconBuffer = null;
-        let iconContentType = null;
-        if (iconData.startsWith('data:')) {
-          const match = iconData.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            iconContentType = match[1];
-            iconBuffer = Buffer.from(match[2], 'base64');
+        const trimmedIcon = iconData.trim();
+        // Guard: ignore existing API/HTTP URLs so we don't corrupt DB binary with URL text
+        if (!trimmedIcon.startsWith('/api/') && !trimmedIcon.startsWith('http://') && !trimmedIcon.startsWith('https://')) {
+          let iconBuffer = null;
+          let iconContentType = null;
+          if (trimmedIcon.startsWith('data:')) {
+            const match = trimmedIcon.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              iconContentType = match[1];
+              iconBuffer = Buffer.from(match[2], 'base64');
+            }
+          } else {
+            iconContentType = 'image/png';
+            iconBuffer = Buffer.from(trimmedIcon, 'base64');
           }
-        } else {
-          iconContentType = 'image/png';
-          iconBuffer = Buffer.from(iconData, 'base64');
+          if (iconBuffer && iconBuffer.length > 0) {
+            reqDb.input('iconData', sql.VarBinary(sql.MAX), iconBuffer);
+            reqDb.input('iconContentType', sql.NVarChar(100), iconContentType);
+            updates.push(`IconData = @iconData, IconContentType = @iconContentType`);
+          }
         }
-        reqDb.input('iconData', sql.VarBinary(sql.MAX), iconBuffer);
-        reqDb.input('iconContentType', sql.NVarChar(100), iconContentType);
-        updates.push(`IconData = @iconData, IconContentType = @iconContentType`);
       } else if (iconData === null || iconData === '') {
         updates.push(`IconData = NULL, IconContentType = NULL`);
       }

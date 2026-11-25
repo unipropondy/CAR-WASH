@@ -262,7 +262,7 @@ function AppContent() {
 
       {isLoginRoute ? (
         <LoginScreen
-          onLoginSuccess={(loggedInUser) => {
+          onLoginSuccess={(loggedInUser?: any) => {
             const dest = getRouteForUserGroup(loggedInUser || user);
             navigate(dest, { replace: true });
           }}

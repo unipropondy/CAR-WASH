@@ -107,6 +107,26 @@ export async function fetchCompanySettings(): Promise<CompanySettings> {
 }
 
 /**
+ * Returns the full URL to the company logo served from SQL Server.
+ * Always includes a cache-bust version keyed to UpdatedOn so changes propagate.
+ */
+export function getCompanyLogoUrl(settings?: CompanySettings | null): string {
+  const base = getApiBaseUrl();
+  const v = settings?.UpdatedOn ? new Date(settings.UpdatedOn).getTime() : 1;
+  return `${base}/api/company-settings/logo?v=${v}`;
+}
+
+/**
+ * Returns the full URL to the company banner (the pill-logo strip) served from SQL Server.
+ */
+export function getCompanyBannerUrl(settings?: CompanySettings | null): string {
+  const base = getApiBaseUrl();
+  const v = settings?.UpdatedOn ? new Date(settings.UpdatedOn).getTime() : 1;
+  return `${base}/api/company-settings/banner?v=${v}`;
+}
+
+
+/**
  * Update company settings in dbo.CompanySettings
  */
 export async function updateCompanySettings(data: Partial<CompanySettings>): Promise<CompanySettings> {
@@ -140,4 +160,5 @@ export async function updateCompanySettings(data: Partial<CompanySettings>): Pro
   setCachedCompanySettings(json.settings);
   return json.settings;
 }
+
 

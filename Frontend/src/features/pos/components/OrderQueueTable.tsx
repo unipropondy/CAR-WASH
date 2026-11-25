@@ -617,16 +617,19 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
               const { text: waitTextDisplay, minutes: waitMins } = getOrderWaitTime(order, now);
 
               return (
-                <View key={order.id || order.orderNumber || idx} style={styles.mobileOrderCard}>
+                <TouchableOpacity
+                  key={order.id || order.orderNumber || idx}
+                  style={styles.mobileOrderCard}
+                  onPress={() => onViewOrder(order)}
+                  activeOpacity={0.8}
+                >
                   {/* Top Row: Order # and Payment / Wait badges */}
                   <View style={styles.mobileCardHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
                       <Text style={styles.mobileOrderNo}>{formatOrderNo(order.orderNumber)}</Text>
-                      <View style={[styles.packagePill, pkgStyle.pill]}>
-                        <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1}>
-                          {order.packageName}
-                        </Text>
-                      </View>
+                      <Text style={[styles.customerNameText, { flexShrink: 1 }]} numberOfLines={1}>
+                        {order.packageName}
+                      </Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       {isCancelled ? (
@@ -724,7 +727,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           accessibilityLabel="Collect Payment"
                         >
                           <Ionicons name="card-outline" size={13} color="#FFFFFF" />
-                          <Text style={styles.mobilePayNowBtnText}>Pay Now</Text>
+                          <Text style={styles.mobilePayNowBtnText}>Collect Now</Text>
                         </TouchableOpacity>
                       )}
                       {onCancelOrder && isPending && (
@@ -758,7 +761,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                       </TouchableOpacity>
                     </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
@@ -815,13 +818,16 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                   const isOverdue = waitMins > 40;
 
                   return (
-                    <View
+                    <TouchableOpacity
                       key={order.id || order.orderNumber || idx}
                       style={[
                         styles.tableRow,
                         isHovered ? styles.tableRowHover : null,
                         isOverdue ? styles.tableRowOverdue : null,
+                        Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null,
                       ]}
+                      onPress={() => onViewOrder(order)}
+                      activeOpacity={0.78}
                       // @ts-ignore
                       onMouseEnter={() => setHoveredRow(order.id)}
                       // @ts-ignore
@@ -876,13 +882,11 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                         </Text>
                       </View>
 
-                      {/* 4. PACKAGE: Colored Pill + CAR WASH */}
+                      {/* 4. PACKAGE: Clean bold text matching Customer/Dealer font + CAR WASH */}
                       <View style={{ width: '17%', justifyContent: 'center', paddingRight: 8, overflow: 'hidden' }}>
-                        <View style={[styles.packagePill, pkgStyle.pill]}>
-                          <Text style={[styles.packagePillText, pkgStyle.text]} numberOfLines={1} ellipsizeMode="tail">
-                            {order.packageName}
-                          </Text>
-                        </View>
+                        <Text style={styles.customerNameText} numberOfLines={1} ellipsizeMode="tail">
+                          {order.packageName}
+                        </Text>
                         <Text style={styles.carWashLabel}>CAR WASH</Text>
                       </View>
 
@@ -922,7 +926,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                             accessibilityLabel="Collect Payment"
                           >
                             <Ionicons name="card-outline" size={13} color="#FFFFFF" />
-                            <Text style={styles.payNowBtnText}>Pay Now</Text>
+                            <Text style={styles.payNowBtnText}>Collect Now</Text>
                           </TouchableOpacity>
                         )}
                       </View>
@@ -1007,7 +1011,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                           </TouchableOpacity>
                         )}
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })
               )}

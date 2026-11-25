@@ -250,7 +250,9 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
 
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>{isDealer ? "Driver / Rep" : "Customer Name"}</Text>
-                  <Text style={styles.metaValue}>{order.customerDetails?.customerName || 'Walk-in Customer'}</Text>
+                  <Text style={styles.metaValue}>
+                    {(!order.customerDetails?.customerName || order.customerDetails.customerName === 'Walk-in Customer') ? 'Walk-in' : order.customerDetails.customerName}
+                  </Text>
                 </View>
                 <View style={styles.metaDivider} />
 

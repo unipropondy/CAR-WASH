@@ -437,7 +437,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         : (isDealerFlow && selectedDealer ? `${selectedDealer.code} FLEET` : 'WALK-IN');
       const cName = details.customerName?.trim()
         ? details.customerName.trim()
-        : (isDealerFlow && selectedDealer ? selectedDealer.name : 'Walk-in Customer');
+        : (isDealerFlow && selectedDealer ? selectedDealer.name : 'Walk-in');
       const mNum = details.mobileNumber?.trim() && details.mobileNumber !== '-'
         ? details.mobileNumber.trim()
         : (isDealerFlow && selectedDealer?.phone ? selectedDealer.phone : '-');

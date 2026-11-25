@@ -35,6 +35,7 @@ const yeahpayRoutes = require('./routes/yeahpay');
 const addonRoutes = require('./routes/addonRoutes');
 const promotionRoutes = require('./routes/promotionRoutes');
 const { getPool, checkInitialConnection, startConnectionMonitor, markStartupReported } = require('./config/db');
+const promotionController = require('./controllers/promotionController');
 const logger = require('./utils/logger');
 
 const app = express();
@@ -91,6 +92,8 @@ if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsPath));
+// Database fallback for promotion images when file is not on local disk (e.g. cloud/ephemeral hosts)
+app.get('/uploads/promotions/:filename', promotionController.servePromotionImageByFilename);
 
 // Fast Connectivity Ping
 app.get('/api/ping', (req, res) => {

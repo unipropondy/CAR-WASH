@@ -234,7 +234,8 @@ export class PrinterFormatter {
     const currency = company?.CurrencySymbol || '$';
 
     const orderNo = String(order?.billNumber || order?.orderNo || order?.OrderNo || order?.orderNumber || (order?.orderId ? `RB-${order.orderId}` : (order?.id ? `RB-${order.id}` : 'RECEIPT')));
-    const custName = (order?.customerDetails?.customerName || order?.customerName || order?.CustomerName || 'Walk-in Customer').toString();
+    const rawCustName = (order?.customerDetails?.customerName || order?.customerName || order?.CustomerName || '').toString();
+    const custName = (!rawCustName || rawCustName === 'Walk-in Customer') ? 'Walk-in' : rawCustName;
     const vehicleNo = (order?.customerDetails?.vehicleNumber || order?.vehicleNumber || order?.VehicleNumber || order?.vehiclePlate || 'WALK-IN').toString();
     const mobileNo = (order?.customerDetails?.mobileNumber || order?.mobileNumber || order?.MobileNumber || '').toString();
     const bayName = (order?.bayName || order?.BayName || (order?.bayId || order?.BayId ? `Bay ${order.bayId || order.BayId}` : 'Wash Bay')).toString();

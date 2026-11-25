@@ -934,7 +934,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                         isLandscapeShort && styles.cardImageBoxShort,
                       ]}>
                         <Image
-                          source={cat.imageUrl && cat.hasImage ? { uri: resolveApiUrl(cat.imageUrl) } : meta.image}
+                          source={cat.imageUrl ? { uri: resolveApiUrl(cat.imageUrl) } : meta.image}
                           style={styles.cardImage}
                           resizeMode="cover"
                         />
@@ -946,7 +946,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             styles.cardEmblemBox,
                             { backgroundColor: '#FFFFFF', borderColor: meta.cardBorderColor },
                           ]}>
-                            {cat.iconUrl && cat.hasIcon ? (
+                            {cat.iconUrl ? (
                               <Image
                                 source={{ uri: resolveApiUrl(cat.iconUrl) }}
                                 style={styles.cardEmblemImage}
@@ -1010,7 +1010,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                       backgroundColor: '#FFFFFF',
                     },
                   ]}>
-                    {selectedCategory?.iconUrl && selectedCategory?.hasIcon ? (
+                    {selectedCategory?.iconUrl ? (
                       <Image
                         source={{ uri: resolveApiUrl(selectedCategory.iconUrl) }}
                         style={styles.switchCatImage}
