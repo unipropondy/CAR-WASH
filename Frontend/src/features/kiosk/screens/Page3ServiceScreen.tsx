@@ -180,7 +180,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
   const gstRate = getCachedGstRate();
   const isVeryNarrow = width < 480;
-  const categoryCardWidth = categoryCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
+  // Always display Service Categories in a 2-per-row grid (with odd cards centered on the next row)
+  const categoryCardWidth = isVeryNarrow ? '47.5%' : '48%';
   const packageCardWidth = packageCols === 3 ? '31%' : (isVeryNarrow ? '47.5%' : '48%');
 
   const dynamicCategoryImgHeight = scaleSize(160, 125, 220);
@@ -197,7 +198,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   const [loadingPackages, setLoadingPackages] = useState<boolean>(false);
   const [packageError, setPackageError] = useState<string>('');
 
-  const use3ColCategories = categoryCols === 3;
+  const use3ColCategories = false;
   const use3ColPackages = packageCols === 3;
 
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | undefined>(() => {
@@ -634,7 +635,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
       {/* ===== À LA CARTE POPUP MODAL ===== */}
       <Modal
         visible={showALaCarteModal}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={handleALaCarteClose}
       >
@@ -642,8 +643,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           <View style={[
             styles.aLaCarteModalContainer,
             {
-              height: Math.min(screenHeight * 0.85, 750),
-              maxHeight: Math.min(screenHeight * 0.92, 860),
+              maxHeight: Math.min(screenHeight * 0.88, 780),
             },
           ]}>
             {/* Modal Header */}
@@ -668,150 +668,6 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
               >
                 <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
-            </View>
-
-            {/* Category Filter Tabs Bar */}
-            <View style={styles.modalFilterBar}>
-              <View style={styles.modalTabsList}>
-                {/* Tab: All */}
-                <TouchableOpacity
-                  style={[
-                    styles.modalTabPill,
-                    activeAddonTab === 'ALL' && styles.modalTabPillActive,
-                  ]}
-                  onPress={() => setActiveAddonTab('ALL')}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.modalTabPillText,
-                      activeAddonTab === 'ALL' && styles.modalTabPillTextActive,
-                    ]}
-                  >
-                    All Services
-                  </Text>
-                  <View
-                    style={[
-                      styles.modalTabPillBadge,
-                      activeAddonTab === 'ALL' && styles.modalTabPillBadgeActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.modalTabPillBadgeText,
-                        activeAddonTab === 'ALL' && styles.modalTabPillBadgeTextActive,
-                      ]}
-                    >
-                      {aLaCarteAvailableAddons.length}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Tab: Interior (First) */}
-                <TouchableOpacity
-                  style={[
-                    styles.modalTabPill,
-                    activeAddonTab === 'INTERIOR' && styles.modalTabPillActive,
-                  ]}
-                  onPress={() => setActiveAddonTab('INTERIOR')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="sparkles-outline"
-                    size={14}
-                    color={activeAddonTab === 'INTERIOR' ? '#FFFFFF' : '#7C3AED'}
-                  />
-                  <Text
-                    style={[
-                      styles.modalTabPillText,
-                      activeAddonTab === 'INTERIOR' && styles.modalTabPillTextActive,
-                    ]}
-                  >
-                    Interior
-                  </Text>
-                  <View
-                    style={[
-                      styles.modalTabPillBadge,
-                      activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.modalTabPillBadgeText,
-                        activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeTextActive,
-                      ]}
-                    >
-                      {interiorAddons.length}
-                    </Text>
-                  </View>
-                  {pendingInteriorCount > 0 && (
-                    <View style={styles.modalTabSelectionIndicator}>
-                      <Text style={styles.modalTabSelectionIndicatorText}>
-                        {pendingInteriorCount}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                {/* Tab: Exterior (Next) */}
-                <TouchableOpacity
-                  style={[
-                    styles.modalTabPill,
-                    activeAddonTab === 'EXTERIOR' && styles.modalTabPillActive,
-                  ]}
-                  onPress={() => setActiveAddonTab('EXTERIOR')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="car-sport-outline"
-                    size={14}
-                    color={activeAddonTab === 'EXTERIOR' ? '#FFFFFF' : '#2563EB'}
-                  />
-                  <Text
-                    style={[
-                      styles.modalTabPillText,
-                      activeAddonTab === 'EXTERIOR' && styles.modalTabPillTextActive,
-                    ]}
-                  >
-                    Exterior
-                  </Text>
-                  <View
-                    style={[
-                      styles.modalTabPillBadge,
-                      activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.modalTabPillBadgeText,
-                        activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeTextActive,
-                      ]}
-                    >
-                      {exteriorAddons.length}
-                    </Text>
-                  </View>
-                  {pendingExteriorCount > 0 && (
-                    <View style={styles.modalTabSelectionIndicator}>
-                      <Text style={styles.modalTabSelectionIndicatorText}>
-                        {pendingExteriorCount}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {pendingAddonIds.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setPendingAddonIds([])}
-                  style={styles.aLaCarteClearBtn}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                  <Text style={styles.aLaCarteClearText}>
-                    Reset ({pendingAddonIds.length})
-                  </Text>
-                </TouchableOpacity>
-              )}
             </View>
 
             {/* Addon Cards Scrollable Area */}
@@ -1283,11 +1139,10 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                           ))}
                         </View>
 
-                        {/* CTA Button — always says "Select & Add-ons" to signal modal will open */}
+                        {/* CTA Button */}
                         <View style={[styles.pkgActionBtn, isSelected && styles.pkgActionBtnSelected]}>
-                          <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                           <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
-                            {isSelected ? 'View Add-ons ✓' : 'Select & Add-ons'}
+                            Select
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1862,19 +1717,19 @@ const styles = StyleSheet.create({
   aLaCarteOverlay: {
     flex: 1,
     backgroundColor: 'rgba(8, 8, 8, 0.72)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   aLaCarteModalContainer: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 24,
     width: '100%',
     maxWidth: 820,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    ...makeShadow('#000000', { width: 0, height: -6 }, 0.15, 20, 8),
+    ...makeShadow('#000000', { width: 0, height: 12 }, 0.25, 28, 12),
   },
   aLaCarteModalHeader: {
     flexDirection: 'row',
@@ -1998,9 +1853,9 @@ const styles = StyleSheet.create({
   },
 
   aLaCarteScrollBody: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     width: '100%',
-    minHeight: 280,
   },
   aLaCarteScrollContent: {
     padding: 16,
@@ -2165,10 +2020,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'web' ? 18 : 26,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 16,
     width: '100%',
+    flexShrink: 0,
   },
   aLaCarteModalFooterWide: {
     flexDirection: 'row',

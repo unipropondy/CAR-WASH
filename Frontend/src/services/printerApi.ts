@@ -369,15 +369,36 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
   const mobile = order.customerDetails?.mobileNumber || order.mobileNumber || order.Phone || order.ContactNo || '-';
   const pkgName = order.selectedPackage?.name || order.packageName || order.PackageName || 'Express Foam Wash';
   const gstRate = Number(company?.GSTPercentage ?? 0);
-  const rawBase = order.packagePrice ?? order.PackagePrice ?? order.subtotal ?? order.baseAmount ?? (order.totalAmount != null && order.gstAmount != null ? Number(order.totalAmount) - Number(order.gstAmount) : undefined);
-  const baseNum = rawBase != null ? Number(rawBase) : Number(order.totalAmount || order.TotalAmount || 0);
+
+  // Parse À La Carte services string e.g. "Vomit & Odour Removal ($80.00), Interior Wipe-Down ($10.00)"
+  const rawAdditionalStr = String(order.additionalServices || order.AdditionalServices || '').trim();
+  const parsedAddons: { name: string; price: number }[] = rawAdditionalStr
+    ? rawAdditionalStr.split(/,\s*/).filter(Boolean).map((entry) => {
+        const m = entry.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+        return {
+          name: m ? m[1].trim() : entry.trim(),
+          price: m ? Number(m[2]) : 0,
+        };
+      })
+    : [];
+  const parsedAddonsTotal = parsedAddons.reduce((sum, a) => sum + (Number.isFinite(a.price) ? a.price : 0), 0);
+  const additionalAmt = Number(order.additionalAmount ?? order.AdditionalAmount ?? parsedAddonsTotal) || 0;
+
+  const rawPkgPrice = order.packagePrice ?? order.PackagePrice;
+  const pkgPriceNum = rawPkgPrice != null ? Number(rawPkgPrice) : Math.max(0, Number(order.totalAmount || order.TotalAmount || 0) - Number(order.gstAmount || order.GSTAmount || 0) - additionalAmt);
+  const baseNum = Number((pkgPriceNum + additionalAmt).toFixed(2));
   const gstNum = Number(order.gstAmount ?? order.GSTAmount ?? ((baseNum * gstRate) / 100));
-  const totalNum = Number(order.totalAmount ?? order.TotalAmount ?? (baseNum + gstNum));
+  const totalNum = Math.max(Number(order.totalAmount ?? order.TotalAmount ?? (baseNum + gstNum)), Number((baseNum + gstNum).toFixed(2)));
+  const pkgPriceStr = pkgPriceNum.toFixed(2);
   const base = baseNum.toFixed(2);
   const gst = gstNum.toFixed(2);
   const total = totalNum.toFixed(2);
   const payMode = (order.paymentMode || order.payMode || order.PaymentMode || 'CASH').toUpperCase();
-  const payStatus = (order.paymentStatus || (payMode === 'CASH' ? 'PENDING' : 'PAID')).toUpperCase();
+  const isDealerOrder = order.userType === 'DEALER' || Boolean(order.selectedDealer || order.dealerId || order.DealerId);
+  const rawPayStatus = String(order.paymentStatus || order.PaymentStatus || '').toUpperCase();
+  const payStatus = (payMode === 'CASH' || payMode === 'CREDIT' || isDealerOrder || rawPayStatus === 'PENDING')
+    ? 'PENDING'
+    : (rawPayStatus || 'PAID');
   const timeStr = order.createdAt ? formatSgTime(order.createdAt) : formatSgTime(order.createdDate || getDbTime());
 
   // Dynamic Company Details from dbo.CompanySettings
@@ -447,8 +468,15 @@ export function triggerBrowserReceiptPrint(order: any, company?: Partial<Company
           <div class="bold">${pkgName}</div>
           <div class="row">
             <span style="color: #444; font-size: 11px;">  Vehicle Care Service</span>
-            <span class="bold">${currencySymbol}${base}</span>
+            <span class="bold">${currencySymbol}${pkgPriceStr}</span>
           </div>
+          ${parsedAddons.length > 0 ? `
+          <div class="bold" style="margin-top: 6px; font-size: 12px;">À La Carte Upgrades</div>
+          ${parsedAddons.map((a) => `
+          <div class="row">
+            <span style="color: #222; font-size: 11px;">  + ${a.name}</span>
+            <span class="bold">${currencySymbol}${a.price.toFixed(2)}</span>
+          </div>`).join('')}` : ''}
         </div>
         <div class="divider"></div>
         <div class="section">

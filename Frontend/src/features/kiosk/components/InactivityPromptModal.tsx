@@ -45,6 +45,8 @@ export const InactivityPromptModal: React.FC<InactivityPromptModalProps> = ({
 
   // Button layout: stack vertically only on ultra-narrow screens (< 360px)
   const shouldStackButtons = width < 360;
+  const progressPercent = Math.max(0, Math.min(100, (countdownSeconds / 30) * 100));
+  const isUrgent = countdownSeconds <= 10;
 
   return (
     <Modal
@@ -58,126 +60,185 @@ export const InactivityPromptModal: React.FC<InactivityPromptModalProps> = ({
           style={[
             styles.cardContainer,
             {
-              paddingHorizontal: cardPaddingH,
-              paddingVertical: cardPaddingV,
               maxWidth: Math.min(width * 0.92, 460),
             },
           ]}
         >
-          {/* Header Icon */}
+          {/* Soft Tinted Header Area with Layered Icon Halo */}
           <View
             style={[
-              styles.iconCircle,
+              styles.headerBand,
               {
-                width: iconBoxSize,
-                height: iconBoxSize,
-                borderRadius: iconBoxSize / 2,
-                marginBottom: isShortLandscape ? 10 : isMobile ? 14 : 18,
+                paddingHorizontal: cardPaddingH,
+                paddingTop: cardPaddingV,
+                paddingBottom: isShortLandscape ? 14 : 20,
               },
             ]}
           >
-            <Ionicons name="time-outline" size={iconSize} color="#ED0712" />
-          </View>
+            <View
+              style={[
+                styles.iconOuterHalo,
+                {
+                  width: iconBoxSize + 18,
+                  height: iconBoxSize + 18,
+                  borderRadius: (iconBoxSize + 18) / 2,
+                  marginBottom: isShortLandscape ? 10 : isMobile ? 12 : 16,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.iconInnerCircle,
+                  {
+                    width: iconBoxSize,
+                    height: iconBoxSize,
+                    borderRadius: iconBoxSize / 2,
+                  },
+                ]}
+              >
+                <Ionicons name="time" size={iconSize} color="#FFFFFF" />
+              </View>
+            </View>
 
-          {/* Title */}
-          <Text
-            style={[
-              styles.titleText,
-              {
-                fontSize: titleFontSize,
-                marginBottom: isShortLandscape ? 4 : 6,
-              },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            Are you still there?
-          </Text>
+            {/* Title */}
+            <Text
+              style={[
+                styles.titleText,
+                {
+                  fontSize: titleFontSize,
+                  marginBottom: isShortLandscape ? 4 : 6,
+                },
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              Are you still there?
+            </Text>
 
-          {/* Subtitle / Question */}
-          <Text
-            style={[
-              styles.questionText,
-              {
-                fontSize: questionFontSize,
-                lineHeight: Math.round(questionFontSize * 1.45),
-                marginBottom: isShortLandscape ? 10 : isMobile ? 12 : 16,
-              },
-            ]}
-          >
-            Would you like to continue your order?
-          </Text>
-
-          {/* Countdown indicator */}
-          <View
-            style={[
-              styles.countdownBadge,
-              {
-                paddingVertical: isMobile ? 4 : 6,
-                paddingHorizontal: isMobile ? 10 : 14,
-                marginBottom: isShortLandscape ? 14 : isMobile ? 18 : 22,
-              },
-            ]}
-          >
-            <Ionicons name="hourglass-outline" size={isMobile ? 14 : 16} color="#F59E0B" />
-            <Text style={[styles.countdownText, { fontSize: isMobile ? 12 : 13 }]}>
-              Returning to idle in <Text style={styles.countdownNum}>{countdownSeconds}s</Text>
+            {/* Subtitle / Question */}
+            <Text
+              style={[
+                styles.questionText,
+                {
+                  fontSize: questionFontSize,
+                  lineHeight: Math.round(questionFontSize * 1.45),
+                },
+              ]}
+            >
+              Would you like to continue your order?
             </Text>
           </View>
 
-          {/* Action Buttons */}
+          {/* Body & Actions */}
           <View
             style={[
-              styles.buttonRow,
+              styles.bodySection,
               {
-                flexDirection: shouldStackButtons ? 'column-reverse' : 'row',
-                gap: isMobile ? 10 : 12,
+                paddingHorizontal: cardPaddingH,
+                paddingTop: isShortLandscape ? 14 : 18,
+                paddingBottom: cardPaddingV,
               },
             ]}
           >
-            {/* Cancel Order Button */}
-            <TouchableOpacity
+            {/* Countdown Card with Live Progress Bar */}
+            <View
               style={[
-                styles.cancelBtn,
-                {
-                  paddingVertical: btnPaddingV,
-                  paddingHorizontal: isMobile ? 10 : 16,
-                  width: shouldStackButtons ? '100%' : undefined,
-                },
+                styles.countdownCard,
+                isUrgent && styles.countdownCardUrgent,
+                { marginBottom: isShortLandscape ? 16 : isMobile ? 18 : 22 },
               ]}
-              onPress={onCancelOrder}
-              activeOpacity={0.8}
             >
-              <Ionicons name="close-circle-outline" size={btnIconSize} color="#EF4444" />
-              <Text
-                style={[styles.cancelBtnText, { fontSize: btnFontSize }]}
-                numberOfLines={1}
-              >
-                Cancel Order
-              </Text>
-            </TouchableOpacity>
+              <View style={styles.countdownTopRow}>
+                <View style={styles.countdownLabelRow}>
+                  <Ionicons
+                    name="hourglass-outline"
+                    size={isMobile ? 15 : 17}
+                    color={isUrgent ? '#DC2626' : '#D97706'}
+                  />
+                  <Text
+                    style={[
+                      styles.countdownText,
+                      isUrgent && { color: '#991B1B' },
+                      { fontSize: isMobile ? 12.5 : 13.5 },
+                    ]}
+                  >
+                    Returning to idle screen in
+                  </Text>
+                </View>
+                <View style={[styles.countdownPill, isUrgent && styles.countdownPillUrgent]}>
+                  <Text style={[styles.countdownNum, isUrgent && { color: '#FFFFFF' }]}>
+                    {countdownSeconds}s
+                  </Text>
+                </View>
+              </View>
 
-            {/* Continue Order Button */}
-            <TouchableOpacity
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${progressPercent}%` as any,
+                      backgroundColor: isUrgent ? '#EF4444' : '#F59E0B',
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View
               style={[
-                styles.continueBtn,
+                styles.buttonRow,
                 {
-                  paddingVertical: btnPaddingV,
-                  paddingHorizontal: isMobile ? 12 : 18,
-                  width: shouldStackButtons ? '100%' : undefined,
+                  flexDirection: shouldStackButtons ? 'column-reverse' : 'row',
+                  gap: isMobile ? 10 : 12,
                 },
               ]}
-              onPress={onContinueOrder}
-              activeOpacity={0.8}
             >
-              <Ionicons name="checkmark-circle-outline" size={btnIconSize} color="#FFFFFF" />
-              <Text
-                style={[styles.continueBtnText, { fontSize: btnFontSize }]}
-                numberOfLines={1}
+              {/* Cancel Order Button */}
+              <TouchableOpacity
+                style={[
+                  styles.cancelBtn,
+                  {
+                    paddingVertical: btnPaddingV,
+                    paddingHorizontal: isMobile ? 12 : 16,
+                    width: shouldStackButtons ? '100%' : undefined,
+                  },
+                ]}
+                onPress={onCancelOrder}
+                activeOpacity={0.8}
               >
-                Continue Order
-              </Text>
-            </TouchableOpacity>
+                <Ionicons name="close-circle-outline" size={btnIconSize} color="#64748B" />
+                <Text
+                  style={[styles.cancelBtnText, { fontSize: btnFontSize }]}
+                  numberOfLines={1}
+                >
+                  Cancel Order
+                </Text>
+              </TouchableOpacity>
+
+              {/* Continue Order Button */}
+              <TouchableOpacity
+                style={[
+                  styles.continueBtn,
+                  {
+                    paddingVertical: btnPaddingV,
+                    paddingHorizontal: isMobile ? 14 : 18,
+                    width: shouldStackButtons ? '100%' : undefined,
+                  },
+                ]}
+                onPress={onContinueOrder}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle" size={btnIconSize} color="#FFFFFF" />
+                <Text
+                  style={[styles.continueBtnText, { fontSize: btnFontSize }]}
+                  numberOfLines={1}
+                >
+                  Continue Order
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -188,48 +249,69 @@ export const InactivityPromptModal: React.FC<InactivityPromptModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    padding: 20,
     zIndex: 99999,
     ...(Platform.OS === 'web'
       ? ({
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
         } as any)
       : {}),
   },
   cardContainer: {
     width: '100%',
-    backgroundColor: '#0F172A',
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: 'rgba(237, 7, 18, 0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#ED0712',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 30,
     elevation: 18,
     ...(Platform.OS === 'web'
       ? ({
-          boxShadow: '0 10px 36px rgba(237, 7, 18, 0.35), 0 4px 12px rgba(0, 0, 0, 0.6)',
+          boxShadow: '0 24px 56px rgba(0, 0, 0, 0.28), 0 4px 14px rgba(0, 0, 0, 0.08)',
         } as any)
       : {}),
   },
-  iconCircle: {
-    backgroundColor: 'rgba(237, 7, 18, 0.12)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(237, 7, 18, 0.45)',
+  headerBand: {
+    width: '100%',
+    backgroundColor: '#FFF5F5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconOuterHalo: {
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconInnerCircle: {
+    backgroundColor: '#ED0712',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 6px 16px rgba(237, 7, 18, 0.35)',
+        } as any)
+      : {
+          shadowColor: '#ED0712',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.35,
+          shadowRadius: 8,
+          elevation: 6,
+        }),
+  },
   titleText: {
     fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.4,
+    color: '#0F172A',
+    letterSpacing: -0.3,
     textAlign: 'center',
     ...(Platform.OS === 'web'
       ? ({
@@ -239,26 +321,68 @@ const styles = StyleSheet.create({
       : {}),
   },
   questionText: {
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: '#475569',
     textAlign: 'center',
+    fontWeight: '500',
     paddingHorizontal: 8,
   },
-  countdownBadge: {
+  bodySection: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+  },
+  countdownCard: {
+    width: '100%',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  countdownCardUrgent: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  countdownTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  countdownLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-    borderRadius: 20,
   },
   countdownText: {
-    color: '#FCD34D',
+    color: '#92400E',
     fontWeight: '600',
   },
+  countdownPill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  countdownPillUrgent: {
+    backgroundColor: '#EF4444',
+  },
   countdownNum: {
-    color: '#F59E0B',
-    fontWeight: '800',
+    color: '#B45309',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
   },
   buttonRow: {
     alignItems: 'center',
@@ -271,14 +395,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    borderRadius: 12,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderWidth: 1.5,
-    borderColor: '#EF4444',
+    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
   },
   cancelBtnText: {
-    fontWeight: '800',
-    color: '#EF4444',
+    fontWeight: '700',
+    color: '#475569',
     letterSpacing: 0.2,
     ...(Platform.OS === 'web'
       ? ({
@@ -292,23 +417,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#ED0712',
     elevation: 4,
     ...(Platform.OS === 'web'
       ? ({
-          boxShadow: '0 4px 14px rgba(237, 7, 18, 0.4)',
+          boxShadow: '0 6px 18px rgba(237, 7, 18, 0.35)',
           whiteSpace: 'nowrap',
+          outlineStyle: 'none',
         } as any)
       : {
           shadowColor: '#ED0712',
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.4,
+          shadowOpacity: 0.35,
           shadowRadius: 8,
         }),
   },
   continueBtnText: {
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.3,
     ...(Platform.OS === 'web'

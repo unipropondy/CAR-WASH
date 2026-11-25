@@ -462,10 +462,13 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
         setActiveOrderNo(orderNo);
         setCreatedOrderData(saved);
 
-        const baseAmt = saved.packagePrice != null ? Number(saved.packagePrice) : (selectedPackage?.dealerPrice || selectedPackage?.price || 0);
+        const pkgAmt = saved.packagePrice != null ? Number(saved.packagePrice) : (selectedPackage?.dealerPrice || selectedPackage?.price || 0);
+        const extraAmt = Number(selectedAdditionalAmount || 0);
+        const baseAmt = Number((pkgAmt + extraAmt).toFixed(2));
         const gstPercent = saved.gstPercent != null ? Number(saved.gstPercent) : getCachedGstRate();
-        const gstAmt = saved.gstAmount != null ? Number(saved.gstAmount) : Number(((baseAmt * (gstPercent / 100))).toFixed(2));
-        const totalAmt = saved.totalAmount != null ? Number(saved.totalAmount) : Number((baseAmt + gstAmt).toFixed(2));
+        const computedGst = Number((baseAmt * (gstPercent / 100)).toFixed(2));
+        const gstAmt = (saved.gstAmount != null && (extraAmt === 0 || Number(saved.totalAmount) >= baseAmt)) ? Number(saved.gstAmount) : computedGst;
+        const totalAmt = (saved.totalAmount != null && (extraAmt === 0 || Number(saved.totalAmount) >= baseAmt)) ? Number(saved.totalAmount) : Number((baseAmt + gstAmt).toFixed(2));
 
         const newDealerOrder: KioskOrder = {
           orderId: saved.orderId,
@@ -482,13 +485,14 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
             mobileNumber: mNum,
           },
           paymentMode: 'CREDIT',
-          paymentStatus: 'PAID',
-          packagePrice: baseAmt,
-          dealerPrice: selectedPackage?.dealerPrice || baseAmt,
+          paymentStatus: 'PENDING',
+          packagePrice: pkgAmt,
+          dealerPrice: selectedPackage?.dealerPrice || pkgAmt,
           gstPercent: gstPercent,
           totalAmount: totalAmt,
           gstAmount: gstAmt,
           additionalServices: selectedAdditionalServices,
+          additionalAmount: extraAmt,
           outstandingAmount: totalAmt,
           createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         };
@@ -551,10 +555,13 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     }
 
     const orderNo = activeOrderNo || `RB${String(billCounter).padStart(6, '0')}`;
-    const baseAmount = createdOrderData?.packagePrice != null ? Number(createdOrderData.packagePrice) : selectedPackage.price;
+    const pkgAmount = createdOrderData?.packagePrice != null ? Number(createdOrderData.packagePrice) : selectedPackage.price;
+    const extraAmt = Number(selectedAdditionalAmount || 0);
+    const baseAmount = Number((pkgAmount + extraAmt).toFixed(2));
     const gstPercent = createdOrderData?.gstPercent != null ? Number(createdOrderData.gstPercent) : getCachedGstRate();
-    const gstAmount = createdOrderData?.gstAmount != null ? Number(createdOrderData.gstAmount) : Number(((baseAmount * (gstPercent / 100))).toFixed(2));
-    const totalAmount = createdOrderData?.totalAmount != null ? Number(createdOrderData.totalAmount) : Number((baseAmount + gstAmount).toFixed(2));
+    const computedGst = Number((baseAmount * (gstPercent / 100)).toFixed(2));
+    const gstAmount = (createdOrderData?.gstAmount != null && (extraAmt === 0 || Number(createdOrderData.totalAmount) >= baseAmount)) ? Number(createdOrderData.gstAmount) : computedGst;
+    const totalAmount = (createdOrderData?.totalAmount != null && (extraAmt === 0 || Number(createdOrderData.totalAmount) >= baseAmount)) ? Number(createdOrderData.totalAmount) : Number((baseAmount + gstAmount).toFixed(2));
 
     // Broadcast customer order to POS with popup & chime alert IMMEDIATELY (0ms latency)
     broadcastNewKioskOrder({
@@ -597,12 +604,13 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
       customerDetails: customerDetails,
       paymentMode: mode,
       paymentStatus: String(mode).toUpperCase() === 'CASH' ? 'PENDING' : 'PAID',
-      packagePrice: baseAmount,
+      packagePrice: pkgAmount,
       dealerPrice: selectedPackage.dealerPrice,
       gstPercent,
       totalAmount,
       gstAmount,
       additionalServices: selectedAdditionalServices,
+      additionalAmount: extraAmt,
       createdAt: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
 

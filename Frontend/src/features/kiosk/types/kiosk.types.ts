@@ -109,6 +109,7 @@ export interface KioskOrder {
   totalAmount: number;
   gstAmount: number;
   additionalServices?: string;
+  additionalAmount?: number;
   outstandingAmount?: number;
   createdAt: string;
 }

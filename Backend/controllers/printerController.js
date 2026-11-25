@@ -96,13 +96,36 @@ function buildEscPosReceipt(order, printerName, company = {}) {
 
   const fullPkgName = String(order.selectedPackage?.name || order.packageName || 'Express Foam Wash').trim();
   const gstRate = Number(company.GSTPercentage || 0);
-  const rawBase = order.packagePrice ?? (order.totalAmount != null && order.gstAmount != null ? (Number(order.totalAmount) - Number(order.gstAmount)) : order.totalAmount);
-  const baseVal = Number(rawBase || 0);
+
+  // Parse À La Carte services string e.g. "Vomit & Odour Removal ($80.00), Interior Wipe-Down ($10.00)"
+  const rawAdditionalStr = String(order.additionalServices || order.AdditionalServices || '').trim();
+  const parsedAddons = rawAdditionalStr
+    ? rawAdditionalStr.split(/,\s*/).filter(Boolean).map((entry) => {
+        const m = entry.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+        return {
+          name: m ? m[1].trim() : entry.trim(),
+          price: m ? Number(m[2]) : 0,
+        };
+      })
+    : [];
+  const parsedAddonsTotal = parsedAddons.reduce((sum, a) => sum + (Number.isFinite(a.price) ? a.price : 0), 0);
+  const additionalAmt = Number(order.additionalAmount ?? order.AdditionalAmount ?? parsedAddonsTotal) || 0;
+
+  const rawPkgPrice = order.packagePrice ?? order.PackagePrice;
+  const pkgPriceVal = rawPkgPrice != null ? Number(rawPkgPrice) : Math.max(0, Number(order.totalAmount || 0) - Number(order.gstAmount || 0) - additionalAmt);
+  const baseVal = Number((pkgPriceVal + additionalAmt).toFixed(2));
   const gstVal = Number(order.gstAmount != null ? order.gstAmount : ((baseVal * gstRate) / 100).toFixed(2));
-  const finalTotal = Number(order.totalAmount != null ? order.totalAmount : (baseVal + gstVal).toFixed(2));
+  const finalTotal = Math.max(Number(order.totalAmount != null ? order.totalAmount : (baseVal + gstVal).toFixed(2)), Number((baseVal + gstVal).toFixed(2)));
 
   text += fullPkgName + LF;
-  text += padLine(`  Vehicle: ${vehicleName}`, formatAmt(baseVal)) + LF;
+  text += padLine(`  Vehicle: ${vehicleName}`, formatAmt(pkgPriceVal)) + LF;
+  if (parsedAddons.length > 0) {
+    text += 'A La Carte Upgrades:' + LF;
+    for (const addon of parsedAddons) {
+      const addonLabel = `  + ${addon.name}`.slice(0, WIDTH - 10);
+      text += padLine(addonLabel, formatAmt(addon.price)) + LF;
+    }
+  }
   text += '-'.repeat(WIDTH) + LF;
 
   // 6. Financial Breakdown - Base Amount, GST Amount, and Final Payable Amount
@@ -118,7 +141,11 @@ function buildEscPosReceipt(order, printerName, company = {}) {
   text += ESC + 'E' + '\x00';
 
   const payMode = (order.paymentMode || order.payMode || 'CASH').toUpperCase();
-  const payStatus = (order.paymentStatus || (payMode === 'CASH' ? 'PENDING' : 'PAID')).toUpperCase();
+  const isDealerOrder = order.userType === 'DEALER' || Boolean(order.selectedDealer || order.dealerId || order.DealerId);
+  const rawPayStatus = String(order.paymentStatus || order.PaymentStatus || '').toUpperCase();
+  const payStatus = (payMode === 'CASH' || payMode === 'CREDIT' || isDealerOrder || rawPayStatus === 'PENDING')
+    ? 'PENDING'
+    : (rawPayStatus || 'PAID');
   text += padLine('Payment Method:', `${payMode} [${payStatus}]`) + LF;
   text += '='.repeat(WIDTH) + LF;
 

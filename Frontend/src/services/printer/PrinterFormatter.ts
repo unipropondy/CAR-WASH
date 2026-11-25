@@ -240,12 +240,30 @@ export class PrinterFormatter {
     const bayName = (order?.bayName || order?.BayName || (order?.bayId || order?.BayId ? `Bay ${order.bayId || order.BayId}` : 'Wash Bay')).toString();
     const packageName = (order?.selectedPackage?.name || order?.packageName || order?.PackageName || 'Express Foam Wash').toString();
     
+    // Parse À La Carte services string e.g. "Vomit & Odour Removal ($80.00), Interior Wipe-Down ($10.00)"
+    const rawAdditionalStr = String(order?.additionalServices || order?.AdditionalServices || '').trim();
+    const parsedAddons: { name: string; price: number }[] = rawAdditionalStr
+      ? rawAdditionalStr.split(/,\s*/).filter(Boolean).map((entry) => {
+          const m = entry.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+          return {
+            name: m ? m[1].trim() : entry.trim(),
+            price: m ? Number(m[2]) : 0,
+          };
+        })
+      : [];
+    const parsedAddonsTotal = parsedAddons.reduce((sum, a) => sum + (Number.isFinite(a.price) ? a.price : 0), 0);
+    const additionalAmt = Number(order?.additionalAmount ?? order?.AdditionalAmount ?? parsedAddonsTotal) || 0;
+
     // All prices are strictly GST Exclusive
-    const rawBase = order?.packagePrice ?? order?.PackagePrice ?? order?.subtotal ?? order?.baseAmount ?? (order?.totalAmount != null && order?.gstAmount != null ? Number(order.totalAmount) - Number(order.gstAmount) : undefined);
-    const base = rawBase != null ? Number(rawBase) : Number(order?.totalAmount ?? order?.TotalAmount ?? 0);
+    const rawPkgPrice = order?.packagePrice ?? order?.PackagePrice;
+    const pkgPrice = rawPkgPrice != null ? Number(rawPkgPrice) : Math.max(0, Number(order?.totalAmount ?? order?.TotalAmount ?? 0) - Number(order?.gstAmount ?? order?.GSTAmount ?? 0) - additionalAmt);
+    const base = Number((pkgPrice + additionalAmt).toFixed(2));
     const gst = Number(order?.gstAmount ?? order?.GSTAmount ?? ((base * gstRate) / 100));
-    const total = Number(order?.totalAmount ?? order?.TotalAmount ?? (base + gst));
+    const total = Math.max(Number(order?.totalAmount ?? order?.TotalAmount ?? (base + gst)), Number((base + gst).toFixed(2)));
     const payMode = String(order?.paymentMode || order?.payMode || order?.PayMode || 'CASH').toUpperCase();
+    const isDealerOrder = order?.userType === 'DEALER' || Boolean(order?.selectedDealer || order?.dealerId || order?.DealerId);
+    const rawPayStatus = String(order?.paymentStatus || order?.PaymentStatus || '').toUpperCase();
+    const isPendingStatus = payMode === 'CASH' || payMode === 'CREDIT' || isDealerOrder || rawPayStatus === 'PENDING';
     const isReprint = Boolean(options?.isReprint);
 
     const rawDate = order?.createdDate || order?.createdAt || order?.CreatedDate;
@@ -329,10 +347,16 @@ export class PrinterFormatter {
 
     // Primary package - Base Price
     builder.bold(true).textLine(packageName).bold(false);
-    builder.textLine(this.formatTwoCol(`  1x Bay Service (${bayName})`, `${currency}${base.toFixed(2)}`, width));
+    builder.textLine(this.formatTwoCol(`  1x Bay Service (${bayName})`, `${currency}${pkgPrice.toFixed(2)}`, width));
 
-    // Additional add-ons if present
-    if (Array.isArray(order?.items) && order.items.length > 0) {
+    // À La Carte add-ons from order.additionalServices
+    if (parsedAddons.length > 0) {
+      builder.bold(true).textLine('A La Carte Upgrades:').bold(false);
+      for (const addon of parsedAddons) {
+        const lineName = `  + ${addon.name}`.slice(0, width - 10);
+        builder.textLine(this.formatTwoCol(lineName, `${currency}${addon.price.toFixed(2)}`, width));
+      }
+    } else if (Array.isArray(order?.items) && order.items.length > 0) {
       for (const item of order.items) {
         if (item.name && item.name !== packageName) {
           const itemAmt = Number(item.amount || item.price || 0).toFixed(2);
@@ -361,7 +385,7 @@ export class PrinterFormatter {
 
     // Payment details
     builder.textLine(this.formatTwoCol('Payment Mode:', payMode, width));
-    builder.textLine(this.formatTwoCol('Payment Status:', 'PAID (COMPLETED)', width));
+    builder.textLine(this.formatTwoCol('Payment Status:', isPendingStatus ? 'PENDING' : 'PAID (COMPLETED)', width));
 
     builder.textLine(this.formatDivider('=', width));
 

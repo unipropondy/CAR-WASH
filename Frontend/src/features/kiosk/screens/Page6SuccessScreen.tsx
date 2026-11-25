@@ -270,14 +270,14 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                         {order.paymentMode || 'CASH'}
                       </Text>
                     </View>
-                    <View style={[styles.paidPill, isDealer ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' } : (!isPaid && styles.pendingPill)]}>
+                    <View style={[styles.paidPill, isDealer ? styles.pendingPill : (!isPaid && styles.pendingPill)]}>
                       <Ionicons 
-                        name={isDealer ? "shield-checkmark" : (isPaid ? "checkmark-circle" : "time-outline")} 
+                        name={isDealer ? "time-outline" : (isPaid ? "checkmark-circle" : "time-outline")} 
                         size={12} 
-                        color={isDealer ? "#2563EB" : (isPaid ? "#059669" : "#D97706")} 
+                        color={isDealer ? "#D97706" : (isPaid ? "#059669" : "#D97706")} 
                       />
-                      <Text style={[styles.paidPillText, isDealer ? { color: '#1D4ED8' } : (!isPaid && styles.pendingPillText)]}>
-                        {isDealer ? 'CREDIT' : (order.paymentStatus || 'PAID')}
+                      <Text style={[styles.paidPillText, isDealer ? styles.pendingPillText : (!isPaid && styles.pendingPillText)]}>
+                        {isDealer ? 'PENDING' : (order.paymentStatus || 'PAID')}
                       </Text>
                     </View>
                   </View>
@@ -290,7 +290,7 @@ export const Page6SuccessScreen: React.FC<Page6SuccessScreenProps> = ({
                   const effectiveGstRate = order.gstPercent ?? getCachedGstRate();
                   const totalVal = Number((order.totalAmount || 0).toFixed(2));
                   const gstVal = Number((order.gstAmount || 0).toFixed(2));
-                  const baseVal = order.packagePrice != null ? Number(order.packagePrice) : Number((totalVal - gstVal).toFixed(2));
+                  const baseVal = Number((totalVal - gstVal).toFixed(2));
                   return (
                     <View>
                       <Text style={styles.totalBannerLabel}>

@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskBackground } from '../components/KioskBackground';
+import { KioskOnScreenKeyboard } from '../components/KioskOnScreenKeyboard';
 import { CustomerDetails, DealerOption, VehicleOption, ServicePackage } from '../types/kiosk.types';
 import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { getVehicleImageSource } from './Page2VehicleScreen';
@@ -72,6 +73,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
 
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeField, setActiveField] = useState<'name' | 'mobile' | 'plate' | null>(null);
 
   // Field validation
   const hasName = customerName.trim().length > 0;
@@ -200,7 +202,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
         contentContainerStyle={[
           styles.scrollContent, 
           { paddingHorizontal: horizontalPadding }, 
-          isTallKiosk && styles.scrollContentTall
+          isTallKiosk && styles.scrollContentTall,
+          activeField !== null && { paddingBottom: activeField === 'mobile' ? 300 : 340 },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -288,17 +291,20 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 styles.modernInputBox, 
                 isTallKiosk && styles.modernInputBoxTall,
                 hasName && styles.modernInputBoxFilled,
+                activeField === 'name' && styles.modernInputBoxActive,
               ]}>
                 <Ionicons 
                   name="person-outline" 
                   size={isTallKiosk ? 22 : 19} 
-                  color={hasName ? RED_BAY_COLORS.primary : "#64748B"} 
+                  color={activeField === 'name' || hasName ? RED_BAY_COLORS.primary : "#64748B"} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
                   style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={customerName}
                   onChangeText={setCustomerName}
+                  onFocus={() => setActiveField('name')}
+                  showSoftInputOnFocus={false}
                   placeholder={isDealer ? "Enter driver / contact name (optional)" : "Enter customer name (optional)"}
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="words"
@@ -349,21 +355,24 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 styles.modernInputBox, 
                 isTallKiosk && styles.modernInputBoxTall,
                 isMobileValid && styles.modernInputBoxFilled,
+                activeField === 'mobile' && styles.modernInputBoxActive,
                 mobileError && styles.modernInputBoxError,
               ]}>
                 <Ionicons 
                   name="call-outline" 
                   size={isTallKiosk ? 22 : 19} 
-                  color={mobileError ? "#EF4444" : (isMobileValid ? RED_BAY_COLORS.primary : "#64748B")} 
+                  color={mobileError ? "#EF4444" : (activeField === 'mobile' || isMobileValid ? RED_BAY_COLORS.primary : "#64748B")} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
                   style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={mobileNumber}
                   onChangeText={handleMobileChange}
+                  onFocus={() => setActiveField('mobile')}
+                  showSoftInputOnFocus={false}
                   placeholder={isDealer ? "Enter mobile number (optional)" : "Enter mobile number"}
                   placeholderTextColor="#94A3B8"
-                  keyboardType="phone-pad"
+                  keyboardType="number-pad"
                   maxLength={10}
                 />
                 {mobileNumber.length > 0 && (
@@ -405,18 +414,21 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
               <View style={[
                 styles.modernInputBox, 
                 isTallKiosk && styles.modernInputBoxTall,
-                hasPlate && styles.modernPlateBoxFilled
+                hasPlate && styles.modernPlateBoxFilled,
+                activeField === 'plate' && styles.modernInputBoxActive,
               ]}>
                 <Ionicons 
                   name="car-outline" 
                   size={isTallKiosk ? 22 : 19} 
-                  color={hasPlate ? RED_BAY_COLORS.primary : "#64748B"} 
+                  color={activeField === 'plate' || hasPlate ? RED_BAY_COLORS.primary : "#64748B"} 
                   style={styles.fieldInputIcon}
                 />
                 <TextInput
                   style={[styles.modernTextInput, isTallKiosk && styles.modernTextInputTall]}
                   value={vehicleNumber}
                   onChangeText={(text) => setVehicleNumber(text.toUpperCase())}
+                  onFocus={() => setActiveField('plate')}
+                  showSoftInputOnFocus={false}
                   placeholder="Enter vehicle plate (optional)"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="characters"
@@ -508,24 +520,41 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
               {additionalServices ? (
                 <>
                   <View style={styles.summaryDivider} />
-                  <View style={styles.summaryItemRow}>
+                  <View style={[styles.summaryItemRow, { alignItems: 'flex-start' }]}>
                     <View style={[styles.summaryPackageIconBox, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
                       <Ionicons name="sparkles" size={18} color="#D97706" />
                     </View>
                     <View style={styles.summaryItemInfo}>
-                      <Text style={styles.summaryItemLabel}>ADDITIONAL SERVICES</Text>
-                      <Text style={styles.summaryItemValue} numberOfLines={2}>
-                        {additionalServices}
-                      </Text>
+                      <Text style={styles.summaryItemLabel}>À LA CARTE SERVICES</Text>
+                      {additionalServices.split(/,\s*/).filter(Boolean).map((svc, idx) => {
+                        const match = svc.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+                        return (
+                          <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: idx === 0 ? 3 : 4, gap: 8 }}>
+                            <Text style={[styles.summaryItemValue, { fontSize: 13, fontWeight: '700', flex: 1 }]}>
+                              • {match ? match[1].trim() : svc}
+                            </Text>
+                            {match && (
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: '#D97706' }}>
+                                +${Number(match[2]).toFixed(2)}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
-                    {additionalAmount ? (
-                      <View style={styles.summaryPriceBox}>
-                        <Text style={styles.summaryPriceText}>+${additionalAmount.toFixed(2)}</Text>
-                      </View>
-                    ) : null}
                   </View>
                 </>
               ) : null}
+
+              <View style={styles.summaryDivider} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 2 }}>
+                <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#475569', letterSpacing: 0.5 }}>
+                  TOTAL PAYABLE
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: RED_BAY_COLORS.primary }}>
+                  {priceFormatted}
+                </Text>
+              </View>
             </View>
 
             {/* In-flow Action Button: Always immediately visible right below Order Summary */}
@@ -567,6 +596,45 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
           </View>
         </View>
       </ScrollView>
+
+      {/* Kiosk On-Screen Touch Keyboard */}
+      <KioskOnScreenKeyboard
+        visible={activeField !== null}
+        mode={activeField === 'mobile' ? 'numeric' : 'alphanumeric'}
+        fieldLabel={
+          activeField === 'name'
+            ? (isDealer ? 'Driver / Contact Name' : 'Customer Name')
+            : activeField === 'mobile'
+              ? 'Mobile Number (Numbers Only)'
+              : 'Vehicle Registration Number'
+        }
+        value={
+          activeField === 'name'
+            ? customerName
+            : activeField === 'mobile'
+              ? mobileNumber
+              : vehicleNumber
+        }
+        placeholder={
+          activeField === 'name'
+            ? 'Type customer name...'
+            : activeField === 'mobile'
+              ? 'Enter 8–10 digit mobile number...'
+              : 'Enter vehicle plate...'
+        }
+        forceUppercase={activeField === 'plate'}
+        maxLength={activeField === 'mobile' || activeField === 'plate' ? 10 : 50}
+        onChangeText={(nextVal) => {
+          if (activeField === 'name') {
+            setCustomerName(nextVal);
+          } else if (activeField === 'mobile') {
+            handleMobileChange(nextVal);
+          } else if (activeField === 'plate') {
+            setVehicleNumber(nextVal.toUpperCase());
+          }
+        }}
+        onClose={() => setActiveField(null)}
+      />
     </View>
   );
 };
@@ -920,6 +988,11 @@ const styles = StyleSheet.create({
   },
   modernInputBoxFilled: {
     borderColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
+  },
+  modernInputBoxActive: {
+    borderColor: RED_BAY_COLORS.primary,
+    borderWidth: 2,
     backgroundColor: '#FFFFFF',
   },
   modernInputBoxError: {
