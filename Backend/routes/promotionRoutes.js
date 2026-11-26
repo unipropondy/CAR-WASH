@@ -13,10 +13,18 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
     cb(null, UPLOADS_DIR);
   },
   filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname).toLowerCase();
+    let ext = path.extname(file.originalname || '').toLowerCase();
+    if (!ext) {
+      if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg') ext = '.jpg';
+      else if (file.mimetype === 'image/webp') ext = '.webp';
+      else ext = '.png';
+    }
     const uniqueSuffix = `promo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
     cb(null, uniqueSuffix);
   },
@@ -24,8 +32,10 @@ const storage = multer.diskStorage({
 
 const fileFilter = (req, file, cb) => {
   const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (allowed.includes(ext)) {
+  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const mime = (file.mimetype || '').toLowerCase();
+  if (allowed.includes(ext) || allowedMimes.includes(mime)) {
     cb(null, true);
   } else {
     cb(new Error('Invalid image format. Allowed: JPG, JPEG, PNG, WEBP.'), false);
@@ -41,6 +51,9 @@ const upload = multer({
 // Middleware wrapper to gracefully handle multer errors (e.g. invalid format or field name)
 // and still allow base64 fallback in req.body
 function optionalMulter(req, res, next) {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
   const uploadSingle = upload.single('image');
   uploadSingle(req, res, (err) => {
     if (err) {

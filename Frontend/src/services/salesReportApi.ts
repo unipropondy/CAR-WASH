@@ -32,6 +32,7 @@ export interface ServiceDistributionItem {
   grossRevenue: number;
   washSharePercentage: number;
   revenueSharePercentage: number;
+  isAddon?: boolean;
 }
 
 export interface BayUtilizationItem {
@@ -81,6 +82,7 @@ export interface RecentWashItem {
   gstPercent?: number;
   gstAmount?: number;
   totalAmount: number;
+  additionalServices?: string | null;
   statusCode: number;
   statusName: string;
   startedDate: string | null;
@@ -95,6 +97,7 @@ export interface RecentTransactionItem {
   customerName: string;
   vehicleNumber: string;
   packageName: string;
+  additionalServices?: string | null;
   payMode: string;
   payModeDescription: string;
   netAmount: number;
@@ -113,6 +116,7 @@ export interface FullDashboardPayload {
   activeBusinessDate?: string;
   summary: SalesSummaryData;
   serviceDistribution: ServiceDistributionItem[];
+  addonDistribution?: ServiceDistributionItem[];
   bayUtilization: BayUtilizationItem[];
   paymentChannelMix: PaymentChannelMixItem[];
   washTrend: WashTrendItem[];

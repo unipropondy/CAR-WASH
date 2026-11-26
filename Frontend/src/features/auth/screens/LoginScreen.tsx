@@ -18,14 +18,6 @@ import { loginUser } from '../../../services/authApi';
 import { useAuthStore } from '../store/authStore';
 import { AuthenticatedUser } from '../../../types/auth.types';
 import { ScreenNameBadge } from '../../../components/common/ScreenNameBadge';
-import {
-  getCachedCompanySettings,
-  fetchCompanySettings,
-  subscribeCompanySettings,
-  getCompanyLogoUrl,
-  getCompanyBannerUrl,
-  CompanySettings,
-} from '../../../services/companySettingsApi';
 
 export interface LoginScreenProps {
   onLoginSuccess?: (user?: AuthenticatedUser) => void;
@@ -104,13 +96,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(() => getCachedCompanySettings());
-
-  useEffect(() => {
-    const unsub = subscribeCompanySettings((s) => { if (s) setCompanySettings(s); });
-    fetchCompanySettings().then(setCompanySettings).catch(() => {});
-    return unsub;
-  }, []);
 
   // pre-fill saved user ID
   useEffect(() => {
@@ -219,7 +204,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {isWide && (
             <View style={styles.left}>
               <Image 
-                source={companySettings ? { uri: getCompanyBannerUrl(companySettings) } : CAR_WASH_IMAGE} 
+                source={CAR_WASH_IMAGE} 
                 style={styles.hero} 
                 resizeMode="contain" 
               />

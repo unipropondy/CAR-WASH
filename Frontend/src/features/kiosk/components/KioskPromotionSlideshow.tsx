@@ -45,14 +45,22 @@ export const KioskPromotionSlideshow: React.FC<KioskPromotionSlideshowProps> = (
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(() => promotions.length === 0);
   const [imageError, setImageError] = useState<boolean>(false);
+  const [useFallbackUrl, setUseFallbackUrl] = useState<boolean>(false);
 
   const currentPromo = promotions[currentIndex];
-  const imageUrl = currentPromo ? resolveApiUrl(currentPromo.imagePath) : '';
+  const imageUrl = currentPromo
+    ? resolveApiUrl(
+        useFallbackUrl
+          ? currentPromo.imagePath
+          : currentPromo.imageUrl || `/api/promotions/${currentPromo.promotionId}/image`
+      )
+    : '';
 
-  // Reset image error state whenever slide index or resolved URL changes
+  // Reset image error and fallback state whenever slide index changes
   useEffect(() => {
     setImageError(false);
-  }, [currentIndex, imageUrl]);
+    setUseFallbackUrl(false);
+  }, [currentIndex, currentPromo?.promotionId]);
 
   // Animation values for smooth cross-fade transition
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -164,7 +172,11 @@ export const KioskPromotionSlideshow: React.FC<KioskPromotionSlideshowProps> = (
               resizeMode={isLandscape ? 'contain' : 'cover'}
               onError={(e) => {
                 console.warn('[KioskPromotionSlideshow] Failed to load poster image:', imageUrl, e.nativeEvent);
-                setImageError(true);
+                if (!useFallbackUrl && currentPromo?.imagePath) {
+                  setUseFallbackUrl(true);
+                } else {
+                  setImageError(true);
+                }
               }}
             />
           </>

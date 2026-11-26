@@ -149,6 +149,25 @@ interface PeriodRangeInfo {
   arrowLabel?: string;
 }
 
+interface ParsedAddonItem {
+  name: string;
+  price: number;
+}
+
+const parseAddonsString = (raw?: string | null): ParsedAddonItem[] => {
+  if (!raw) return [];
+  return String(raw)
+    .split(/,\s*/)
+    .filter(Boolean)
+    .map((entry) => {
+      const m = entry.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+      return {
+        name: m ? m[1].trim() : entry.trim(),
+        price: m ? parseFloat(m[2]) : 0,
+      };
+    });
+};
+
 const formatISOToDDMMYYYY = (isoStr: string): string => {
   if (!isoStr) return '';
   const clean = isoStr.split('T')[0];
@@ -1267,21 +1286,22 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       }
 
       if (services.length > 0) {
-        lines.push(`--- SERVICE PACKAGE DISTRIBUTION ---`);
-        lines.push(`Category,Package Name,Total Washes,Share %,Net Sales ($),GST ($),Gross Revenue ($)`);
+        lines.push(`--- SERVICE & ADD-ON PACKAGE DISTRIBUTION ---`);
+        lines.push(`Type,Category,Package / Service Name,Total Units Sold,Share %,Net Sales ($),GST ($),Gross Revenue ($)`);
         services.forEach((sv) => {
+          const typeStr = sv.isAddon ? 'Add-on / A La Carte' : 'Main Package';
           lines.push(
-            `"${sv.serviceCategoryName || ''}","${sv.packageName || ''}",${sv.totalWashes || 0},${(sv.washSharePercentage || 0).toFixed(1)}%,$${Number(sv.netSales || 0).toFixed(2)},$${Number(sv.gstSales || 0).toFixed(2)},$${Number(sv.grossRevenue || 0).toFixed(2)}`
+            `"${typeStr}","${sv.serviceCategoryName || ''}","${sv.packageName || ''}",${sv.totalWashes || 0},${(sv.washSharePercentage || 0).toFixed(1)}%,$${Number(sv.netSales || 0).toFixed(2)},$${Number(sv.gstSales || 0).toFixed(2)},$${Number(sv.grossRevenue || 0).toFixed(2)}`
           );
         });
         lines.push(``);
       }
 
       lines.push(`--- COMPLETED WASHES & TRANSACTIONS ---`);
-      lines.push(`Order ID,Order No,Vehicle Plate,Customer Name,Package,Total Amount ($),Status,Date & Time`);
+      lines.push(`Order ID,Order No,Vehicle Plate,Customer Name,Package,A La Carte / Add-ons,Total Amount ($),Status,Date & Time`);
       washes.forEach((w: any) => {
         lines.push(
-          `"${w.orderId || ''}","${w.orderNo || ''}","${w.vehicleNumber || w.plateNumber || ''}","${(w.customerName || '').replace(/"/g, '""')}","${(w.packageName || w.serviceName || '').replace(/"/g, '""')}",$${Number(w.totalAmount || w.amount || 0).toFixed(2)},"${w.statusName || w.status || ''}","${w.createdDate || w.completedDate || w.startedDate || ''}"`
+          `"${w.orderId || ''}","${w.orderNo || ''}","${w.vehicleNumber || w.plateNumber || ''}","${(w.customerName || '').replace(/"/g, '""')}","${(w.packageName || w.serviceName || '').replace(/"/g, '""')}","${(w.additionalServices || '').replace(/"/g, '""')}",$${Number(w.totalAmount || w.amount || 0).toFixed(2)},"${w.statusName || w.status || ''}","${w.createdDate || w.completedDate || w.startedDate || ''}"`
         );
       });
 
@@ -1325,7 +1345,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             <td><strong>#${w.orderNo || w.orderId}</strong></td>
             <td><span class="plate-badge">${w.vehicleNumber || w.plateNumber || '—'}</span></td>
             <td>${(w.customerName && w.customerName !== 'Walk-in Customer') ? w.customerName : 'Walk-in'}</td>
-            <td>${w.packageName || w.serviceName || 'Standard Wash'}</td>
+            <td>
+              <div><strong>${w.packageName || w.serviceName || 'Standard Wash'}</strong></div>
+              ${w.additionalServices ? `<div style="font-size: 10px; color: #DC2626; margin-top: 2px;">+ ${w.additionalServices}</div>` : ''}
+            </td>
             <td style="text-align: right; font-weight: 700; color: #0F172A;">$${Number(w.totalAmount || w.amount || 0).toFixed(2)}</td>
             <td><span class="status-badge status-done">${w.statusName || w.status || 'Completed'}</span></td>
             <td style="color: #64748B; font-size: 11px;">${w.createdDate ? formatSgDate(w.createdDate) : '—'}</td>
@@ -1665,11 +1688,26 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
   // Service Distribution State
   const [activeServiceIdx, setActiveServiceIdx] = useState<number | null>(null);
-  const activeServiceItem = activeServiceIdx !== null ? serviceDistributionList[activeServiceIdx] : null;
-  const topServiceItem = serviceDistributionList.length > 0 
-    ? [...serviceDistributionList].sort((a, b) => (b.totalWashes || 0) - (a.totalWashes || 0))[0] 
+  const [serviceCategoryFilter, setServiceCategoryFilter] = useState<'ALL' | 'PACKAGES' | 'ADDONS'>('ALL');
+
+  const filteredServiceDistributionList = useMemo(() => {
+    if (serviceCategoryFilter === 'PACKAGES') {
+      return serviceDistributionList.filter((s) => !s.isAddon);
+    }
+    if (serviceCategoryFilter === 'ADDONS') {
+      return serviceDistributionList.filter((s) => s.isAddon);
+    }
+    return serviceDistributionList;
+  }, [serviceDistributionList, serviceCategoryFilter]);
+
+  const packageCount = useMemo(() => serviceDistributionList.filter((s) => !s.isAddon).length, [serviceDistributionList]);
+  const addonCount = useMemo(() => serviceDistributionList.filter((s) => s.isAddon).length, [serviceDistributionList]);
+
+  const activeServiceItem = activeServiceIdx !== null ? filteredServiceDistributionList[activeServiceIdx] : null;
+  const topServiceItem = filteredServiceDistributionList.length > 0 
+    ? [...filteredServiceDistributionList].sort((a, b) => (b.totalWashes || 0) - (a.totalWashes || 0))[0] 
     : null;
-  const totalDistWashes = serviceDistributionList.reduce((acc, s) => acc + (s.totalWashes || 0), 0) || 1;
+  const totalDistWashes = filteredServiceDistributionList.reduce((acc, s) => acc + (s.totalWashes || 0), 0) || 1;
 
   // Ranked Top Using Packages List
   const topPackagesList = useMemo(() => {
@@ -1716,6 +1754,12 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     if (!order) return;
     try {
       setIsReprinting(true);
+      const parsedAddons = parseAddonsString(order.additionalServices);
+      const parsedAddonsTotal = parsedAddons.reduce((sum, a) => sum + (Number.isFinite(a.price) ? a.price : 0), 0);
+      const packagePriceVal = order.packagePrice != null 
+        ? order.packagePrice 
+        : Math.max(0, order.totalAmount - (order.gstAmount || 0) - parsedAddonsTotal);
+
       const res = await printOrderReceipt({
         orderId: order.orderId,
         orderNo: order.orderNo,
@@ -1736,7 +1780,10 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         },
         bayName: order.bayName,
         totalAmount: order.totalAmount,
-        packagePrice: order.packagePrice != null ? order.packagePrice : (order.totalAmount - (order.gstAmount || 0)),
+        packagePrice: packagePriceVal,
+        additionalAmount: parsedAddonsTotal,
+        additionalServices: order.additionalServices,
+        AdditionalServices: order.additionalServices,
         gstPercent: order.gstPercent || 0,
         gstAmount: order.gstAmount != null ? order.gstAmount : 0,
         paymentMode: 'CASH',
@@ -2428,12 +2475,72 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
               <View>
                 <Text style={styles.cardTitle}>Service Distribution</Text>
-                <Text style={styles.cardSubtitle}>Wash packages by volume & share</Text>
+                <Text style={styles.cardSubtitle}>Wash packages & add-ons by volume & share</Text>
               </View>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
+          </View>
+
+          {/* Service Category Filter Tabs: All, Packages, Add-ons */}
+          <View style={styles.serviceFilterTabsRow}>
+            <TouchableOpacity
+              style={[
+                styles.serviceFilterTabBtn,
+                serviceCategoryFilter === 'ALL' && styles.serviceFilterTabBtnActive,
+              ]}
+              onPress={() => {
+                setServiceCategoryFilter('ALL');
+                setActiveServiceIdx(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.serviceFilterTabText,
+                serviceCategoryFilter === 'ALL' && styles.serviceFilterTabTextActive,
+              ]}>
+                All ({serviceDistributionList.length})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.serviceFilterTabBtn,
+                serviceCategoryFilter === 'PACKAGES' && styles.serviceFilterTabBtnActive,
+              ]}
+              onPress={() => {
+                setServiceCategoryFilter('PACKAGES');
+                setActiveServiceIdx(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.serviceFilterTabText,
+                serviceCategoryFilter === 'PACKAGES' && styles.serviceFilterTabTextActive,
+              ]}>
+                Packages ({packageCount})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.serviceFilterTabBtn,
+                serviceCategoryFilter === 'ADDONS' && styles.serviceFilterTabBtnActive,
+              ]}
+              onPress={() => {
+                setServiceCategoryFilter('ADDONS');
+                setActiveServiceIdx(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.serviceFilterTabText,
+                serviceCategoryFilter === 'ADDONS' && styles.serviceFilterTabTextActive,
+              ]}>
+                Add-ons ({addonCount})
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Interactive Segmented Donut SVG Chart */}
@@ -2444,8 +2551,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               {(() => {
                 let accumulatedPct = 0;
                 const C = 2 * Math.PI * 54;
-                const gap = serviceDistributionList.length > 1 ? 4 : 0;
-                return serviceDistributionList.slice(0, 5).map((item, idx) => {
+                const gap = filteredServiceDistributionList.length > 1 ? 4 : 0;
+                return filteredServiceDistributionList.slice(0, 5).map((item, idx) => {
                   const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
                   const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
                   const sliceLen = Math.max(0, (pct / 100) * C - gap);
@@ -2504,7 +2611,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     <Ionicons name="sparkles" size={14} color="#ED0712" />
                   </View>
                   <Text style={styles.donutValText}>{totalWashesCount.toLocaleString()}</Text>
-                  <Text style={styles.serviceDonutSubText}>Total Washes</Text>
+                  <Text style={styles.serviceDonutSubText}>
+                    {serviceCategoryFilter === 'ADDONS' ? 'Total Add-ons' : 'Total Washes'}
+                  </Text>
                 </>
               )}
             </View>
@@ -2512,7 +2621,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
           {/* Proportional Multi-Segment Progress Bar */}
           <View style={styles.proportionalBarContainer}>
-            {serviceDistributionList.map((item, idx) => {
+            {filteredServiceDistributionList.map((item, idx) => {
               const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
               const pct = totalDistWashes > 0 ? ((item.totalWashes || 0) / totalDistWashes) * 100 : 0;
               if (pct <= 0) return null;
@@ -2533,8 +2642,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
 
           {/* Breakdown List of Cards */}
           <View style={styles.serviceBreakdownList}>
-            {serviceDistributionList.length > 0 ? (
-              serviceDistributionList.slice(0, 4).map((item, idx) => {
+            {filteredServiceDistributionList.length > 0 ? (
+              filteredServiceDistributionList.slice(0, 6).map((item, idx) => {
                 const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
                 const isActive = activeServiceIdx === idx;
                 return (
@@ -2559,17 +2668,24 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     <View style={styles.serviceCardTopRow}>
                       <View style={styles.serviceItemLeft}>
                         <View style={[styles.serviceColorBar, { backgroundColor: theme.stroke }]} />
-                        <Text
-                          style={[styles.serviceNameText, isActive && { color: '#0F172A', fontWeight: '800' }]}
-                          numberOfLines={1}
-                        >
-                          {item.packageName}
-                        </Text>
+                        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text
+                            style={[styles.serviceNameText, isActive && { color: '#0F172A', fontWeight: '800' }]}
+                            numberOfLines={1}
+                          >
+                            {item.packageName}
+                          </Text>
+                          {item.isAddon && (
+                            <View style={styles.addonTagPill}>
+                              <Text style={styles.addonTagPillText}>ADD-ON</Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
                       <View style={styles.serviceItemRight}>
                         <Text style={styles.serviceCountText}>
                           {item.totalWashes.toLocaleString()}{' '}
-                          <Text style={styles.serviceCountUnit}>washes</Text>
+                          <Text style={styles.serviceCountUnit}>{item.isAddon ? 'units' : 'washes'}</Text>
                         </Text>
                         <View style={[styles.serviceSharePill, { backgroundColor: theme.bg, borderColor: theme.border }]}>
                           <Text style={[styles.serviceSharePillText, { color: theme.text }]}>
@@ -2596,13 +2712,13 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               })
             ) : (
               <Text style={styles.emptyServiceText}>
-                No wash services recorded for this period
+                No {serviceCategoryFilter === 'ADDONS' ? 'add-on packages' : 'services'} recorded for this period
               </Text>
             )}
           </View>
 
           {/* Service Summary Footer */}
-          {serviceDistributionList.length > 0 && (
+          {filteredServiceDistributionList.length > 0 && (
             <View style={styles.serviceSummaryFooter}>
               <View style={styles.serviceFooterLeft}>
                 <Ionicons name="sparkles" size={13} color="#ED0712" />
@@ -2615,7 +2731,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               </View>
               <View style={styles.serviceFooterBadge}>
                 <Text style={styles.serviceFooterBadgeText}>
-                  {serviceDistributionList.length} Active Tiers
+                  {filteredServiceDistributionList.length} Active {serviceCategoryFilter === 'ADDONS' ? 'Add-ons' : 'Tiers'}
                 </Text>
               </View>
             </View>
@@ -3845,9 +3961,24 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             <Text style={styles.customerNameText} numberOfLines={1} ellipsizeMode="tail">
                               {row.customerName || 'Walk-in'}
                             </Text>
-                            <Text style={styles.customerSubText} numberOfLines={1} ellipsizeMode="tail">
-                              {row.packageName || 'Standard Wash'}
-                            </Text>
+                            {(() => {
+                              const rowAddons = parseAddonsString(row.additionalServices);
+                              return (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 1 }}>
+                                  <Text style={styles.customerSubText} numberOfLines={1} ellipsizeMode="tail">
+                                    {row.packageName || 'Standard Wash'}
+                                  </Text>
+                                  {rowAddons.length > 0 && (
+                                    <View style={styles.tableAddonBadge}>
+                                      <Ionicons name="sparkles" size={9} color="#DC2626" />
+                                      <Text style={styles.tableAddonBadgeText} numberOfLines={1}>
+                                        {rowAddons.length === 1 ? `+ ${rowAddons[0].name}` : `+ ${rowAddons.length} Add-ons`}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })()}
                           </View>
                         </View>
 
@@ -4041,6 +4172,14 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                             <Text style={styles.txPaidText}>Paid</Text>
                           </View>
                         )}
+                        {tx.additionalServices && (
+                          <View style={styles.tableAddonBadge}>
+                            <Ionicons name="sparkles" size={9} color="#DC2626" />
+                            <Text style={styles.tableAddonBadgeText} numberOfLines={1}>
+                              {parseAddonsString(tx.additionalServices).length} Add-on{parseAddonsString(tx.additionalServices).length > 1 ? 's' : ''}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 
@@ -4146,68 +4285,124 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
 
             {/* Comprehensive Detail Breakdown */}
-            <View style={styles.modalDetailsCard}>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Service Package</Text>
-                <Text style={styles.modalDetailValBold}>{selectedWashOrder?.packageName || '-'}</Text>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Service Category</Text>
-                <Text style={styles.modalDetailVal}>{selectedWashOrder?.serviceCategoryName || 'CAR WASH'}</Text>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Bay Allocation</Text>
-                <View style={styles.bayBadge}>
-                  <Text style={styles.bayWaterDrop}>💧</Text>
-                  <Text style={styles.bayBadgeText}>{selectedWashOrder?.bayName || 'Unassigned'}</Text>
+            {(() => {
+              const modalAddons = parseAddonsString(selectedWashOrder?.additionalServices);
+              const modalAddonsTotal = modalAddons.reduce((sum, a) => sum + (Number.isFinite(a.price) ? a.price : 0), 0);
+              const rawPkgPrice = selectedWashOrder?.packagePrice;
+              const modalPkgPrice = rawPkgPrice != null 
+                ? Number(rawPkgPrice) 
+                : Math.max(0, (selectedWashOrder?.totalAmount || 0) - (selectedWashOrder?.gstAmount || 0) - modalAddonsTotal);
+              const modalBaseAmount = Number((modalPkgPrice + modalAddonsTotal).toFixed(2));
+              const modalGstAmount = selectedWashOrder?.gstAmount != null ? selectedWashOrder.gstAmount : 0;
+
+              return (
+                <View style={styles.modalDetailsCard}>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Service Package</Text>
+                    <Text style={styles.modalDetailValBold}>{selectedWashOrder?.packageName || '-'}</Text>
+                  </View>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Service Category</Text>
+                    <Text style={styles.modalDetailVal}>{selectedWashOrder?.serviceCategoryName || 'CAR WASH'}</Text>
+                  </View>
+
+                  {/* A La Carte & Add-on Packages */}
+                  {modalAddons.length > 0 && (
+                    <View style={[styles.modalDetailRow, { flexDirection: 'column', alignItems: 'stretch', gap: 8, paddingVertical: 10, backgroundColor: '#FFF5F5', marginHorizontal: -14, paddingHorizontal: 14 }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.modalDetailLabel, { color: '#DC2626', fontWeight: '800' }]}>
+                            A La Carte / Add-on Packages
+                          </Text>
+                          <View style={styles.addonCountPill}>
+                            <Text style={styles.addonCountPillText}>{modalAddons.length} Added</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.modalDetailValBold, { color: '#DC2626' }]}>+ ${modalAddonsTotal.toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.modalAddonListWrap}>
+                        {modalAddons.map((addon, aIdx) => (
+                          <View key={aIdx} style={styles.modalAddonItemPill}>
+                            <Ionicons name="sparkles" size={12} color="#DC2626" style={{ marginRight: 5 }} />
+                            <Text style={styles.modalAddonItemName}>{addon.name}</Text>
+                            <Text style={styles.modalAddonItemPrice}>${addon.price.toFixed(2)}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Bay Allocation</Text>
+                    <View style={styles.bayBadge}>
+                      <Text style={styles.bayWaterDrop}>💧</Text>
+                      <Text style={styles.bayBadgeText}>{selectedWashOrder?.bayName || 'Unassigned'}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Status</Text>
+                    <View style={styles.paidBadge}>
+                      <Text style={styles.paidCheckmark}>✓</Text>
+                      <Text style={styles.paidBadgeText}>{selectedWashOrder?.statusName || 'Completed'}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Payment Mode</Text>
+                    <View style={[styles.paidBadge, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}>
+                      <Ionicons name="card-outline" size={13} color="#0F172A" style={{ marginRight: 4 }} />
+                      <Text style={[styles.paidBadgeText, { color: '#0F172A' }]}>
+                        {(() => {
+                          const matchingTx = recentTransactionsList.find(
+                            (t) => t.orderId === selectedWashOrder?.orderId || t.orderNo === selectedWashOrder?.orderNo
+                          );
+                          return matchingTx?.payModeDescription || matchingTx?.payMode || 'CASH';
+                        })()}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Duration</Text>
+                    <Text style={styles.modalDetailVal}>
+                      {selectedWashOrder?.durationMinutes != null ? `${selectedWashOrder.durationMinutes} minutes` : 'In progress'}
+                    </Text>
+                  </View>
+
+                  {modalAddons.length > 0 && (
+                    <>
+                      <View style={styles.modalDetailRow}>
+                        <Text style={styles.modalDetailLabel}>Package Base Price</Text>
+                        <Text style={styles.modalDetailVal}>$ {modalPkgPrice.toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.modalDetailRow}>
+                        <Text style={styles.modalDetailLabel}>Add-on Upgrades Total</Text>
+                        <Text style={[styles.modalDetailVal, { color: '#DC2626', fontWeight: '700' }]}>
+                          + $ {modalAddonsTotal.toFixed(2)}
+                        </Text>
+                      </View>
+                    </>
+                  )}
+
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Base Amount (Subtotal)</Text>
+                    <Text style={styles.modalDetailValBold}>
+                      $ {modalBaseAmount.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>GST ({selectedWashOrder?.gstPercent != null ? selectedWashOrder.gstPercent : 0}%)</Text>
+                    <Text style={styles.modalDetailVal}>
+                      $ {modalGstAmount.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={[styles.modalDetailRow, { borderBottomWidth: 0 }]}>
+                    <Text style={styles.modalDetailLabel}>Order Timestamp</Text>
+                    <Text style={styles.modalDetailVal}>
+                      {selectedWashOrder?.createdDate ? formatSgDateTime(selectedWashOrder.createdDate) : '-'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Status</Text>
-                <View style={styles.paidBadge}>
-                  <Text style={styles.paidCheckmark}>✓</Text>
-                  <Text style={styles.paidBadgeText}>{selectedWashOrder?.statusName || 'Completed'}</Text>
-                </View>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Payment Mode</Text>
-                <View style={[styles.paidBadge, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}>
-                  <Ionicons name="card-outline" size={13} color="#0F172A" style={{ marginRight: 4 }} />
-                  <Text style={[styles.paidBadgeText, { color: '#0F172A' }]}>
-                    {(() => {
-                      const matchingTx = recentTransactionsList.find(
-                        (t) => t.orderId === selectedWashOrder?.orderId || t.orderNo === selectedWashOrder?.orderNo
-                      );
-                      return matchingTx?.payModeDescription || matchingTx?.payMode || 'CASH';
-                    })()}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Duration</Text>
-                <Text style={styles.modalDetailVal}>
-                  {selectedWashOrder?.durationMinutes != null ? `${selectedWashOrder.durationMinutes} minutes` : 'In progress'}
-                </Text>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>Base Amount</Text>
-                <Text style={styles.modalDetailVal}>
-                  $ {(selectedWashOrder?.packagePrice != null ? selectedWashOrder.packagePrice : ((selectedWashOrder?.totalAmount || 0) - (selectedWashOrder?.gstAmount || 0))).toFixed(2)}
-                </Text>
-              </View>
-              <View style={styles.modalDetailRow}>
-                <Text style={styles.modalDetailLabel}>GST ({selectedWashOrder?.gstPercent != null ? selectedWashOrder.gstPercent : 0}%)</Text>
-                <Text style={styles.modalDetailVal}>
-                  $ {(selectedWashOrder?.gstAmount != null ? selectedWashOrder.gstAmount : 0).toFixed(2)}
-                </Text>
-              </View>
-              <View style={[styles.modalDetailRow, { borderBottomWidth: 0 }]}>
-                <Text style={styles.modalDetailLabel}>Order Timestamp</Text>
-                <Text style={styles.modalDetailVal}>
-                  {selectedWashOrder?.createdDate ? formatSgDateTime(selectedWashOrder.createdDate) : '-'}
-                </Text>
-              </View>
-            </View>
+              );
+            })()}
 
             {/* Modal Actions */}
             <View style={styles.modalFooterActions}>
@@ -7208,6 +7403,118 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#0F172A',
+  },
+  modalAddonListWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    width: '100%',
+    marginTop: 4,
+  },
+  modalAddonItemPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  modalAddonItemName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#991B1B',
+    marginRight: 6,
+  },
+  modalAddonItemPrice: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  addonCountPill: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  addonCountPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  tableAddonBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    gap: 3,
+  },
+  tableAddonBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  serviceFilterTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 9,
+    padding: 3,
+    marginTop: 10,
+    marginBottom: 8,
+    gap: 4,
+  },
+  serviceFilterTabBtn: {
+    flex: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 7,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  serviceFilterTabBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  serviceFilterTabText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  serviceFilterTabTextActive: {
+    color: '#DC2626',
+    fontWeight: '900',
+  },
+  addonTagPill: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  addonTagPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.3,
   },
   modalFooterActions: {
     flexDirection: 'row',

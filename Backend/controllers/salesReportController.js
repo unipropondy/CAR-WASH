@@ -146,38 +146,128 @@ async function getSalesSummary(req, res) {
 }
 
 /**
- * 2. GET /api/carwash/reports/service-wise
- * Service distribution & package sales share
+ * Helper to fetch service distribution combined with A La Carte & Add-on packages
  */
-async function getServiceWiseSales(req, res) {
+async function fetchServiceAndAddonDistribution(pool, start, end) {
+  let basePackages = [];
   try {
-    const pool = await getPool();
-    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
-
     const result = await pool.request()
       .input('StartDate', sql.Date, start)
       .input('EndDate', sql.Date, end)
       .execute('dbo.sp_CarWash_ServiceWiseSales');
 
-    const data = result.recordset.map((r) => ({
+    basePackages = (result.recordset || []).map((r) => ({
       serviceCategoryId: r.ServiceCategoryId,
-      serviceCategoryName: r.ServiceCategoryName,
+      serviceCategoryName: r.ServiceCategoryName || 'Car Wash',
       packageId: r.PackageId,
       packageName: r.PackageName,
       totalWashes: Number(r.TotalWashes || 0),
       netSales: Number(r.NetSales || 0),
       gstSales: Number(r.GSTSales || 0),
       grossRevenue: Number(r.GrossRevenue || 0),
-      washSharePercentage: Number(r.WashSharePercentage || 0),
-      revenueSharePercentage: Number(r.RevenueSharePercentage || 0),
+      isAddon: false,
     }));
+  } catch (err) {
+    console.warn('[ServiceWiseSales SP Warning]', err.message);
+  }
+
+  // Query all orders with AdditionalServices in the period
+  let addonRows = [];
+  try {
+    const addonRes = await pool.request()
+      .input('StartDate', sql.Date, start)
+      .input('EndDate', sql.Date, end)
+      .query(`
+        SELECT 
+          o.OrderId,
+          o.AdditionalServices
+        FROM dbo.CarWashOrder o
+        LEFT JOIN dbo.CarWashDayMaster dm ON o.DayId = dm.DayId
+        WHERE (o.PaymentStatus = 'PAID' OR o.StatusCode IN (30, 40, 50, 60, 70) OR o.TotalAmount > 0)
+          AND o.StatusCode != 80
+          AND o.AdditionalServices IS NOT NULL 
+          AND RTRIM(o.AdditionalServices) != ''
+          AND (@StartDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) >= @StartDate)
+          AND (@EndDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) <= @EndDate)
+      `);
+    addonRows = addonRes.recordset || [];
+  } catch (err) {
+    console.warn('[Addon Aggregation Warning]', err.message);
+  }
+
+  const addonMap = {};
+  for (const row of addonRows) {
+    const raw = String(row.AdditionalServices || '').trim();
+    if (!raw) continue;
+    const parts = raw.split(/,\s*/).filter(Boolean);
+    for (const p of parts) {
+      const m = p.match(/^(.*?)\s*\(\$([0-9.]+)\)$/);
+      const name = m ? m[1].trim() : p.trim();
+      const price = m ? parseFloat(m[2]) : 0;
+      if (!addonMap[name]) {
+        addonMap[name] = { count: 0, revenue: 0 };
+      }
+      addonMap[name].count += 1;
+      addonMap[name].revenue += price;
+    }
+  }
+
+  const addonList = Object.entries(addonMap).map(([name, stat], idx) => ({
+    serviceCategoryId: 4,
+    serviceCategoryName: 'A La Carte / Add-on',
+    packageId: 9000 + idx + 1,
+    packageName: name,
+    totalWashes: stat.count,
+    netSales: Number(stat.revenue.toFixed(2)),
+    gstSales: 0,
+    grossRevenue: Number(stat.revenue.toFixed(2)),
+    isAddon: true,
+  }));
+
+  addonList.sort((a, b) => b.grossRevenue - a.grossRevenue);
+
+  // If there's an A La Carte Services wrapper package (PackageId 12), remove it because individual items are explicitly listed
+  const adjustedBase = basePackages.filter(p => p.packageId !== 12 && p.packageName !== 'A La Carte Services');
+
+  const combined = [...adjustedBase, ...addonList];
+  const totalVolume = combined.reduce((sum, item) => sum + (item.totalWashes || 0), 0) || 1;
+  const totalRev = combined.reduce((sum, item) => sum + (item.grossRevenue || 0), 0) || 1;
+
+  const serviceDistribution = combined.map(item => ({
+    ...item,
+    washSharePercentage: Number(((item.totalWashes / totalVolume) * 100).toFixed(2)),
+    revenueSharePercentage: Number(((item.grossRevenue / totalRev) * 100).toFixed(2)),
+  }));
+
+  serviceDistribution.sort((a, b) => b.grossRevenue - a.grossRevenue);
+
+  const addonDistribution = addonList.map(item => ({
+    ...item,
+    washSharePercentage: Number(((item.totalWashes / totalVolume) * 100).toFixed(2)),
+    revenueSharePercentage: Number(((item.grossRevenue / totalRev) * 100).toFixed(2)),
+  }));
+
+  return { serviceDistribution, addonDistribution };
+}
+
+/**
+ * 2. GET /api/carwash/reports/service-wise
+ * Service distribution & package sales share (including A La Carte & Add-on packages)
+ */
+async function getServiceWiseSales(req, res) {
+  try {
+    const pool = await getPool();
+    const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
+
+    const { serviceDistribution, addonDistribution } = await fetchServiceAndAddonDistribution(pool, start, end);
 
     return res.status(200).json({
       success: true,
       period: { startDate: start, endDate: end },
       activeBusinessDate,
-      count: data.length,
-      data,
+      count: serviceDistribution.length,
+      data: serviceDistribution,
+      addonDistribution,
     });
   } catch (err) {
     console.error('[SalesReport getServiceWiseSales Error]', err);
@@ -301,7 +391,7 @@ async function getDateWiseWashTrend(req, res) {
 
 /**
  * 6. GET /api/carwash/reports/recent-washes
- * Recent wash orders
+ * Recent wash orders with package details, addons and pricing breakdown
  */
 async function getRecentWashes(req, res) {
   try {
@@ -309,13 +399,75 @@ async function getRecentWashes(req, res) {
     const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
     const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
-    const result = await pool.request()
-      .input('TopCount', sql.Int, topCount)
-      .input('StartDate', sql.Date, start)
-      .input('EndDate', sql.Date, end)
-      .execute('dbo.sp_CarWash_RecentWashes');
+    let records = [];
+    try {
+      const result = await pool.request()
+        .input('TopCount', sql.Int, topCount)
+        .input('StartDate', sql.Date, start)
+        .input('EndDate', sql.Date, end)
+        .execute('dbo.sp_CarWash_RecentWashes');
+      records = result.recordset || [];
+    } catch (spErr) {
+      console.warn('[sp_CarWash_RecentWashes Warning]', spErr.message);
+    }
 
-    const data = result.recordset.map((r) => ({
+    if (!records.length || records[0].AdditionalServices === undefined) {
+      try {
+        const fullWashesRes = await pool.request()
+          .input('StartDate', sql.Date, start)
+          .input('EndDate', sql.Date, end)
+          .input('TopCount', sql.Int, topCount)
+          .query(`
+            SELECT TOP (@TopCount)
+                o.OrderId,
+                o.OrderNo,
+                o.CustomerName,
+                o.VehicleNumber,
+                vt.VehicleTypeName,
+                p.PackageName,
+                c.CategoryName AS ServiceCategoryName,
+                o.BayId,
+                b.BayName,
+                o.PackagePrice,
+                o.GSTPercent,
+                o.GSTAmount,
+                o.TotalAmount,
+                o.AdditionalServices,
+                o.StatusCode,
+                CASE o.StatusCode
+                    WHEN 10 THEN 'DETAILS_SAVED'
+                    WHEN 20 THEN 'PAYMENT_PENDING'
+                    WHEN 30 THEN 'PAID'
+                    WHEN 40 THEN 'BAY_ASSIGNED'
+                    WHEN 50 THEN 'IN_SERVICE'
+                    WHEN 60 THEN 'COMPLETED'
+                    WHEN 70 THEN 'CLOSED'
+                    WHEN 80 THEN 'CANCELLED'
+                    ELSE 'UNKNOWN'
+                END AS StatusName,
+                o.StartedDate,
+                o.CompletedDate,
+                DATEDIFF(MINUTE, o.StartedDate, o.CompletedDate) AS DurationMinutes,
+                o.CreatedDate
+            FROM dbo.CarWashOrder o
+            LEFT JOIN dbo.CarWashDayMaster dm ON o.DayId = dm.DayId
+            LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
+            LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+            LEFT JOIN dbo.ServiceCategoryMaster c ON o.ServiceCategoryId = c.ServiceCategoryId
+            LEFT JOIN dbo.BayMaster b ON o.BayId = b.BayNumber
+            WHERE (@StartDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) >= @StartDate)
+              AND (@EndDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) <= @EndDate)
+            ORDER BY o.OrderId DESC;
+          `);
+        if (fullWashesRes.recordset && fullWashesRes.recordset.length > 0) {
+          records = fullWashesRes.recordset;
+        }
+      } catch (fallbackErr) {
+        console.warn('[Recent Washes Direct Query Fallback Warning]', fallbackErr.message);
+      }
+    }
+
+    const data = records.map((r) => ({
       orderId: r.OrderId,
       orderNo: r.OrderNo,
       customerName: r.CustomerName,
@@ -325,7 +477,11 @@ async function getRecentWashes(req, res) {
       serviceCategoryName: r.ServiceCategoryName || 'Car Wash',
       bayId: r.BayId,
       bayName: r.BayName || (r.BayId ? `Bay ${r.BayId}` : 'Unassigned'),
+      packagePrice: r.PackagePrice != null ? Number(r.PackagePrice) : null,
+      gstPercent: r.GSTPercent != null ? Number(r.GSTPercent) : 0,
+      gstAmount: r.GSTAmount != null ? Number(r.GSTAmount) : 0,
       totalAmount: Number(r.TotalAmount || 0),
+      additionalServices: r.AdditionalServices || null,
       statusCode: r.StatusCode,
       statusName: r.StatusName,
       startedDate: r.StartedDate,
@@ -357,18 +513,68 @@ async function getRecentTransactions(req, res) {
     const { start, end, activeBusinessDate } = await resolveDateRange(req.query, pool);
     const topCount = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 
-    const result = await pool.request()
-      .input('TopCount', sql.Int, topCount)
-      .input('StartDate', sql.Date, start)
-      .input('EndDate', sql.Date, end)
-      .execute('dbo.sp_CarWash_RecentTransactions');
+    let records = [];
+    try {
+      const result = await pool.request()
+        .input('TopCount', sql.Int, topCount)
+        .input('StartDate', sql.Date, start)
+        .input('EndDate', sql.Date, end)
+        .execute('dbo.sp_CarWash_RecentTransactions');
+      records = result.recordset || [];
+    } catch (spErr) {
+      console.warn('[sp_CarWash_RecentTransactions Warning]', spErr.message);
+    }
 
-    const data = result.recordset.map((r) => ({
+    if (!records.length || records[0].AdditionalServices === undefined) {
+      try {
+        const fullTxRes = await pool.request()
+          .input('StartDate', sql.Date, start)
+          .input('EndDate', sql.Date, end)
+          .input('TopCount', sql.Int, topCount)
+          .query(`
+            SELECT TOP (@TopCount)
+                o.OrderId,
+                o.OrderNo,
+                o.CustomerName,
+                o.VehicleNumber,
+                p.PackageName,
+                o.AdditionalServices,
+                ISNULL(RTRIM(o.PayMode), 'CARD') AS PayMode,
+                ISNULL(pm.Description, RTRIM(o.PayMode)) AS PayModeDescription,
+                ISNULL(o.PackagePrice, o.TotalAmount) AS NetAmount,
+                ISNULL(o.GSTAmount, 0) AS GSTAmount,
+                ISNULL(o.TotalAmount, 0) AS TotalAmount,
+                ISNULL(o.PaymentStatus, 'PAID') AS PaymentStatus,
+                o.PaymentReference,
+                ISNULL(o.OrderSource, 'KIOSK') AS OrderSource,
+                ISNULL(o.PaidDate, o.CreatedDate) AS PaidDate,
+                o.CreatedDate,
+                COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) AS BusinessDate
+            FROM dbo.CarWashOrder o
+            LEFT JOIN dbo.CarWashDayMaster dm ON o.DayId = dm.DayId
+            LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+            LEFT JOIN dbo.Paymode pm ON RTRIM(o.PayMode) = RTRIM(pm.PayMode)
+            WHERE (o.PaymentStatus = 'PAID' OR o.StatusCode IN (30, 40, 50, 60, 70) OR o.TotalAmount > 0)
+              AND o.StatusCode != 80
+              AND (@StartDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) >= @StartDate)
+              AND (@EndDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) <= @EndDate)
+            ORDER BY o.OrderId DESC;
+          `);
+        if (fullTxRes.recordset && fullTxRes.recordset.length > 0) {
+          records = fullTxRes.recordset;
+        }
+      } catch (txErr) {
+        console.warn('[Transactions Fallback Warning]', txErr.message);
+      }
+    }
+
+    const data = records.map((r) => ({
       orderId: r.OrderId,
       orderNo: r.OrderNo,
       customerName: r.CustomerName,
       vehicleNumber: r.VehicleNumber,
       packageName: r.PackageName,
+      additionalServices: r.AdditionalServices || null,
       payMode: (r.PayMode || '').trim(),
       payModeDescription: (r.PayModeDescription || r.PayMode || '').trim(),
       netAmount: Number(r.NetAmount || 0),
@@ -405,26 +611,83 @@ async function getFullDashboard(req, res) {
 
     // Execute queries using connection pool
     const summaryRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_SalesSummary');
-    const serviceRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_ServiceWiseSales');
+    const { serviceDistribution, addonDistribution } = await fetchServiceAndAddonDistribution(pool, start, end);
     const bayRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_BayUtilization');
     const paymentRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_PaymentChannelMix');
     const trendRes = await pool.request().input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_DateWiseWashTrend');
-    const washesRes = await pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentWashes');
-    const txRes = await pool.request().input('TopCount', sql.Int, 100).input('StartDate', sql.Date, start).input('EndDate', sql.Date, end).execute('dbo.sp_CarWash_RecentTransactions');
+    
+    // Fetch Recent Washes with AdditionalServices & Pricing Breakdown
+    let rawWashes = [];
+    try {
+      const washesRes = await pool.request()
+        .input('TopCount', sql.Int, 100)
+        .input('StartDate', sql.Date, start)
+        .input('EndDate', sql.Date, end)
+        .execute('dbo.sp_CarWash_RecentWashes');
+      rawWashes = washesRes.recordset || [];
+    } catch (spWError) {
+      console.warn('[sp_CarWash_RecentWashes Fallback in getFullDashboard]', spWError.message);
+    }
 
-    const sRow = summaryRes.recordset[0] || {};
+    if (!rawWashes.length || rawWashes[0].AdditionalServices === undefined) {
+      try {
+        const fullWashesRes = await pool.request()
+          .input('StartDate', sql.Date, start)
+          .input('EndDate', sql.Date, end)
+          .input('TopCount', sql.Int, 100)
+          .query(`
+            SELECT TOP (@TopCount)
+                o.OrderId,
+                o.OrderNo,
+                o.CustomerName,
+                o.VehicleNumber,
+                vt.VehicleTypeName,
+                p.PackageName,
+                c.CategoryName AS ServiceCategoryName,
+                o.BayId,
+                b.BayName,
+                o.PackagePrice,
+                o.GSTPercent,
+                o.GSTAmount,
+                o.TotalAmount,
+                o.AdditionalServices,
+                o.StatusCode,
+                CASE o.StatusCode
+                    WHEN 10 THEN 'DETAILS_SAVED'
+                    WHEN 20 THEN 'PAYMENT_PENDING'
+                    WHEN 30 THEN 'PAID'
+                    WHEN 40 THEN 'BAY_ASSIGNED'
+                    WHEN 50 THEN 'IN_SERVICE'
+                    WHEN 60 THEN 'COMPLETED'
+                    WHEN 70 THEN 'CLOSED'
+                    WHEN 80 THEN 'CANCELLED'
+                    ELSE 'UNKNOWN'
+                END AS StatusName,
+                o.StartedDate,
+                o.CompletedDate,
+                DATEDIFF(MINUTE, o.StartedDate, o.CompletedDate) AS DurationMinutes,
+                o.CreatedDate
+            FROM dbo.CarWashOrder o
+            LEFT JOIN dbo.CarWashDayMaster dm ON o.DayId = dm.DayId
+            LEFT JOIN dbo.VehicleTypeMaster vt ON o.VehicleTypeId = vt.VehicleTypeId
+            LEFT JOIN dbo.ServicePackageMaster p ON o.PackageId = p.PackageId
+            LEFT JOIN dbo.ServiceCategoryMaster c ON o.ServiceCategoryId = c.ServiceCategoryId
+            LEFT JOIN dbo.BayMaster b ON o.BayId = b.BayNumber
+            WHERE (o.PaymentStatus = 'PAID' OR o.StatusCode IN (30, 40, 50, 60, 70) OR o.TotalAmount > 0)
+              AND o.StatusCode != 80
+              AND (@StartDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) >= @StartDate)
+              AND (@EndDate IS NULL OR COALESCE(o.BusinessDate, dm.BusinessDate, CAST(o.CreatedDate AS DATE)) <= @EndDate)
+            ORDER BY o.OrderId DESC;
+          `);
+        if (fullWashesRes.recordset && fullWashesRes.recordset.length > 0) {
+          rawWashes = fullWashesRes.recordset;
+        }
+      } catch (wErr) {
+        console.warn('[Full Washes Query Fallback Warning]', wErr.message);
+      }
+    }
 
-    const trendCompletedSum = (trendRes.recordset || []).reduce(
-      (sum, r) => sum + Number(r.CompletedWashes || r.TotalOrders || 0), 0
-    );
-    const calculatedTotalWashes = Number(
-      sRow.TotalWashes || 
-      (Number(sRow.TotalCompletedWashes || 0) + Number(sRow.TotalClosedWashes || 0)) || 
-      trendCompletedSum || 
-      0
-    );
-
-    let rawTransactions = txRes.recordset || [];
+    let rawTransactions = [];
     try {
       const fullTxRes = await pool.request()
         .input('StartDate', sql.Date, start)
@@ -437,6 +700,7 @@ async function getFullDashboard(req, res) {
               o.CustomerName,
               o.VehicleNumber,
               p.PackageName,
+              o.AdditionalServices,
               ISNULL(RTRIM(o.PayMode), 'CARD') AS PayMode,
               ISNULL(pm.Description, RTRIM(o.PayMode)) AS PayModeDescription,
               ISNULL(o.PackagePrice, o.TotalAmount) AS NetAmount,
@@ -465,9 +729,9 @@ async function getFullDashboard(req, res) {
       console.warn('[Full Transactions Query Fallback Warning]', txErr.message);
     }
 
-    // Merge any washes from washesRes that have TotalAmount > 0 if not already present
+    // Merge any washes from rawWashes that have TotalAmount > 0 if not already present
     const existingTxIds = new Set(rawTransactions.map(r => r.OrderId));
-    (washesRes.recordset || []).forEach(w => {
+    rawWashes.forEach(w => {
       if (!existingTxIds.has(w.OrderId) && Number(w.TotalAmount || 0) > 0) {
         rawTransactions.push({
           OrderId: w.OrderId,
@@ -475,6 +739,7 @@ async function getFullDashboard(req, res) {
           CustomerName: w.CustomerName,
           VehicleNumber: w.VehicleNumber,
           PackageName: w.PackageName,
+          AdditionalServices: w.AdditionalServices,
           PayMode: 'CARD',
           PayModeDescription: 'Card / Electronic',
           NetAmount: Number(w.TotalAmount || 0),
@@ -490,6 +755,17 @@ async function getFullDashboard(req, res) {
     });
 
     rawTransactions.sort((a, b) => (b.OrderId || 0) - (a.OrderId || 0));
+
+    const sRow = summaryRes.recordset[0] || {};
+    const trendCompletedSum = (trendRes.recordset || []).reduce(
+      (sum, r) => sum + Number(r.CompletedWashes || r.TotalOrders || 0), 0
+    );
+    const calculatedTotalWashes = Number(
+      sRow.TotalWashes || 
+      (Number(sRow.TotalCompletedWashes || 0) + Number(sRow.TotalClosedWashes || 0)) || 
+      trendCompletedSum || 
+      0
+    );
 
     return res.status(200).json({
       success: true,
@@ -510,18 +786,8 @@ async function getFullDashboard(req, res) {
         averageOrderValue: Number(sRow.AverageOrderValue || 0),
         avgWashDurationMinutes: Number(sRow.AvgWashDurationMinutes || 0),
       },
-      serviceDistribution: serviceRes.recordset.map((r) => ({
-        serviceCategoryId: r.ServiceCategoryId,
-        serviceCategoryName: r.ServiceCategoryName,
-        packageId: r.PackageId,
-        packageName: r.PackageName,
-        totalWashes: Number(r.TotalWashes || 0),
-        netSales: Number(r.NetSales || 0),
-        gstSales: Number(r.GSTSales || 0),
-        grossRevenue: Number(r.GrossRevenue || 0),
-        washSharePercentage: Number(r.WashSharePercentage || 0),
-        revenueSharePercentage: Number(r.RevenueSharePercentage || 0),
-      })),
+      serviceDistribution,
+      addonDistribution,
       bayUtilization: bayRes.recordset.map((r) => ({
         bayNumber: Number(r.BayNumber),
         bayName: r.BayName || `Bay ${r.BayNumber}`,
@@ -552,7 +818,7 @@ async function getFullDashboard(req, res) {
         dailyRevenue: Number(r.DailyRevenue || 0),
         dailyGST: Number(r.DailyGST || 0),
       })),
-      recentWashes: washesRes.recordset.map((r) => ({
+      recentWashes: rawWashes.map((r) => ({
         orderId: r.OrderId,
         orderNo: r.OrderNo,
         customerName: r.CustomerName,
@@ -562,7 +828,11 @@ async function getFullDashboard(req, res) {
         serviceCategoryName: r.ServiceCategoryName || 'Car Wash',
         bayId: r.BayId,
         bayName: r.BayName || (r.BayId ? `Bay ${r.BayId}` : 'Unassigned'),
+        packagePrice: r.PackagePrice != null ? Number(r.PackagePrice) : null,
+        gstPercent: r.GSTPercent != null ? Number(r.GSTPercent) : 0,
+        gstAmount: r.GSTAmount != null ? Number(r.GSTAmount) : 0,
         totalAmount: Number(r.TotalAmount || 0),
+        additionalServices: r.AdditionalServices || null,
         statusCode: r.StatusCode,
         statusName: r.StatusName,
         startedDate: r.StartedDate,
@@ -576,6 +846,7 @@ async function getFullDashboard(req, res) {
         customerName: r.CustomerName,
         vehicleNumber: r.VehicleNumber,
         packageName: r.PackageName,
+        additionalServices: r.AdditionalServices || null,
         payMode: (r.PayMode || '').trim() || 'CARD',
         payModeDescription: (r.PayModeDescription || r.PayMode || '').trim() || 'Card Payment',
         netAmount: Number(r.NetAmount || 0),

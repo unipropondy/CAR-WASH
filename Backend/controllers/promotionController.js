@@ -8,6 +8,12 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+function ensureUploadsDirectory() {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+}
+
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
@@ -60,6 +66,8 @@ function readLocalPromoImage(imagePath) {
  */
 async function uploadPromotionImage(req, res) {
   try {
+    ensureUploadsDirectory();
+
     // 1. Check if uploaded via multer (multipart/form-data)
     if (req.file) {
       const ext = path.extname(req.file.originalname).toLowerCase();
@@ -170,6 +178,7 @@ function formatPromotionRow(row) {
     promotionName: row.PromotionName,
     description: row.Description || '',
     imagePath: row.ImagePath,
+    imageUrl: `/api/promotions/${row.PromotionId}/image`,
     startDate: formatDateOnly(row.StartDate),
     endDate: formatDateOnly(row.EndDate),
     displayOrder: row.DisplayOrder,

@@ -27,6 +27,8 @@ const config = {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
+    connectTimeout: 45000,
+    requestTimeout: 45000,
   },
   pool: {
     max: 30,
@@ -69,16 +71,7 @@ function attachPoolErrorListener(targetPool) {
 async function checkInitialConnection() {
   const currentConfig = { ...config };
   try {
-    const probePool = new sql.ConnectionPool({
-      ...currentConfig,
-      connectionTimeout: 5000,
-      requestTimeout: 5000,
-    });
-    await probePool.connect();
-    pool = probePool;
-    isConnected = true;
-    attachPoolErrorListener(pool);
-
+    await getPool(2, 2000);
     return {
       connected: true,
       database: currentConfig.database,

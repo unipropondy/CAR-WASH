@@ -88,8 +88,16 @@ app.use('/api', authRoutes); // Allows both /api/login and /api/auth/login
 
 // Serve static uploaded promotional images & media
 const uploadsPath = path.join(__dirname, 'uploads');
+const promotionsPath = path.join(uploadsPath, 'promotions');
+const logosPath = path.join(uploadsPath, 'logos');
 if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
+}
+if (!fs.existsSync(promotionsPath)) {
+  fs.mkdirSync(promotionsPath, { recursive: true });
+}
+if (!fs.existsSync(logosPath)) {
+  fs.mkdirSync(logosPath, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsPath));
 // Database fallback for promotion images when file is not on local disk (e.g. cloud/ephemeral hosts)

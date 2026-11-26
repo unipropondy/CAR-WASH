@@ -287,12 +287,16 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={[
-                styles.modernInputBox, 
-                isTallKiosk && styles.modernInputBoxTall,
-                hasName && styles.modernInputBoxFilled,
-                activeField === 'name' && styles.modernInputBoxActive,
-              ]}>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => setActiveField('name')}
+                style={[
+                  styles.modernInputBox, 
+                  isTallKiosk && styles.modernInputBoxTall,
+                  hasName && styles.modernInputBoxFilled,
+                  activeField === 'name' && styles.modernInputBoxActive,
+                ]}
+              >
                 <Ionicons 
                   name="person-outline" 
                   size={isTallKiosk ? 22 : 19} 
@@ -304,17 +308,25 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   value={customerName}
                   onChangeText={setCustomerName}
                   onFocus={() => setActiveField('name')}
+                  onTouchStart={() => setActiveField('name')}
+                  pointerEvents="none"
                   showSoftInputOnFocus={false}
                   placeholder={isDealer ? "Enter driver / contact name (optional)" : "Enter customer name (optional)"}
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="words"
                 />
                 {customerName.length > 0 && (
-                  <TouchableOpacity onPress={() => setCustomerName('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <TouchableOpacity 
+                    onPress={(e) => {
+                      (e as any)?.stopPropagation?.();
+                      setCustomerName('');
+                    }} 
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
                     <Ionicons name="close-circle" size={18} color="#94A3B8" />
                   </TouchableOpacity>
                 )}
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* Divider */}
@@ -351,13 +363,17 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={[
-                styles.modernInputBox, 
-                isTallKiosk && styles.modernInputBoxTall,
-                isMobileValid && styles.modernInputBoxFilled,
-                activeField === 'mobile' && styles.modernInputBoxActive,
-                mobileError && styles.modernInputBoxError,
-              ]}>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => setActiveField('mobile')}
+                style={[
+                  styles.modernInputBox, 
+                  isTallKiosk && styles.modernInputBoxTall,
+                  isMobileValid && styles.modernInputBoxFilled,
+                  activeField === 'mobile' && styles.modernInputBoxActive,
+                  mobileError && styles.modernInputBoxError,
+                ]}
+              >
                 <Ionicons 
                   name="call-outline" 
                   size={isTallKiosk ? 22 : 19} 
@@ -369,6 +385,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   value={mobileNumber}
                   onChangeText={handleMobileChange}
                   onFocus={() => setActiveField('mobile')}
+                  onTouchStart={() => setActiveField('mobile')}
+                  pointerEvents="none"
                   showSoftInputOnFocus={false}
                   placeholder={isDealer ? "Enter mobile number (optional)" : "Enter mobile number"}
                   placeholderTextColor="#94A3B8"
@@ -376,11 +394,17 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   maxLength={10}
                 />
                 {mobileNumber.length > 0 && (
-                  <TouchableOpacity onPress={() => handleMobileChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <TouchableOpacity 
+                    onPress={(e) => {
+                      (e as any)?.stopPropagation?.();
+                      handleMobileChange('');
+                    }} 
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
                     <Ionicons name="close-circle" size={18} color="#94A3B8" />
                   </TouchableOpacity>
                 )}
-              </View>
+              </TouchableOpacity>
               {mobileError && (
                 <View style={styles.errorRow}>
                   <Ionicons name="warning" size={13} color="#EF4444" />
@@ -392,7 +416,7 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             {/* Divider */}
             <View style={styles.fieldSectionDivider} />
 
-            {/* 2. Vehicle Registration Number (OPTIONAL) */}
+            {/* 3. Vehicle Registration Number (OPTIONAL) */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <View style={styles.labelWithIcon}>
@@ -411,12 +435,16 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={[
-                styles.modernInputBox, 
-                isTallKiosk && styles.modernInputBoxTall,
-                hasPlate && styles.modernPlateBoxFilled,
-                activeField === 'plate' && styles.modernInputBoxActive,
-              ]}>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => setActiveField('plate')}
+                style={[
+                  styles.modernInputBox, 
+                  isTallKiosk && styles.modernInputBoxTall,
+                  hasPlate && styles.modernPlateBoxFilled,
+                  activeField === 'plate' && styles.modernInputBoxActive,
+                ]}
+              >
                 <Ionicons 
                   name="car-outline" 
                   size={isTallKiosk ? 22 : 19} 
@@ -428,6 +456,8 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                   value={vehicleNumber}
                   onChangeText={(text) => setVehicleNumber(text.toUpperCase())}
                   onFocus={() => setActiveField('plate')}
+                  onTouchStart={() => setActiveField('plate')}
+                  pointerEvents="none"
                   showSoftInputOnFocus={false}
                   placeholder="Enter vehicle plate (optional)"
                   placeholderTextColor="#94A3B8"
@@ -436,14 +466,17 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
                 />
                 {hasPlate && (
                   <TouchableOpacity 
-                    onPress={() => setVehicleNumber('')} 
+                    onPress={(e) => {
+                      (e as any)?.stopPropagation?.();
+                      setVehicleNumber('');
+                    }} 
                     style={styles.clearBtn}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <Ionicons name="close-circle" size={18} color="#94A3B8" />
                   </TouchableOpacity>
                 )}
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -633,6 +666,16 @@ export const Page4DetailsScreen: React.FC<Page4DetailsScreenProps> = ({
             setVehicleNumber(nextVal.toUpperCase());
           }
         }}
+        onNext={
+          activeField === 'name'
+            ? () => setActiveField('mobile')
+            : activeField === 'mobile'
+              ? () => setActiveField('plate')
+              : () => setActiveField(null)
+        }
+        nextLabel={
+          activeField === 'name' ? 'Next' : activeField === 'mobile' ? 'Next' : 'Done'
+        }
         onClose={() => setActiveField(null)}
       />
     </View>

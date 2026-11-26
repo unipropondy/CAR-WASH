@@ -538,7 +538,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
         <View style={styles.addonTopRow}>
           <View style={styles.addonCheckAndCat}>
             <View style={[styles.addonCheckbox, isAdded && styles.addonCheckboxSelected]}>
-              {isAdded && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+              {isAdded && <Ionicons name="checkmark" size={15} color="#FFFFFF" />}
             </View>
             <View
               style={[
@@ -578,12 +578,12 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           >
             <Ionicons
               name={addon.icon as any}
-              size={18}
+              size={20}
               color={isAdded ? RED_BAY_COLORS.primary : (isInterior ? '#7C3AED' : '#2563EB')}
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.addonName, isAdded && styles.addonNameSelected]} numberOfLines={1}>
+            <Text style={[styles.addonName, isAdded && styles.addonNameSelected]} numberOfLines={2}>
               {addon.name}
             </Text>
             <Text style={styles.addonDesc} numberOfLines={2}>
@@ -643,7 +643,11 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
           <View style={[
             styles.aLaCarteModalContainer,
             {
-              maxHeight: Math.min(screenHeight * 0.88, 780),
+              maxHeight: isTallKiosk
+                ? Math.min(screenHeight * 0.88, 1250)
+                : Math.min(screenHeight * 0.88, 840),
+              maxWidth: isTallKiosk ? 980 : 860,
+              width: isTallKiosk ? '92%' : '96%',
             },
           ]}>
             {/* Modal Header */}
@@ -1608,12 +1612,12 @@ const styles = StyleSheet.create({
   addonCheckAndCat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
   },
   addonCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
     borderWidth: 1.5,
     borderColor: '#CBD5E1',
     alignItems: 'center',
@@ -1625,9 +1629,9 @@ const styles = StyleSheet.create({
     borderColor: RED_BAY_COLORS.primary,
   },
   addonCatChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
   },
   addonCatChipInterior: {
@@ -1639,7 +1643,7 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE',
   },
   addonCatChipText: {
-    fontSize: 8.5,
+    fontSize: 9.5,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -1653,9 +1657,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1664,25 +1668,25 @@ const styles = StyleSheet.create({
     borderColor: '#FECACA',
   },
   addonPriceTagText: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
     color: '#0F172A',
   },
   dealerDiscountTag: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     color: '#16A34A',
     marginLeft: 4,
   },
   addonContent: {
     flexDirection: 'row',
-    gap: 9,
+    gap: 10,
     alignItems: 'flex-start',
   },
   addonIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 1,
@@ -1697,20 +1701,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   addonName: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14.5,
+    fontWeight: '800',
     color: '#1E293B',
-    lineHeight: 16,
+    lineHeight: 18,
   },
   addonNameSelected: {
     color: RED_BAY_COLORS.primary,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   addonDesc: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#64748B',
     marginTop: 3,
-    lineHeight: 14,
+    lineHeight: 15,
   },
 
   /* ===== À LA CARTE MODAL STYLES ===== */
@@ -1725,7 +1729,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     width: '100%',
-    maxWidth: 820,
+    maxWidth: 960,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
@@ -1735,17 +1739,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 14,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#FDE68A',
     backgroundColor: '#FFFBEB',
   },
   aLaCarteBadgeIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     backgroundColor: '#FEF3C7',
     borderWidth: 1,
     borderColor: '#FDE68A',
@@ -1755,26 +1759,26 @@ const styles = StyleSheet.create({
   },
   aLaCarteHeaderTextCol: {
     flex: 1,
-    marginHorizontal: 12,
+    marginHorizontal: 14,
     justifyContent: 'center',
   },
   aLaCarteModalTitle: {
-    fontSize: 16.5,
+    fontSize: 19,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.2,
   },
   aLaCarteModalSub: {
-    fontSize: 11.5,
+    fontSize: 13,
     color: '#64748B',
     marginTop: 2,
-    lineHeight: 15,
+    lineHeight: 17,
     fontWeight: '500',
   },
   aLaCarteCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1802,10 +1806,10 @@ const styles = StyleSheet.create({
   modalTabPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -1815,8 +1819,8 @@ const styles = StyleSheet.create({
     borderColor: '#0F172A',
   },
   modalTabPillText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13.5,
+    fontWeight: '800',
     color: '#475569',
   },
   modalTabPillTextActive: {
@@ -1916,15 +1920,15 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE',
   },
   categorySectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.2,
   },
   categorySectionSubtitle: {
-    fontSize: 11,
+    fontSize: 12.5,
     color: '#64748B',
-    marginTop: 1,
+    marginTop: 2,
     fontWeight: '500',
   },
   categoryCountBadge: {
@@ -1968,13 +1972,13 @@ const styles = StyleSheet.create({
   },
   aLaCarteAddonCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    padding: 12,
+    padding: 14,
     justifyContent: 'space-between',
-    minHeight: 112,
-    marginBottom: 6,
+    minHeight: 128,
+    marginBottom: 8,
     ...makeShadow('#000000', { width: 0, height: 2 }, 0.04, 6, 1),
   },
   aLaCarteAddonCardSelected: {
@@ -2085,21 +2089,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   footerTotalPillVal: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '900',
     color: RED_BAY_COLORS.primary,
     letterSpacing: 0.3,
   },
   footerStackedBtnRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     alignItems: 'center',
     width: '100%',
   },
   footerStackedCancelBtn: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
@@ -2113,8 +2117,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: RED_BAY_COLORS.primary,
-    paddingVertical: 13,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     ...makeShadow(RED_BAY_COLORS.primary, { width: 0, height: 4 }, 0.3, 8, 3),
   },
 
@@ -2151,7 +2155,7 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   aLaCarteTotalVal: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '900',
     color: RED_BAY_COLORS.primary,
   },

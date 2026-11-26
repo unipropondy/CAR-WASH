@@ -5,6 +5,7 @@ export interface KioskPromotion {
   promotionName: string;
   description: string;
   imagePath: string;
+  imageUrl?: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   displayOrder: number;
