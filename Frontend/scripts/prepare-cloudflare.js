@@ -23,30 +23,35 @@ if (fs.existsSync(indexHtmlPath)) {
   console.warn('! dist/index.html was not found.');
 }
 
-// 2. Ensure _redirects file in dist
-const redirectsContent = '/*    /index.html   200\n';
-fs.writeFileSync(path.join(distDir, '_redirects'), redirectsContent, 'utf8');
-console.log('✓ Created dist/_redirects (/* -> /index.html 200 rule for Cloudflare)');
-
-// 3. Remove _worker.js if present to prevent Cloudflare Worker asset error
-const workerJsPath = path.join(distDir, '_worker.js');
-if (fs.existsSync(workerJsPath)) {
-  fs.unlinkSync(workerJsPath);
+// 2. Remove _redirects if present (Cloudflare Workers uses not_found_handling = "single-page-application" in wrangler.toml)
+const distRedirects = path.join(distDir, '_redirects');
+if (fs.existsSync(distRedirects)) {
+  fs.unlinkSync(distRedirects);
+  console.log('✓ Removed dist/_redirects (avoids infinite loop error with Workers Static Assets)');
 }
 
-// 4. Create .assetsignore
+const distWorker = path.join(distDir, '_worker.js');
+if (fs.existsSync(distWorker)) {
+  fs.unlinkSync(distWorker);
+}
+
+// 3. Create .assetsignore
 const assetsIgnoreContent = '_worker.js\n.assetsignore\n';
 fs.writeFileSync(path.join(distDir, '.assetsignore'), assetsIgnoreContent, 'utf8');
 
-// Also sync to public directory so future exports retain them
+// Also sync to public directory
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 if (fs.existsSync(indexHtmlPath)) {
   fs.copyFileSync(indexHtmlPath, path.join(publicDir, '404.html'));
 }
-fs.writeFileSync(path.join(publicDir, '_redirects'), redirectsContent, 'utf8');
 fs.writeFileSync(path.join(publicDir, '.assetsignore'), assetsIgnoreContent, 'utf8');
+
+const publicRedirects = path.join(publicDir, '_redirects');
+if (fs.existsSync(publicRedirects)) {
+  fs.unlinkSync(publicRedirects);
+}
 const publicWorkerJs = path.join(publicDir, '_worker.js');
 if (fs.existsSync(publicWorkerJs)) {
   fs.unlinkSync(publicWorkerJs);
