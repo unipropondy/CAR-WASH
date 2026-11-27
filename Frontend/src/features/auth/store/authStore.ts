@@ -46,19 +46,28 @@ export function isTokenValid(token: string | null): boolean {
 }
 
 const getStoredAuthState = () => {
-  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+  if (Platform.OS === 'web') {
     try {
-      const storedUser = localStorage.getItem(AUTH_USER_KEY);
-      const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
-      if (storedUser && storedToken && isTokenValid(storedToken)) {
-        const user = JSON.parse(storedUser) as AuthenticatedUser;
-        return { user, token: storedToken, isAuthenticated: true };
+      // Clear any legacy persistent authentication from localStorage to ensure
+      // fresh links always require the user to sign in
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(AUTH_USER_KEY);
+        localStorage.removeItem(AUTH_TOKEN_KEY);
       }
-      // If token is missing, expired, or invalid, clear localStorage to force password
-      localStorage.removeItem(AUTH_USER_KEY);
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+
+      if (typeof sessionStorage !== 'undefined') {
+        const storedUser = sessionStorage.getItem(AUTH_USER_KEY);
+        const storedToken = sessionStorage.getItem(AUTH_TOKEN_KEY);
+        if (storedUser && storedToken && isTokenValid(storedToken)) {
+          const user = JSON.parse(storedUser) as AuthenticatedUser;
+          return { user, token: storedToken, isAuthenticated: true };
+        }
+        // If token is missing, expired, or invalid, clear sessionStorage
+        sessionStorage.removeItem(AUTH_USER_KEY);
+        sessionStorage.removeItem(AUTH_TOKEN_KEY);
+      }
     } catch (e) {
-      console.warn('Failed to load initial session from localStorage', e);
+      console.warn('Failed to load initial session from storage', e);
     }
   }
   return { user: null, token: null, isAuthenticated: false };
@@ -73,29 +82,42 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setUser: (user: AuthenticatedUser, token?: string) => {
     const valid = isTokenValid(token || null);
-    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    if (Platform.OS === 'web') {
       try {
-        if (valid && token) {
-          localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-          localStorage.setItem(AUTH_TOKEN_KEY, token);
-        } else {
+        if (typeof sessionStorage !== 'undefined') {
+          if (valid && token) {
+            sessionStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+            sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+          } else {
+            sessionStorage.removeItem(AUTH_USER_KEY);
+            sessionStorage.removeItem(AUTH_TOKEN_KEY);
+          }
+        }
+        // Always ensure persistent localStorage does not hold sensitive tokens
+        if (typeof localStorage !== 'undefined') {
           localStorage.removeItem(AUTH_USER_KEY);
           localStorage.removeItem(AUTH_TOKEN_KEY);
         }
       } catch (e) {
-        console.warn('Failed to persist session to localStorage', e);
+        console.warn('Failed to persist session to sessionStorage', e);
       }
     }
     set({ user: valid ? user : null, token: valid ? (token || null) : null, isAuthenticated: valid });
   },
 
   logout: () => {
-    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    if (Platform.OS === 'web') {
       try {
-        localStorage.removeItem(AUTH_USER_KEY);
-        localStorage.removeItem(AUTH_TOKEN_KEY);
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem(AUTH_USER_KEY);
+          sessionStorage.removeItem(AUTH_TOKEN_KEY);
+        }
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(AUTH_USER_KEY);
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+        }
       } catch (e) {
-        console.warn('Failed to clear session from localStorage', e);
+        console.warn('Failed to clear session from storage', e);
       }
     }
     set({ user: null, token: null, isAuthenticated: false });
