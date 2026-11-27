@@ -17,7 +17,7 @@ export const DEFAULT_LAN_API_URL = 'http://192.168.0.128:5000';
 // ===========================================================================
 // PRODUCTION / FALLBACK BACKEND URL
 // ===========================================================================
-export const PRODUCTION_API_URL = 'http://192.168.0.128:5000';
+export const PRODUCTION_API_URL = 'https://car-wash.up.railway.app';
 
 /**
  * Normalizes URL with protocol (http:// or https://)
@@ -110,6 +110,12 @@ export function getApiBaseUrl(): string {
     if (isLocalOrLan) {
       const scheme = protocol === 'https:' ? 'https:' : 'http:';
       return `${scheme}//${hostname}:${DEFAULT_BACKEND_PORT}`;
+    }
+
+    // When hosted on public HTTPS (e.g. Cloudflare *.workers.dev), always use production HTTPS backend
+    // to strictly prevent browser "Not secure" Mixed Content warnings
+    if (protocol === 'https:' || hostname.includes('workers.dev') || hostname.includes('pages.dev')) {
+      return PRODUCTION_API_URL;
     }
   }
 
