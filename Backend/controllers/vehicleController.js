@@ -158,7 +158,9 @@ async function getVehicleImage(req, res) {
 
     const contentType = row.ImageContentType || 'image/png';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     return res.send(row.ImageData);
   } catch (err) {
     console.error('[getVehicleImage Error]', err);
@@ -295,7 +297,7 @@ async function updateVehicleType(req, res) {
     const updates = [];
 
     if (vehicleTypeCode !== undefined && vehicleTypeCode.trim()) {
-      reqDb.input('code', sql.NVarChar(30), vehicleTypeCode.trim().toUpperCase());
+      reqDb.input('code', sql.NVarChar(50), vehicleTypeCode.trim().slice(0, 50).toUpperCase());
       updates.push(`VehicleTypeCode = @code`);
     }
     if (vehicleTypeName !== undefined && vehicleTypeName.trim()) {
@@ -307,7 +309,8 @@ async function updateVehicleType(req, res) {
       updates.push(`Description = @desc`);
     }
     if (displayOrder !== undefined) {
-      reqDb.input('order', sql.Int, parseInt(displayOrder, 10));
+      const orderNum = isNaN(parseInt(displayOrder, 10)) ? 1 : parseInt(displayOrder, 10);
+      reqDb.input('order', sql.Int, orderNum);
       updates.push(`DisplayOrder = @order`);
     }
     if (isActive !== undefined) {
@@ -315,7 +318,10 @@ async function updateVehicleType(req, res) {
       updates.push(`IsActive = @active`);
     }
     if (imageData !== undefined) {
-      if (imageData && typeof imageData === 'string') {
+      // If client sent an existing URL path, ignore it so database image is preserved
+      if (typeof imageData === 'string' && (imageData.startsWith('/api/') || imageData.startsWith('http://') || imageData.startsWith('https://'))) {
+        // preserve existing image in DB
+      } else if (imageData && typeof imageData === 'string') {
         let imgBuffer = null;
         let imgContentType = null;
         if (imageData.startsWith('data:')) {
@@ -325,16 +331,25 @@ async function updateVehicleType(req, res) {
             imgBuffer = Buffer.from(match[2], 'base64');
           }
         } else {
-          imgContentType = 'image/png';
-          imgBuffer = Buffer.from(imageData, 'base64');
+          try {
+            imgContentType = 'image/png';
+            imgBuffer = Buffer.from(imageData, 'base64');
+          } catch (e) {
+            imgBuffer = null;
+          }
         }
-        reqDb.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
-        reqDb.input('imgContentType', sql.NVarChar(100), imgContentType);
-        updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
+        if (imgBuffer && imgBuffer.length > 0) {
+          reqDb.input('imgData', sql.VarBinary(sql.MAX), imgBuffer);
+          reqDb.input('imgContentType', sql.NVarChar(100), imgContentType || 'image/png');
+          updates.push(`ImageData = @imgData, ImageContentType = @imgContentType`);
+        }
       } else if (imageData === null || imageData === '') {
         updates.push(`ImageData = NULL, ImageContentType = NULL`);
       }
     }
+
+    // Refresh version timestamp so client cache busters immediately reflect updates
+    updates.push(`CreatedDate = GETDATE()`);
 
     if (updates.length === 0) {
       return res.status(400).json({ success: false, message: 'No fields to update provided.' });
@@ -382,33 +397,33 @@ async function deleteVehicleType(req, res) {
 
     const pool = await getPool();
 
-    // Check if vehicle type is used by active orders
-    const usageCheck = await pool.request()
-      .input('id', sql.Int, vehicleTypeId)
-      .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WHERE VehicleTypeId = @id`);
-
-    if (usageCheck.recordset.length > 0) {
-      // Soft-delete by setting IsActive = 0
+    // 1. Delete vehicle type price rows
+    try {
       await pool.request()
         .input('id', sql.Int, vehicleTypeId)
-        .query(`UPDATE dbo.VehicleTypeMaster SET IsActive = 0 WHERE VehicleTypeId = @id`);
-
-      invalidateVehicleCache();
-      return res.status(200).json({
-        success: true,
-        message: 'Vehicle type has existing orders, deactivated successfully.',
-      });
+        .query(`DELETE FROM dbo.ServicePackageVehicleTypePrice WHERE VehicleTypeId = @id`);
+    } catch (e) {
+      console.warn('[deleteVehicleType] clean prices warning:', e.message);
     }
 
-    // Direct delete if never used
-    const result = await pool.request()
+    // 2. Unlink any orders so historical orders don't block deletion
+    try {
+      await pool.request()
+        .input('id', sql.Int, vehicleTypeId)
+        .query(`UPDATE dbo.CarWashOrder SET VehicleTypeId = NULL WHERE VehicleTypeId = @id`);
+    } catch (e) {
+      console.warn('[deleteVehicleType] unlink orders warning:', e.message);
+    }
+
+    // 3. Direct delete from VehicleTypeMaster
+    await pool.request()
       .input('id', sql.Int, vehicleTypeId)
       .query(`DELETE FROM dbo.VehicleTypeMaster WHERE VehicleTypeId = @id`);
 
     invalidateVehicleCache();
     return res.status(200).json({
       success: true,
-      message: 'Vehicle type deleted successfully from database.',
+      message: 'Vehicle type deleted successfully.',
     });
   } catch (err) {
     console.error('[deleteVehicleType Error]', err);

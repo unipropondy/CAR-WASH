@@ -544,23 +544,25 @@ async function deleteServiceCategory(req, res) {
 
     const pool = await getPool();
 
-    // Check if category has associated packages or orders
-    const pkgCheck = await pool.request()
-      .input('id', sql.Int, categoryId)
-      .query(`SELECT TOP 1 PackageId FROM dbo.ServicePackageMaster WHERE ServiceCategoryId = @id`);
-
-    if (pkgCheck.recordset.length > 0) {
+    // 1. Unlink any packages from this category
+    try {
       await pool.request()
         .input('id', sql.Int, categoryId)
-        .query(`UPDATE dbo.ServiceCategoryMaster SET IsActive = 0 WHERE ServiceCategoryId = @id`);
-
-      invalidateCategoryCache();
-      return res.status(200).json({
-        success: true,
-        message: 'Category has associated packages, deactivated successfully.',
-      });
+        .query(`UPDATE dbo.ServicePackageMaster SET ServiceCategoryId = NULL WHERE ServiceCategoryId = @id`);
+    } catch (e) {
+      console.warn('[deleteServiceCategory] Unlink packages warning:', e.message);
     }
 
+    // 2. Unlink any orders from this category
+    try {
+      await pool.request()
+        .input('id', sql.Int, categoryId)
+        .query(`UPDATE dbo.CarWashOrder SET ServiceCategoryId = NULL WHERE ServiceCategoryId = @id`);
+    } catch (e) {
+      console.warn('[deleteServiceCategory] Unlink orders warning:', e.message);
+    }
+
+    // 3. Delete category from ServiceCategoryMaster
     await pool.request()
       .input('id', sql.Int, categoryId)
       .query(`DELETE FROM dbo.ServiceCategoryMaster WHERE ServiceCategoryId = @id`);
@@ -568,7 +570,7 @@ async function deleteServiceCategory(req, res) {
     invalidateCategoryCache();
     return res.status(200).json({
       success: true,
-      message: 'Service category deleted successfully from database.',
+      message: 'Service category deleted successfully.',
     });
   } catch (err) {
     console.error('[deleteServiceCategory Error]', err);

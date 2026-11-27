@@ -97,7 +97,20 @@ export function getApiBaseUrl(): string {
     return normalizeApiUrl(customApiBaseUrl);
   }
 
-  // 2. On Web: if opened via localhost, LAN IP (192.168.x, 10.x, 26.x), or .local,
+  // 2. Direct environment variable (inlined by Babel / Metro compiler at build time)
+  const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
+  if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
+    const envUrl = envApiUrl.trim();
+    if (
+      envUrl !== 'http://' &&
+      envUrl !== 'https://' &&
+      !envUrl.includes('railway.internal')
+    ) {
+      return normalizeApiUrl(envUrl);
+    }
+  }
+
+  // 3. On Web: if opened via localhost, LAN IP (192.168.x, 10.x, 26.x), or .local,
   // dynamically connect to the backend server running on that SAME host IP on port 5000
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
     const { hostname, protocol } = window.location;
@@ -116,19 +129,6 @@ export function getApiBaseUrl(): string {
     // to strictly prevent browser "Not secure" Mixed Content warnings
     if (protocol === 'https:' || hostname.includes('workers.dev') || hostname.includes('pages.dev')) {
       return PRODUCTION_API_URL;
-    }
-  }
-
-  // 3. Direct environment variable (inlined by Babel / Metro compiler at build time)
-  const envApiUrl = (process.env as any)?.EXPO_PUBLIC_API_URL;
-  if (envApiUrl && typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
-    const envUrl = envApiUrl.trim();
-    if (
-      envUrl !== 'http://' &&
-      envUrl !== 'https://' &&
-      !envUrl.includes('railway.internal')
-    ) {
-      return normalizeApiUrl(envUrl);
     }
   }
 

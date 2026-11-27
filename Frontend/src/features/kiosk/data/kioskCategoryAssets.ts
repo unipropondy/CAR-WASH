@@ -26,11 +26,7 @@ export const CATEGORY_VISUAL_CONFIG: Record<string, CategoryVisualMeta> = {
     iconName: 'car-sport',
     image: require('../../../../assets/images/categories/car_wash.jpg'),
     defaultSubtitle: 'Exterior wash, detailing & cleaning',
-    bullets: [
-      'High-Density Foam Wash',
-      'Wheel & Rim Degreasing',
-      'Clean & Dry Finish',
-    ],
+    bullets: [],
   },
   polish: {
     key: 'polish',
@@ -44,11 +40,7 @@ export const CATEGORY_VISUAL_CONFIG: Record<string, CategoryVisualMeta> = {
     iconName: 'sparkles',
     image: require('../../../../assets/images/categories/polishing.jpg'),
     defaultSubtitle: 'Restore shine & protect your paint',
-    bullets: [
-      'Paint Polishing & Gloss',
-      'Minor Scratch Removal',
-      'Long-Lasting Protection',
-    ],
+    bullets: [],
   },
   alcare: {
     key: 'alcare',
@@ -62,11 +54,7 @@ export const CATEGORY_VISUAL_CONFIG: Record<string, CategoryVisualMeta> = {
     iconName: 'shield-checkmark',
     image: require('../../../../assets/images/categories/alcare.jpg'),
     defaultSubtitle: 'Interior cleaning, sanitization & special care',
-    bullets: [
-      'Cabin Sanitization',
-      'Interior Deep Cleaning',
-      'Odour Removal & Freshness',
-    ],
+    bullets: [],
   },
 };
 

@@ -470,11 +470,29 @@ async function updatePackage(req, res) {
       .input('id', sql.Int, packageId)
       .query(`SELECT * FROM dbo.ServicePackageMaster WHERE PackageId = @id`);
 
+    const updatedRow = updatedRes.recordset[0];
+    const formattedData = updatedRow ? {
+      packageId: updatedRow.PackageId,
+      serviceCategoryId: updatedRow.ServiceCategoryId,
+      packageCode: (updatedRow.PackageCode || '').trim(),
+      packageName: (updatedRow.PackageName || '').trim(),
+      description: (updatedRow.Description || '').trim(),
+      price: Number(updatedRow.Price),
+      dealerPrice: updatedRow.DealerPrice != null ? Number(updatedRow.DealerPrice) : Number(updatedRow.Price),
+      currencyCode: (updatedRow.CurrencyCode || 'SGD').trim(),
+      gstPercent: Number(updatedRow.GSTPercent || 0),
+      isTaxInclusive: Boolean(updatedRow.IsTaxInclusive),
+      durationMinutes: updatedRow.DurationMinutes,
+      displayOrder: updatedRow.DisplayOrder ?? 0,
+      isActive: Boolean(updatedRow.IsActive),
+      createdDate: updatedRow.CreatedDate,
+    } : null;
+
     invalidatePackageCache();
     return res.status(200).json({
       success: true,
       message: 'Package updated successfully.',
-      data: updatedRes.recordset[0],
+      data: formattedData,
     });
   } catch (err) {
     try {
@@ -491,7 +509,7 @@ async function updatePackage(req, res) {
 
 /**
  * 5. DELETE /api/service-packages/:id
- * Soft delete or deactivate package
+ * Permanently delete package and clean up associations
  */
 async function deletePackage(req, res) {
   try {
@@ -502,24 +520,7 @@ async function deletePackage(req, res) {
 
     const pool = await getPool();
 
-    // Check if package is used in CarWashOrder
-    const usageCheck = await pool.request()
-      .input('id', sql.Int, packageId)
-      .query(`SELECT TOP 1 OrderId FROM dbo.CarWashOrder WHERE PackageId = @id`);
-
-    if (usageCheck.recordset.length > 0) {
-      await pool.request()
-        .input('id', sql.Int, packageId)
-        .query(`UPDATE dbo.ServicePackageMaster SET IsActive = 0 WHERE PackageId = @id`);
-
-      invalidatePackageCache();
-      return res.status(200).json({
-        success: true,
-        message: 'Package has existing bookings, deactivated successfully.',
-      });
-    }
-
-    // Clean up dependent child tables first to avoid FK constraint errors
+    // 1. Clean up dependent child tables first
     try {
       await pool.request().input('id', sql.Int, packageId).query(`
         DELETE FROM dbo.ServicePackageVehicleTypePrice WHERE PackageId = @id;
@@ -544,22 +545,15 @@ async function deletePackage(req, res) {
       console.warn('[deletePackage] clean features warning:', e.message);
     }
 
-    // Attempt hard delete; if foreign key still blocks (e.g. historical audits), fallback to deactivation
-    try {
-      await pool.request().input('id', sql.Int, packageId).query(`
-        DELETE FROM dbo.ServicePackageMaster WHERE PackageId = @id;
-      `);
-    } catch (fkErr) {
-      console.warn('[deletePackage] Foreign key constraint found, deactivating instead:', fkErr.message);
-      await pool.request().input('id', sql.Int, packageId).query(`
-        UPDATE dbo.ServicePackageMaster SET IsActive = 0 WHERE PackageId = @id;
-      `);
-    }
+    // 2. Permanently hard delete from ServicePackageMaster
+    await pool.request().input('id', sql.Int, packageId).query(`
+      DELETE FROM dbo.ServicePackageMaster WHERE PackageId = @id;
+    `);
 
     invalidatePackageCache();
     return res.status(200).json({
       success: true,
-      message: 'Package removed successfully from database.',
+      message: 'Package deleted successfully.',
     });
   } catch (err) {
     console.error('[deletePackage Error]', err);

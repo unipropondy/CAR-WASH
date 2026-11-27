@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -152,6 +153,31 @@ function getPackageFeatures(pkg: ServicePackage): string[] {
   return ['Professional express wash', 'Hand chamois dry', 'Quality satisfaction guaranteed'];
 }
 
+function getCategoryBullets(description?: string | null): string[] {
+  if (!description) return [];
+  const raw = description.trim();
+  if (!raw || raw === '-') return [];
+
+  if (raw.includes('•')) {
+    const parts = raw.split('•').map((s) => s.trim()).filter((s) => s.length > 0 && s !== '-');
+    if (parts.length > 0) return parts;
+  }
+  if (raw.includes('\n')) {
+    const parts = raw.split('\n').map((s) => s.replace(/^[•\-\*]\s*/, '').trim()).filter((s) => s.length > 0 && s !== '-');
+    if (parts.length > 0) return parts;
+  }
+  if (raw.includes(';')) {
+    const parts = raw.split(';').map((s) => s.trim()).filter((s) => s.length > 0 && s !== '-');
+    if (parts.length > 0) return parts;
+  }
+  if (raw.includes(',')) {
+    const parts = raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0 && s !== '-');
+    if (parts.length > 0) return parts;
+  }
+
+  return [raw];
+}
+
 export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   initialCategory,
   initialPackage,
@@ -224,6 +250,15 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     return undefined;
   });
   const [selectedPackage, setSelectedPackage] = useState<ServicePackage | undefined>(initialPackage);
+
+  const isALaCarteCategory = Boolean(
+    selectedCategory && (
+      selectedCategory.title.toLowerCase().includes('carte') ||
+      selectedCategory.title.toLowerCase().includes('a la') ||
+      selectedCategory.title.toLowerCase().includes('alacarte') ||
+      selectedCategory.title.toLowerCase().includes('alcare')
+    )
+  );
 
   const [viewStep, setViewStep] = useState<'CATEGORIES' | 'PACKAGES'>(
     isDealer ? 'PACKAGES' : (initialStep === 'PACKAGES' && initialCategory ? 'PACKAGES' : 'CATEGORIES')
@@ -544,7 +579,9 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   };
 
   // ---- Modal computed values ----
-  const aLaCarteAvailableAddons = selectedPackage
+  const aLaCarteAvailableAddons = isALaCarteCategory
+    ? addonsList
+    : selectedPackage
     ? getAvailableALaCarteForPackage(selectedPackage, addonsList)
     : [];
   const aLaCarteActiveAddons = aLaCarteAvailableAddons.filter((a) => pendingAddonIds.includes(a.id));
@@ -564,7 +601,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     exteriorAddons.some((a) => a.id === id)
   ).length;
 
-  const aLaCarteBasePkgPrice = selectedPackage
+  const aLaCarteBasePkgPrice = !isALaCarteCategory && selectedPackage
     ? getPkgDisplayPrice(selectedPackage)
     : 0;
   const aLaCarteAddonsTotal = aLaCarteActiveAddons.reduce(
@@ -572,6 +609,59 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     0
   );
   const aLaCarteGrandTotal = Number((aLaCarteBasePkgPrice + aLaCarteAddonsTotal).toFixed(2));
+
+  /** Continue directly from À La Carte screen when user clicks Continue */
+  const handleDirectALaCarteContinue = () => {
+    if (!selectedCategory) return;
+    if (pendingAddonIds.length === 0) {
+      Alert.alert('Selection Required', 'Please choose at least one à la carte service to continue.');
+      return;
+    }
+
+    const activeAddons = addonsList.filter((a) => pendingAddonIds.includes(a.id));
+    const addonsStr = activeAddons
+      .map((a) => {
+        const itemPrice = isDealer ? a.dealerPrice : a.customerPrice;
+        return `${a.name} ($${itemPrice.toFixed(2)})`;
+      })
+      .join(', ');
+    const addonsTotal = activeAddons.reduce(
+      (sum, a) => sum + (isDealer ? a.dealerPrice : a.customerPrice),
+      0
+    );
+
+    // Find the A_LA_CARTE zero base package or fall back to dummy base
+    const basePkg: ServicePackage = packages.find(
+      (p) =>
+        p.packageCode === 'A_LA_CARTE' ||
+        p.name.toLowerCase().includes('carte') ||
+        p.price === 0
+    ) || {
+      id: 'a_la_carte',
+      packageId: 13,
+      packageCode: 'A_LA_CARTE',
+      categoryId: 'ALCARE_CARE',
+      name: 'A La Carte Services',
+      description: 'Custom À La Carte Services & Add-ons',
+      price: 0,
+      dealerPrice: 0,
+      serviceCategoryId: selectedCategory.serviceCategoryId || selectedServiceCategoryId || 4,
+      currencyCode: 'SGD',
+      isActive: true,
+      features: [],
+    };
+
+    setSelectedPackage(basePkg);
+    setSelectedAddonIds(pendingAddonIds);
+
+    onContinue(
+      selectedCategory,
+      basePkg,
+      selectedServiceCategoryId || selectedCategory.serviceCategoryId,
+      addonsStr || undefined,
+      addonsTotal
+    );
+  };
 
   const renderAddonCard = (addon: ALaCarteServiceOption) => {
     const isAdded = pendingAddonIds.includes(addon.id);
@@ -664,6 +754,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
             ? 'Dealer Package'
             : viewStep === 'CATEGORIES'
             ? 'Category Selection'
+            : isALaCarteCategory
+            ? 'À La Carte Services'
             : 'Package Selection'
         }
       />
@@ -675,6 +767,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
             ? 'Choose Package & Additional Services'
             : viewStep === 'CATEGORIES'
             ? 'Select a Service Category'
+            : isALaCarteCategory
+            ? 'Pick Your À La Carte Services'
             : 'Choose Your Package'}
         </Text>
         <Text style={styles.subtitle}>
@@ -682,6 +776,8 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
             ? 'Select service package and optional commercial add-ons. Order will be billed automatically to credit.'
             : viewStep === 'CATEGORIES'
             ? 'Choose between exterior wash, paint polishing, or AlCare interior sanitization.'
+            : isALaCarteCategory
+            ? 'Select individual interior or exterior services and tap Continue.'
             : 'Tap a package to select it and pick optional upgrades.'}
         </Text>
         <View style={styles.titleUnderlineAccent} />
@@ -967,11 +1063,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
               <View style={styles.categoriesGrid}>
                 {categories.map((cat) => {
                   const meta = getCategoryVisualMeta(cat.title);
-                  const hasCatDescription = Boolean(
-                    cat.description &&
-                    cat.description.trim() !== '' &&
-                    cat.description.trim() !== '-'
-                  );
+                  const categoryBullets = getCategoryBullets(cat.description);
 
                   return (
                     <TouchableOpacity
@@ -1015,28 +1107,25 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                               <Ionicons name={meta.iconName} size={22} color={meta.accentColor} />
                             )}
                           </View>
-                          <View style={[styles.cardTitleCol, !hasCatDescription && styles.cardTitleColCentered]}>
+                          <View style={[styles.cardTitleCol, styles.cardTitleColCentered]}>
                             <Text style={styles.cardTitle} numberOfLines={1}>
                               {cat.title.toUpperCase()}
                             </Text>
-                            {hasCatDescription && (
-                              <Text style={styles.cardSubtitle} numberOfLines={2}>
-                                {cat.description!.trim()}
-                              </Text>
-                            )}
                           </View>
                         </View>
 
-                        <View style={styles.cardBulletList}>
-                          {meta.bullets.map((bullet, idx) => (
-                            <View key={idx} style={styles.cardBulletRow}>
-                              <Ionicons name="checkmark-circle" size={17} color={meta.accentColor} />
-                              <Text style={styles.cardBulletText} numberOfLines={1}>
-                                {bullet}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
+                        {categoryBullets.length > 0 && (
+                          <View style={styles.cardBulletList}>
+                            {categoryBullets.map((bullet, idx) => (
+                              <View key={idx} style={styles.cardBulletRow}>
+                                <Ionicons name="checkmark-circle" size={17} color={meta.accentColor} />
+                                <Text style={styles.cardBulletText} numberOfLines={1}>
+                                  {bullet}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
 
                         <View style={[styles.cardActionBtn, { backgroundColor: meta.btnColor }]}>
                           <Text style={styles.cardActionBtnText}>View Packages</Text>
@@ -1098,123 +1187,461 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                 </View>
               </TouchableOpacity>
 
-              {loadingPackages && packages.length === 0 ? (
-                <View style={styles.centerContainer}>
-                  <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
-                  <Text style={styles.loadingText}>Loading packages...</Text>
-                </View>
-              ) : packageError && packages.length === 0 ? (
-                <View style={styles.centerContainer}>
-                  <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
-                  <Text style={styles.errorText}>{packageError}</Text>
-                  <TouchableOpacity
-                    style={styles.retryBtn}
-                    onPress={() => loadPackagesForCategory(selectedServiceCategoryId)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.retryBtnText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : packages.length === 0 ? (
-                <View style={styles.centerContainer}>
-                  <Ionicons name="car-outline" size={48} color="#94A3B8" />
-                  <Text style={styles.emptyTitle}>No Packages Configured</Text>
-                  <TouchableOpacity
-                    style={styles.retryBtn}
-                    onPress={() => setViewStep('CATEGORIES')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.retryBtnText}>Choose Another Category</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.packagesGrid}>
-                  {packages.map((pkg) => {
-                    const isSelected =
-                      selectedPackage?.packageId === pkg.packageId ||
-                      selectedPackage?.id === pkg.id;
-                    const features = getPackageFeatures(pkg);
-                    const pkgDisplayPrice = getPkgDisplayPrice(pkg);
-                    const hasDealerDiscount =
-                      isDealer && pkg.dealerPrice != null && pkg.dealerPrice < pkg.price;
-
-                    return (
+              {/* À La Carte Mode vs Standard Package Mode */}
+              {isALaCarteCategory ? (
+                <View style={{ width: '100%' }}>
+                  {/* Category Filter Tabs Bar */}
+                  <View style={[styles.modalFilterBar, { borderRadius: 16, marginBottom: 16 }]}>
+                    <View style={styles.modalTabsList}>
                       <TouchableOpacity
-                        key={pkg.packageId || pkg.id}
                         style={[
-                          styles.packageCard,
-                          { width: packageCardWidth, minHeight: dynamicPackageMinHeight },
-                          use3ColPackages && styles.packageCard3Col,
-                          isTallKiosk && styles.packageCardTall,
-                          isLandscapeShort && styles.packageCardShort,
-                          isSelected && styles.packageCardSelected,
+                          styles.modalTabPill,
+                          activeAddonTab === 'ALL' && styles.modalTabPillActive,
                         ]}
-                        onPress={() => handleSelectPackage(pkg)}
-                        activeOpacity={0.88}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => setActiveAddonTab('ALL')}
+                        activeOpacity={0.8}
                       >
-                        {isSelected && <View style={styles.pkgSelectedStrip} />}
-
-                        {/* Package Name & Price */}
-                        <View style={styles.pkgHeaderBlock}>
+                        <Text
+                          style={[
+                            styles.modalTabPillText,
+                            activeAddonTab === 'ALL' && styles.modalTabPillTextActive,
+                          ]}
+                        >
+                          All Services
+                        </Text>
+                        <View
+                          style={[
+                            styles.modalTabPillBadge,
+                            activeAddonTab === 'ALL' && styles.modalTabPillBadgeActive,
+                          ]}
+                        >
                           <Text
-                            style={[styles.packageName, isSelected && styles.packageNameSelected]}
-                            numberOfLines={2}
+                            style={[
+                              styles.modalTabPillBadgeText,
+                              activeAddonTab === 'ALL' && styles.modalTabPillBadgeTextActive,
+                            ]}
                           >
-                            {pkg.name}
+                            {aLaCarteAvailableAddons.length}
                           </Text>
-                          <View style={styles.priceRow}>
-                            <Text style={[styles.priceAmount, isSelected && styles.priceAmountSelected]}>
-                              ${pkgDisplayPrice.toFixed(2)}
+                        </View>
+                        {pendingAddonIds.length > 0 && (
+                          <View style={styles.modalTabSelectionIndicator}>
+                            <Text style={styles.modalTabSelectionIndicatorText}>
+                              {pendingAddonIds.length}
                             </Text>
-                            {vehicle?.name ? (
-                              <View style={[styles.dealerDiscountBadge, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)', borderWidth: 1 }]}>
-                                <Text style={[styles.dealerDiscountBadgeText, { color: RED_BAY_COLORS.primary }]}>
-                                  {vehicle.name.toUpperCase()}
+                          </View>
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.modalTabPill,
+                          activeAddonTab === 'INTERIOR' && styles.modalTabPillActive,
+                        ]}
+                        onPress={() => setActiveAddonTab('INTERIOR')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="sparkles"
+                          size={14}
+                          color={activeAddonTab === 'INTERIOR' ? '#FFFFFF' : '#7C3AED'}
+                        />
+                        <Text
+                          style={[
+                            styles.modalTabPillText,
+                            activeAddonTab === 'INTERIOR' && styles.modalTabPillTextActive,
+                          ]}
+                        >
+                          Interior
+                        </Text>
+                        <View
+                          style={[
+                            styles.modalTabPillBadge,
+                            activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.modalTabPillBadgeText,
+                              activeAddonTab === 'INTERIOR' && styles.modalTabPillBadgeTextActive,
+                            ]}
+                          >
+                            {interiorAddons.length}
+                          </Text>
+                        </View>
+                        {pendingInteriorCount > 0 && (
+                          <View style={styles.modalTabSelectionIndicator}>
+                            <Text style={styles.modalTabSelectionIndicatorText}>
+                              {pendingInteriorCount}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.modalTabPill,
+                          activeAddonTab === 'EXTERIOR' && styles.modalTabPillActive,
+                        ]}
+                        onPress={() => setActiveAddonTab('EXTERIOR')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="car-sport"
+                          size={14}
+                          color={activeAddonTab === 'EXTERIOR' ? '#FFFFFF' : '#2563EB'}
+                        />
+                        <Text
+                          style={[
+                            styles.modalTabPillText,
+                            activeAddonTab === 'EXTERIOR' && styles.modalTabPillTextActive,
+                          ]}
+                        >
+                          Exterior
+                        </Text>
+                        <View
+                          style={[
+                            styles.modalTabPillBadge,
+                            activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.modalTabPillBadgeText,
+                              activeAddonTab === 'EXTERIOR' && styles.modalTabPillBadgeTextActive,
+                            ]}
+                          >
+                            {exteriorAddons.length}
+                          </Text>
+                        </View>
+                        {pendingExteriorCount > 0 && (
+                          <View style={styles.modalTabSelectionIndicator}>
+                            <Text style={styles.modalTabSelectionIndicatorText}>
+                              {pendingExteriorCount}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {pendingAddonIds.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.aLaCarteClearBtn}
+                        onPress={() => setPendingAddonIds([])}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                        <Text style={styles.aLaCarteClearText}>Clear All</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Addons Grid */}
+                  {aLaCarteAvailableAddons.length === 0 ? (
+                    <View style={styles.aLaCarteEmptyState}>
+                      <Ionicons name="sparkles-outline" size={48} color="#9CA3AF" />
+                      <Text style={styles.aLaCarteEmptyTitle}>No Services Found</Text>
+                      <Text style={styles.aLaCarteEmptySubtitle}>
+                        Loading or no à la carte services available at this time.
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      {/* INTERIOR SERVICES */}
+                      {(activeAddonTab === 'ALL' || activeAddonTab === 'INTERIOR') && interiorAddons.length > 0 && (
+                        <View style={styles.categorySectionWrapper}>
+                          <View style={styles.categorySectionHeader}>
+                            <View style={styles.categoryHeaderLeft}>
+                              <View style={[styles.categorySectionIconBadge, styles.categorySectionIconBadgeInterior]}>
+                                <Ionicons name="sparkles" size={16} color="#7C3AED" />
+                              </View>
+                              <View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <Text style={styles.categorySectionTitle}>Interior Services</Text>
+                                  <View style={[styles.categoryCountBadge, styles.categoryCountBadgeInterior]}>
+                                    <Text style={[styles.categoryCountBadgeText, { color: '#7C3AED' }]}>
+                                      {interiorAddons.length} options
+                                    </Text>
+                                  </View>
+                                  {pendingInteriorCount > 0 && (
+                                    <View style={styles.categorySelectedPill}>
+                                      <Ionicons name="checkmark-circle" size={12} color="#FFFFFF" />
+                                      <Text style={styles.categorySelectedPillText}>
+                                        {pendingInteriorCount} selected
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                                <Text style={styles.categorySectionSubtitle}>
+                                  Deep cabin vacuuming, sanitization, leather conditioning & freshness
                                 </Text>
                               </View>
-                            ) : null}
-                            {hasDealerDiscount && (
-                              <View style={styles.dealerDiscountBadge}>
-                                <Text style={styles.dealerDiscountBadgeText}>DEALER (20% OFF)</Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.aLaCarteAddonsGrid}>
+                            {interiorAddons.map(renderAddonCard)}
+                          </View>
+                        </View>
+                      )}
+
+                      {/* EXTERIOR SERVICES */}
+                      {(activeAddonTab === 'ALL' || activeAddonTab === 'EXTERIOR') && exteriorAddons.length > 0 && (
+                        <View style={[styles.categorySectionWrapper, { marginTop: activeAddonTab === 'ALL' ? 18 : 0 }]}>
+                          <View style={styles.categorySectionHeader}>
+                            <View style={styles.categoryHeaderLeft}>
+                              <View style={[styles.categorySectionIconBadge, styles.categorySectionIconBadgeExterior]}>
+                                <Ionicons name="car-sport" size={16} color="#2563EB" />
+                              </View>
+                              <View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <Text style={styles.categorySectionTitle}>Exterior Services</Text>
+                                  <View style={[styles.categoryCountBadge, styles.categoryCountBadgeExterior]}>
+                                    <Text style={[styles.categoryCountBadgeText, { color: '#2563EB' }]}>
+                                      {exteriorAddons.length} options
+                                    </Text>
+                                  </View>
+                                  {pendingExteriorCount > 0 && (
+                                    <View style={styles.categorySelectedPill}>
+                                      <Ionicons name="checkmark-circle" size={12} color="#FFFFFF" />
+                                      <Text style={styles.categorySelectedPillText}>
+                                        {pendingExteriorCount} selected
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                                <Text style={styles.categorySectionSubtitle}>
+                                  Snow foam wash, wheel detailing, wax & paint protection
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          <View style={styles.aLaCarteAddonsGrid}>
+                            {exteriorAddons.map(renderAddonCard)}
+                          </View>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {/* Sticky / Inline Summary & Continue Bar */}
+                  <View style={[
+                    styles.aLaCarteModalFooter,
+                    { borderRadius: 20, marginTop: 24, marginBottom: 20 },
+                    !footerIsStacked && styles.aLaCarteModalFooterWide,
+                  ]}>
+                    {footerIsStacked ? (
+                      <>
+                        <View style={styles.footerPriceBanner}>
+                          <View style={styles.footerPriceDetails}>
+                            <Text style={styles.footerBaseText}>
+                              Selected Services: <Text style={styles.footerBaseAmount}>{pendingAddonIds.length} item(s)</Text>
+                            </Text>
+                            {aLaCarteAddonsTotal > 0 && (
+                              <View style={{ marginTop: 2 }}>
+                                <Text style={styles.footerBreakdownSub}>
+                                  {pendingInteriorCount > 0 ? `${pendingInteriorCount} Interior` : ''}
+                                  {pendingInteriorCount > 0 && pendingExteriorCount > 0 ? ' • ' : ''}
+                                  {pendingExteriorCount > 0 ? `${pendingExteriorCount} Exterior` : ''}
+                                </Text>
                               </View>
                             )}
                           </View>
+                          <View style={styles.footerTotalPill}>
+                            <Text style={styles.footerTotalPillLabel}>TOTAL</Text>
+                            <Text style={styles.footerTotalPillVal}>${aLaCarteAddonsTotal.toFixed(2)}</Text>
+                          </View>
                         </View>
 
-                        <View style={styles.pkgDivider} />
+                        <View style={styles.footerStackedBtnRow}>
+                          <TouchableOpacity
+                            style={styles.footerStackedCancelBtn}
+                            onPress={() => setViewStep('CATEGORIES')}
+                          >
+                            <Text style={styles.aLaCarteSkipBtnText}>Back to Categories</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.footerStackedConfirmBtn,
+                              pendingAddonIds.length === 0 && { opacity: 0.6 },
+                            ]}
+                            onPress={handleDirectALaCarteContinue}
+                          >
+                            <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                            <Text style={styles.aLaCarteConfirmBtnText}>
+                              {pendingAddonIds.length === 0 ? 'Select Services to Continue' : 'Continue to Payment'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.aLaCartePriceCol}>
+                          <View style={styles.aLaCartePriceRow}>
+                            <Text style={styles.aLaCartePriceLabel}>
+                              Selected Services ({pendingAddonIds.length}):
+                            </Text>
+                            <Text style={styles.aLaCartePriceVal}>${aLaCarteAddonsTotal.toFixed(2)}</Text>
+                          </View>
+                          {pendingAddonIds.length > 0 && (
+                            <Text style={styles.footerBreakdownSub}>
+                              {pendingInteriorCount > 0 ? `${pendingInteriorCount} Interior` : ''}
+                              {pendingInteriorCount > 0 && pendingExteriorCount > 0 ? ' • ' : ''}
+                              {pendingExteriorCount > 0 ? `${pendingExteriorCount} Exterior` : ''}
+                            </Text>
+                          )}
+                          <View style={[styles.aLaCartePriceRow, styles.aLaCarteTotalRow]}>
+                            <Text style={styles.aLaCarteTotalLabel}>TOTAL:</Text>
+                            <Text style={styles.aLaCarteTotalVal}>${aLaCarteAddonsTotal.toFixed(2)}</Text>
+                          </View>
+                        </View>
 
-                        {/* Features list */}
-                        <View style={styles.pkgFeatureList}>
-                          {features.map((feat, fIdx) => (
-                            <View key={fIdx} style={styles.pkgFeatureItem}>
-                              <Ionicons
-                                name="checkmark-circle"
-                                size={14}
-                                color={isSelected ? RED_BAY_COLORS.primary : '#10B981'}
-                                style={{ marginTop: 2 }}
-                              />
+                        <View style={styles.aLaCarteFooterBtns}>
+                          <TouchableOpacity
+                            style={styles.aLaCarteSkipBtn}
+                            onPress={() => setViewStep('CATEGORIES')}
+                          >
+                            <Text style={styles.aLaCarteSkipBtnText}>Back to Categories</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.aLaCarteConfirmBtn,
+                              pendingAddonIds.length === 0 && { opacity: 0.6 },
+                            ]}
+                            onPress={handleDirectALaCarteContinue}
+                          >
+                            <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                            <Text style={styles.aLaCarteConfirmBtnText}>
+                              {pendingAddonIds.length === 0 ? 'Select Services to Continue' : 'Continue to Payment'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <>
+                  {loadingPackages && packages.length === 0 ? (
+                    <View style={styles.centerContainer}>
+                      <ActivityIndicator size="large" color={RED_BAY_COLORS.primary} />
+                      <Text style={styles.loadingText}>Loading packages...</Text>
+                    </View>
+                  ) : packageError && packages.length === 0 ? (
+                    <View style={styles.centerContainer}>
+                      <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
+                      <Text style={styles.errorText}>{packageError}</Text>
+                      <TouchableOpacity
+                        style={styles.retryBtn}
+                        onPress={() => loadPackagesForCategory(selectedServiceCategoryId)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.retryBtnText}>Retry</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : packages.length === 0 ? (
+                    <View style={styles.centerContainer}>
+                      <Ionicons name="car-outline" size={48} color="#94A3B8" />
+                      <Text style={styles.emptyTitle}>No Packages Configured</Text>
+                      <TouchableOpacity
+                        style={styles.retryBtn}
+                        onPress={() => setViewStep('CATEGORIES')}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.retryBtnText}>Choose Another Category</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.packagesGrid}>
+                      {packages.map((pkg) => {
+                        const isSelected =
+                          selectedPackage?.packageId === pkg.packageId ||
+                          selectedPackage?.id === pkg.id;
+                        const features = getPackageFeatures(pkg);
+                        const pkgDisplayPrice = getPkgDisplayPrice(pkg);
+                        const hasDealerDiscount =
+                          isDealer && pkg.dealerPrice != null && pkg.dealerPrice < pkg.price;
+
+                        return (
+                          <TouchableOpacity
+                            key={pkg.packageId || pkg.id}
+                            style={[
+                              styles.packageCard,
+                              { width: packageCardWidth, minHeight: dynamicPackageMinHeight },
+                              use3ColPackages && styles.packageCard3Col,
+                              isTallKiosk && styles.packageCardTall,
+                              isLandscapeShort && styles.packageCardShort,
+                              isSelected && styles.packageCardSelected,
+                            ]}
+                            onPress={() => handleSelectPackage(pkg)}
+                            activeOpacity={0.88}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: isSelected }}
+                          >
+                            {isSelected && <View style={styles.pkgSelectedStrip} />}
+
+                            {/* Package Name & Price */}
+                            <View style={styles.pkgHeaderBlock}>
                               <Text
-                                style={[styles.pkgFeatureText, isSelected && styles.pkgFeatureTextSelected]}
-                                numberOfLines={3}
+                                style={[styles.packageName, isSelected && styles.packageNameSelected]}
+                                numberOfLines={2}
                               >
-                                {feat}
+                                {pkg.name}
+                              </Text>
+                              <View style={styles.priceRow}>
+                                <Text style={[styles.priceAmount, isSelected && styles.priceAmountSelected]}>
+                                  ${pkgDisplayPrice.toFixed(2)}
+                                </Text>
+                                {vehicle?.name ? (
+                                  <View style={[styles.dealerDiscountBadge, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)', borderWidth: 1 }]}>
+                                    <Text style={[styles.dealerDiscountBadgeText, { color: RED_BAY_COLORS.primary }]}>
+                                      {vehicle.name.toUpperCase()}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                {hasDealerDiscount && (
+                                  <View style={styles.dealerDiscountBadge}>
+                                    <Text style={styles.dealerDiscountBadgeText}>DEALER (20% OFF)</Text>
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+
+                            <View style={styles.pkgDivider} />
+
+                            {/* Features list */}
+                            <View style={styles.pkgFeatureList}>
+                              {features.map((feat, fIdx) => (
+                                <View key={fIdx} style={styles.pkgFeatureItem}>
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={14}
+                                    color={isSelected ? RED_BAY_COLORS.primary : '#10B981'}
+                                    style={{ marginTop: 2 }}
+                                  />
+                                  <Text
+                                    style={[styles.pkgFeatureText, isSelected && styles.pkgFeatureTextSelected]}
+                                    numberOfLines={3}
+                                  >
+                                    {feat}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+
+                            {/* CTA Button */}
+                            <View style={[styles.pkgActionBtn, isSelected && styles.pkgActionBtnSelected]}>
+                              <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
+                                Select
                               </Text>
                             </View>
-                          ))}
-                        </View>
-
-                        {/* CTA Button */}
-                        <View style={[styles.pkgActionBtn, isSelected && styles.pkgActionBtnSelected]}>
-                          <Text style={[styles.pkgActionBtnText, isSelected && styles.pkgActionBtnTextSelected]}>
-                            Select
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </>
               )}
             </View>
           )}

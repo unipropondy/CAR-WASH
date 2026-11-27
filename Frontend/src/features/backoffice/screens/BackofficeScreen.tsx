@@ -358,38 +358,91 @@ const VehiclePriceRow: React.FC<{
   C: any;
   styles: any;
 }> = ({ row, onSave, onChange, C, styles }) => {
-  const [cust, setCust] = React.useState(String(row.customerPrice.toFixed(2)));
-  const [dlr, setDlr] = React.useState(String(row.dealerPrice.toFixed(2)));
+  const [cust, setCust] = React.useState(
+    typeof row.customerPrice === 'number' && !isNaN(row.customerPrice)
+      ? row.customerPrice.toFixed(2)
+      : '0.00'
+  );
+  const [dlr, setDlr] = React.useState(
+    typeof row.dealerPrice === 'number' && !isNaN(row.dealerPrice)
+      ? row.dealerPrice.toFixed(2)
+      : '0.00'
+  );
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
 
+  // Track active focus so parent re-renders do not overwrite user's typing
+  const isCustFocused = React.useRef(false);
+  const isDlrFocused = React.useRef(false);
+
+  // Sync only on row initialization/switch (not on active keystrokes)
   React.useEffect(() => {
-    setCust(String(row.customerPrice.toFixed(2)));
-    setDlr(String(row.dealerPrice.toFixed(2)));
-  }, [row.customerPrice, row.dealerPrice]);
+    if (!isCustFocused.current) {
+      const num = typeof row.customerPrice === 'number' && !isNaN(row.customerPrice) ? row.customerPrice : 0;
+      setCust(num.toFixed(2));
+    }
+    if (!isDlrFocused.current) {
+      const num = typeof row.dealerPrice === 'number' && !isNaN(row.dealerPrice) ? row.dealerPrice : 0;
+      setDlr(num.toFixed(2));
+    }
+  }, [row.vehicleTypeId, row.packageId]);
+
+  const sanitizeInput = (val: string) => {
+    let clean = val.replace(/[^0-9.]/g, '');
+    const parts = clean.split('.');
+    if (parts.length > 2) {
+      clean = parts[0] + '.' + parts.slice(1).join('');
+    }
+    return clean;
+  };
 
   const handleCustChange = (val: string) => {
-    setCust(val);
+    const clean = sanitizeInput(val);
+    setCust(clean);
     if (onChange) {
-      const c = parseFloat(val.replace(/[^0-9.]/g, ''));
-      const d = parseFloat(dlr.replace(/[^0-9.]/g, ''));
-      if (!isNaN(c) && !isNaN(d)) onChange(c, d);
+      const c = parseFloat(clean);
+      const d = parseFloat(dlr);
+      onChange(isNaN(c) ? 0 : c, isNaN(d) ? 0 : d);
+    }
+  };
+
+  const handleCustBlur = () => {
+    isCustFocused.current = false;
+    const clean = sanitizeInput(cust);
+    const parsed = parseFloat(clean);
+    const formatted = isNaN(parsed) ? '0.00' : parsed.toFixed(2);
+    setCust(formatted);
+    if (onChange) {
+      const d = parseFloat(dlr) || 0;
+      onChange(isNaN(parsed) ? 0 : parsed, d);
     }
   };
 
   const handleDlrChange = (val: string) => {
-    setDlr(val);
+    const clean = sanitizeInput(val);
+    setDlr(clean);
     if (onChange) {
-      const c = parseFloat(cust.replace(/[^0-9.]/g, ''));
-      const d = parseFloat(val.replace(/[^0-9.]/g, ''));
-      if (!isNaN(c) && !isNaN(d)) onChange(c, d);
+      const c = parseFloat(cust);
+      const d = parseFloat(clean);
+      onChange(isNaN(c) ? 0 : c, isNaN(d) ? 0 : d);
+    }
+  };
+
+  const handleDlrBlur = () => {
+    isDlrFocused.current = false;
+    const clean = sanitizeInput(dlr);
+    const parsed = parseFloat(clean);
+    const formatted = isNaN(parsed) ? '0.00' : parsed.toFixed(2);
+    setDlr(formatted);
+    if (onChange) {
+      const c = parseFloat(cust) || 0;
+      onChange(c, isNaN(parsed) ? 0 : parsed);
     }
   };
 
   const handleSave = async () => {
-    const c = parseFloat(cust.replace(/[^0-9.]/g, ''));
-    const d = parseFloat(dlr.replace(/[^0-9.]/g, ''));
-    if (isNaN(c) || isNaN(d)) return;
+    const c = parseFloat(cust) || 0;
+    const d = parseFloat(dlr) || 0;
     setSaving(true);
     try {
       await onSave(c, d);
@@ -412,7 +465,14 @@ const VehiclePriceRow: React.FC<{
           style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
           value={cust}
           onChangeText={handleCustChange}
+          onFocus={() => {
+            isCustFocused.current = true;
+          }}
+          onBlur={handleCustBlur}
           keyboardType="numeric"
+          selectTextOnFocus
+          placeholder="0.00"
+          placeholderTextColor={C.textSec}
         />
       </View>
       <View style={{ flex: 1.2, paddingHorizontal: 4 }}>
@@ -420,7 +480,14 @@ const VehiclePriceRow: React.FC<{
           style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
           value={dlr}
           onChangeText={handleDlrChange}
+          onFocus={() => {
+            isDlrFocused.current = true;
+          }}
+          onBlur={handleDlrBlur}
           keyboardType="numeric"
+          selectTextOnFocus
+          placeholder="0.00"
+          placeholderTextColor={C.textSec}
         />
       </View>
       <Pressable
@@ -1393,6 +1460,13 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       showAlert('Validation Error', 'Vehicle Type Code and Name are required.');
       return;
     }
+    const payloadImage =
+      vImage === ''
+        ? ''
+        : vImage && vImage.startsWith('data:')
+        ? vImage
+        : undefined;
+
     try {
       if (editingVehicle) {
         await updateVehicleType(editingVehicle.vehicleTypeId, {
@@ -1401,8 +1475,31 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: vDesc.trim(),
           displayOrder: parseInt(vOrder || '1', 10),
           isActive: vActive,
-          imageData: vImage || undefined,
+          imageData: payloadImage,
         });
+
+        // Update local state with fresh cache-busting timestamp
+        const cacheBuster = Date.now();
+        setVehicles((prev) =>
+          prev.map((item) =>
+            item.vehicleTypeId === editingVehicle.vehicleTypeId
+              ? {
+                  ...item,
+                  vehicleTypeCode: vCode.trim(),
+                  vehicleTypeName: vName.trim(),
+                  description: vDesc.trim(),
+                  displayOrder: parseInt(vOrder || '1', 10),
+                  isActive: vActive,
+                  imageUrl:
+                    payloadImage === ''
+                      ? ''
+                      : `/api/vehicle-types/${editingVehicle.vehicleTypeId}/image?v=${cacheBuster}`,
+                  hasImage: payloadImage === '' ? false : (payloadImage ? true : item.hasImage),
+                }
+              : item
+          )
+        );
+
         showAlert('Success', `Vehicle type "${vName}" updated.`);
       } else {
         await createVehicleType({
@@ -1411,7 +1508,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           description: vDesc.trim(),
           displayOrder: parseInt(vOrder || '1', 10),
           isActive: vActive,
-          imageData: vImage || undefined,
+          imageData: payloadImage,
         });
         showAlert('Success', `Vehicle type "${vName}" created.`);
       }
@@ -1419,6 +1516,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       loadSettingsData();
     } catch (err: any) {
       showAlert('Error', err.message || 'Operation failed');
+      loadSettingsData();
     }
   };
 
@@ -1430,14 +1528,37 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       confirmButtonColor: '#EF4444',
       onConfirm: async () => {
         try {
+          setVehicles((prev) => prev.filter((v) => v.vehicleTypeId !== id));
           await deleteVehicleType(id);
           showAlert('Success', 'Vehicle type permanently deleted.');
-          loadSettingsData();
+          await loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete vehicle type');
+          await loadSettingsData();
         }
       },
     });
+  };
+
+  const handleToggleVehicleStatus = async (veh: VehicleTypeRecord) => {
+    const nextStatus = !veh.isActive;
+    setVehicles((prev) =>
+      prev.map((v) => (v.vehicleTypeId === veh.vehicleTypeId ? { ...v, isActive: nextStatus } : v))
+    );
+    try {
+      await updateVehicleType(veh.vehicleTypeId, {
+        vehicleTypeCode: veh.vehicleTypeCode,
+        vehicleTypeName: veh.vehicleTypeName,
+        description: veh.description || '',
+        displayOrder: veh.displayOrder,
+        isActive: nextStatus,
+      });
+    } catch (err: any) {
+      setVehicles((prev) =>
+        prev.map((v) => (v.vehicleTypeId === veh.vehicleTypeId ? { ...v, isActive: veh.isActive } : v))
+      );
+      showAlert('Error', err.message || 'Failed to update vehicle status');
+    }
   };
 
   // Category Save
@@ -1488,14 +1609,37 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       confirmButtonColor: '#EF4444',
       onConfirm: async () => {
         try {
+          setCategories((prev) => prev.filter((c) => c.serviceCategoryId !== id));
           await deleteServiceCategory(id);
           showAlert('Success', 'Category permanently deleted.');
-          loadSettingsData();
+          await loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete category');
+          await loadSettingsData();
         }
       },
     });
+  };
+
+  const handleToggleCategoryStatus = async (cat: ServiceCategoryRecord) => {
+    const nextStatus = !cat.isActive;
+    setCategories((prev) =>
+      prev.map((c) => (c.serviceCategoryId === cat.serviceCategoryId ? { ...c, isActive: nextStatus } : c))
+    );
+    try {
+      await updateServiceCategory(cat.serviceCategoryId, {
+        serviceCategoryCode: cat.serviceCategoryCode,
+        categoryName: cat.categoryName,
+        description: cat.description || '',
+        displayOrder: cat.displayOrder,
+        isActive: nextStatus,
+      });
+    } catch (err: any) {
+      setCategories((prev) =>
+        prev.map((c) => (c.serviceCategoryId === cat.serviceCategoryId ? { ...c, isActive: cat.isActive } : c))
+      );
+      showAlert('Error', err.message || 'Failed to update category status');
+    }
   };
 
   const handleQuickReorderCategory = async (cat: ServiceCategoryRecord, direction: number) => {
@@ -1691,10 +1835,10 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           setPackages((prev) => prev.filter((p) => p.packageId !== id));
           await deletePackage(id);
           showAlert('Success', 'Package deleted successfully.');
-          loadSettingsData();
+          await loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete package');
-          loadSettingsData();
+          await loadSettingsData();
         }
       },
     });
@@ -1707,7 +1851,14 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       prev.map((p) => (p.packageId === pkg.packageId ? { ...p, isActive: nextStatus } : p))
     );
     try {
-      await updatePackage(pkg.packageId, { isActive: nextStatus });
+      const updated = await updatePackage(pkg.packageId, { isActive: nextStatus });
+      setPackages((prev) =>
+        prev.map((p) =>
+          p.packageId === pkg.packageId
+            ? { ...p, isActive: (updated && updated.isActive !== undefined) ? updated.isActive : nextStatus }
+            : p
+        )
+      );
     } catch (err: any) {
       // Revert if failed
       setPackages((prev) =>
@@ -1775,14 +1926,39 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       confirmButtonColor: '#EF4444',
       onConfirm: async () => {
         try {
+          setAddonsList((prev) => prev.filter((a) => a.addonId !== id));
           await deleteAddon(id);
           showAlert('Success', 'Add-on service deleted.');
-          loadSettingsData();
+          await loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete add-on service.');
+          await loadSettingsData();
         }
       },
     });
+  };
+
+  const handleToggleAddonStatus = async (addon: ServiceAddonRecord) => {
+    const nextStatus = !addon.isActive;
+    setAddonsList((prev) =>
+      prev.map((a) => (a.addonId === addon.addonId ? { ...a, isActive: nextStatus } : a))
+    );
+    try {
+      await updateAddon(addon.addonId, {
+        addonCode: addon.addonCode,
+        addonName: addon.addonName,
+        category: addon.category,
+        customerPrice: addon.customerPrice,
+        dealerPrice: addon.dealerPrice,
+        displayOrder: addon.displayOrder,
+        isActive: nextStatus,
+      });
+    } catch (err: any) {
+      setAddonsList((prev) =>
+        prev.map((a) => (a.addonId === addon.addonId ? { ...a, isActive: addon.isActive } : a))
+      );
+      showAlert('Error', err.message || 'Failed to update add-on status');
+    }
   };
 
   const filteredAddons = useMemo(() => {
@@ -2792,95 +2968,102 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       </View>
 
       {/* Add / Edit User Modal */}
-      <Modal visible={userModalOpen} transparent animationType="fade">
+      <Modal visible={userModalOpen} transparent animationType="fade" onRequestClose={() => setUserModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingUser ? 'Edit User Account' : 'Create New User'}</Text>
-              <Pressable onPress={() => setUserModalOpen(false)}>
+              <Pressable onPress={() => setUserModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="close" size={22} color={C.textSec} />
               </Pressable>
             </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>USER CODE</Text>
-              <TextInput
-                style={[styles.fieldInput, editingUser && { opacity: 0.6 }]}
-                value={uCode}
-                onChangeText={setUCode}
-                editable={!editingUser}
-                placeholder="e.g. USR001"
-                placeholderTextColor={C.textMuted}
-              />
-            </View>
+            <ScrollView
+              style={styles.modalScrollBody}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>USER CODE</Text>
+                <TextInput
+                  style={[styles.fieldInput, editingUser && { opacity: 0.6 }]}
+                  value={uCode}
+                  onChangeText={setUCode}
+                  editable={!editingUser}
+                  placeholder="e.g. USR001"
+                  placeholderTextColor={C.textMuted}
+                />
+              </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>LOGIN USER NAME *</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={uName}
-                onChangeText={setUName}
-                placeholder="Username or Staff ID"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="none"
-              />
-            </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>LOGIN USER NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={uName}
+                  onChangeText={setUName}
+                  placeholder="Username or Staff ID"
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                />
+              </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>FULL NAME</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={uFullName}
-                onChangeText={setUFullName}
-                placeholder="Staff Full Legal Name"
-                placeholderTextColor={C.textMuted}
-              />
-            </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>FULL NAME</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={uFullName}
+                  onChangeText={setUFullName}
+                  placeholder="Staff Full Legal Name"
+                  placeholderTextColor={C.textMuted}
+                />
+              </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>
-                {editingUser ? 'NEW PASSWORD (leave blank to keep current)' : 'PASSWORD *'}
-              </Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={uPassword}
-                onChangeText={setUPassword}
-                placeholder="Enter password"
-                placeholderTextColor={C.textMuted}
-                secureTextEntry
-              />
-            </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>
+                  {editingUser ? 'NEW PASSWORD (leave blank to keep current)' : 'PASSWORD *'}
+                </Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={uPassword}
+                  onChangeText={setUPassword}
+                  placeholder="Enter password"
+                  placeholderTextColor={C.textMuted}
+                  secureTextEntry
+                />
+              </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>USER GROUP / ROLE</Text>
-              <View style={styles.groupPickerRow}>
-                {userGroups.map((g) => (
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>USER GROUP / ROLE</Text>
+                <View style={styles.groupPickerRow}>
+                  {userGroups.map((g) => (
+                    <Pressable
+                      key={g.userGroupId}
+                      style={[styles.groupPill, uGroupId === g.userGroupId && styles.groupPillActive]}
+                      onPress={() => setUGroupId(g.userGroupId)}
+                    >
+                      <Text style={[styles.groupPillText, uGroupId === g.userGroupId && { color: C.white, fontWeight: '700' }]}>
+                        {g.userGroupName}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {editingUser && (
+                <View style={[styles.flexRowBetween, { marginTop: 10 }]}>
+                  <Text style={styles.fieldLabel}>ACCOUNT STATUS</Text>
                   <Pressable
-                    key={g.userGroupId}
-                    style={[styles.groupPill, uGroupId === g.userGroupId && styles.groupPillActive]}
-                    onPress={() => setUGroupId(g.userGroupId)}
+                    style={[styles.statusBadge, uDisabled ? styles.statusBadgeOff : styles.statusBadgeOn]}
+                    onPress={() => setUDisabled(!uDisabled)}
                   >
-                    <Text style={[styles.groupPillText, uGroupId === g.userGroupId && { color: C.white, fontWeight: '700' }]}>
-                      {g.userGroupName}
+                    <Text style={[styles.statusBadgeText, uDisabled ? { color: '#EF4444' } : { color: '#22C55E' }]}>
+                      {uDisabled ? 'Disabled' : 'Active'} (Click to toggle)
                     </Text>
                   </Pressable>
-                ))}
-              </View>
-            </View>
-
-            {editingUser && (
-              <View style={[styles.flexRowBetween, { marginTop: 10 }]}>
-                <Text style={styles.fieldLabel}>ACCOUNT STATUS</Text>
-                <Pressable
-                  style={[styles.statusBadge, uDisabled ? styles.statusBadgeOff : styles.statusBadgeOn]}
-                  onPress={() => setUDisabled(!uDisabled)}
-                >
-                  <Text style={[styles.statusBadgeText, uDisabled ? { color: '#EF4444' } : { color: '#22C55E' }]}>
-                    {uDisabled ? 'Disabled' : 'Active'} (Click to toggle)
-                  </Text>
-                </Pressable>
-              </View>
-            )}
+                </View>
+              )}
+            </ScrollView>
 
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setUserModalOpen(false)}>
@@ -3810,11 +3993,26 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
               <View style={{ flex: 1 }}>
-                <View style={[styles.statusBadge, v.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => handleToggleVehicleStatus(v)}
+                  style={[
+                    styles.statusBadge,
+                    v.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                    { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' } as any,
+                  ]}
+                >
+                  <Ionicons
+                    name={v.isActive ? 'checkmark-circle' : 'close-circle'}
+                    size={12}
+                    color={v.isActive ? '#22C55E' : '#EF4444'}
+                    style={{ marginRight: 4 }}
+                  />
                   <Text style={[styles.statusBadgeText, v.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                     {v.isActive ? 'Active' : 'Inactive'}
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
               <View style={[styles.actionRow, { flex: 1 }]}>
                 <TouchableOpacity
@@ -3945,11 +4143,26 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 </View>
               </View>
               <View style={{ flex: 0.9 }}>
-                <View style={[styles.statusBadge, c.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => handleToggleCategoryStatus(c)}
+                  style={[
+                    styles.statusBadge,
+                    c.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                    { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' } as any,
+                  ]}
+                >
+                  <Ionicons
+                    name={c.isActive ? 'checkmark-circle' : 'close-circle'}
+                    size={12}
+                    color={c.isActive ? '#22C55E' : '#EF4444'}
+                    style={{ marginRight: 4 }}
+                  />
                   <Text style={[styles.statusBadgeText, c.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                     {c.isActive ? 'Active' : 'Inactive'}
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
               <View style={[styles.actionRow, { flex: 0.9 }]}>
                 <TouchableOpacity
@@ -4484,11 +4697,26 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   </View>
                 </View>
                 <View style={{ flex: 0.7, paddingRight: 6 }}>
-                  <View style={[styles.statusBadge, addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={() => handleToggleAddonStatus(addon)}
+                    style={[
+                      styles.statusBadge,
+                      addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                      { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' } as any,
+                    ]}
+                  >
+                    <Ionicons
+                      name={addon.isActive ? 'checkmark-circle' : 'close-circle'}
+                      size={12}
+                      color={addon.isActive ? '#22C55E' : '#EF4444'}
+                      style={{ marginRight: 4 }}
+                    />
                     <Text style={[styles.statusBadgeText, addon.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
                       {addon.isActive ? 'Active' : 'Inactive'}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 </View>
                 <View style={[styles.actionRow, { flex: 0.7 }]}>
                   <TouchableOpacity
@@ -5129,92 +5357,133 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
       {/* Modals for Masters */}
       {/* Vehicle Type Modal */}
-      <Modal visible={vehicleModalOpen} transparent animationType="fade">
+      <Modal visible={vehicleModalOpen} transparent animationType="fade" onRequestClose={() => setVehicleModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingVehicle ? 'Edit Vehicle Type' : 'Add Vehicle Type'}</Text>
-              <Pressable onPress={() => setVehicleModalOpen(false)}><Ionicons name="close" size={22} color={C.textSec} /></Pressable>
+              <Pressable onPress={() => setVehicleModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
             </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>CODE *</Text>
-              <TextInput style={styles.fieldInput} value={vCode} onChangeText={setVCode} autoCapitalize="characters" />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>NAME *</Text>
-              <TextInput style={styles.fieldInput} value={vName} onChangeText={setVName} />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>DESCRIPTION</Text>
-              <TextInput style={styles.fieldInput} value={vDesc} onChangeText={setVDesc} />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
-              <TextInput style={styles.fieldInput} value={vOrder} onChangeText={setVOrder} keyboardType="numeric" />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>VEHICLE IMAGE</Text>
-              <View style={styles.uploadRow}>
-                {vImage ? (
-                  <View style={styles.previewBox}>
-                    <Image source={{ uri: resolveApiUrl(vImage) }} style={styles.previewImg} resizeMode="contain" />
-                    <Pressable style={styles.previewRemoveBtn} onPress={() => setVImage('')}>
-                      <Ionicons name="trash" size={12} color="#EF4444" />
+
+            <ScrollView
+              style={styles.modalScrollBody}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CODE *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={vCode}
+                  onChangeText={setVCode}
+                  autoCapitalize="characters"
+                  placeholder="e.g. SEDAN"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>NAME *</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={vName}
+                  onChangeText={setVName}
+                  placeholder="e.g. Sedan"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={vDesc}
+                  onChangeText={setVDesc}
+                  placeholder="Vehicle type description"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>DISPLAY ORDER</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={vOrder}
+                  onChangeText={setVOrder}
+                  keyboardType="numeric"
+                  placeholder="1"
+                  placeholderTextColor={C.textSec}
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>VEHICLE IMAGE</Text>
+                <View style={styles.uploadRow}>
+                  {vImage ? (
+                    <View style={styles.previewBox}>
+                      <Image source={{ uri: resolveApiUrl(vImage) }} style={styles.previewImg} resizeMode="contain" />
+                      <Pressable style={styles.previewRemoveBtn} onPress={() => setVImage('')}>
+                        <Ionicons name="trash" size={12} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={styles.previewBoxPlaceholder}>
+                      <Ionicons name="car-outline" size={24} color={C.textMuted} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Pressable
+                      style={styles.btnUpload}
+                      onPress={() => handlePickImage((base64) => setVImage(base64))}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
+                      <Text style={styles.btnUploadText}>{vImage ? 'Change Image' : 'Upload Image'}</Text>
                     </Pressable>
+                    <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL)</Text>
                   </View>
-                ) : (
-                  <View style={styles.previewBoxPlaceholder}>
-                    <Ionicons name="car-outline" size={24} color={C.textMuted} />
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Pressable
-                    style={styles.btnUpload}
-                    onPress={() => handlePickImage((base64) => setVImage(base64))}
-                  >
-                    <Ionicons name="cloud-upload-outline" size={16} color={C.white} />
-                    <Text style={styles.btnUploadText}>{vImage ? 'Change Image' : 'Upload Image'}</Text>
-                  </Pressable>
-                  <Text style={styles.uploadHint}>PNG, JPEG or SVG (stored in MSSQL)</Text>
                 </View>
               </View>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>STATUS</Text>
-              <View style={styles.groupPickerRow}>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    vActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
-                  ]}
-                  onPress={() => setVActive(true)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="checkmark-circle" size={15} color={vActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, vActive && { color: C.white, fontWeight: '700' }]}>
-                      Active
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.groupPill,
-                    !vActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
-                  ]}
-                  onPress={() => setVActive(false)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="close-circle" size={15} color={!vActive ? '#FFFFFF' : C.textSec} />
-                    <Text style={[styles.groupPillText, !vActive && { color: C.white, fontWeight: '700' }]}>
-                      Inactive
-                    </Text>
-                  </View>
-                </Pressable>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>STATUS</Text>
+                <View style={styles.groupPickerRow}>
+                  <Pressable
+                    style={[
+                      styles.groupPill,
+                      vActive && { backgroundColor: '#16A34A', borderColor: '#22C55E' },
+                    ]}
+                    onPress={() => setVActive(true)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="checkmark-circle" size={15} color={vActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, vActive && { color: C.white, fontWeight: '700' }]}>
+                        Active
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.groupPill,
+                      !vActive && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                    ]}
+                    onPress={() => setVActive(false)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="close-circle" size={15} color={!vActive ? '#FFFFFF' : C.textSec} />
+                      <Text style={[styles.groupPillText, !vActive && { color: C.white, fontWeight: '700' }]}>
+                        Inactive
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
               </View>
-            </View>
+            </ScrollView>
+
             <View style={styles.modalFooter}>
-              <Pressable style={styles.btnSecondary} onPress={() => setVehicleModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
-              <Pressable style={styles.btnPrimary} onPress={handleSaveVehicleType}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+              <Pressable style={styles.btnSecondary} onPress={() => setVehicleModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.btnPrimary} onPress={handleSaveVehicleType}>
+                <Text style={styles.btnPrimaryText}>Save</Text>
+              </Pressable>
             </View>
           </View>
         </View>
