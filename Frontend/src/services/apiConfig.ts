@@ -236,6 +236,16 @@ export async function apiFetch(
       ...(options.headers as Record<string, string>),
     };
 
+    // Attach JWT Authorization header if present and not already specified
+    if (!headers['Authorization'] && Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+      try {
+        const token = localStorage.getItem('redbay_auth_token');
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      } catch {}
+    }
+
     const response = await fetch(fullUrl, {
       ...options,
       headers,

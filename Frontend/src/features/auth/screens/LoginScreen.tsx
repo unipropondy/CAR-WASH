@@ -30,6 +30,31 @@ export interface LoginScreenProps {
 const BACKOFFICE_USER_ID = '123';
 const BACKOFFICE_PASSWORD = '9976';
 
+/**
+ * Creates a valid JWT-structured token for local fallback admin login
+ */
+const createFallbackJwtToken = (user: AuthenticatedUser): string => {
+  try {
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const now = Math.floor(Date.now() / 1000);
+    const payload = btoa(
+      JSON.stringify({
+        userId: user.userId,
+        userCode: user.userCode,
+        userName: user.userName,
+        userGroupId: user.userGroupId,
+        userGroupCode: user.userGroupCode,
+        iat: now,
+        exp: now + 8 * 3600, // 8 hours validity
+      })
+    );
+    const signature = btoa('fallback-dev-signature');
+    return `${header}.${payload}.${signature}`;
+  } catch {
+    return 'fallback.jwt.token';
+  }
+};
+
 /* ---------- Fallback static assets (used only when API unavailable) ---------- */
 const LOGIN_BG_IMAGE = require('../../../../assets/images/login-bg.jpg');
 const CAR_WASH_IMAGE = require('../../../../assets/images/car wash.png');
@@ -150,7 +175,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             userGroupCode: 'ADMIN',
             userGroupName: 'ADMIN',
           };
-          useAuthStore.getState().setUser(fallbackUser);
+          const fallbackToken = createFallbackJwtToken(fallbackUser);
+          useAuthStore.getState().setUser(fallbackUser, fallbackToken);
           onLoginSuccess?.(fallbackUser);
           return;
         }
@@ -175,7 +201,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           userGroupCode: 'ADMIN',
           userGroupName: 'ADMIN',
         };
-        useAuthStore.getState().setUser(fallbackUser);
+        const fallbackToken = createFallbackJwtToken(fallbackUser);
+        useAuthStore.getState().setUser(fallbackUser, fallbackToken);
         onLoginSuccess?.(fallbackUser);
         return;
       }

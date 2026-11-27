@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { Platform } from 'react-native';
 import { AuthenticatedUser } from '../../../types/auth.types';
 
-const AUTH_USER_KEY = 'redbay_authenticated_user';
-const AUTH_TOKEN_KEY = 'redbay_auth_token';
+export const AUTH_USER_KEY = 'redbay_authenticated_user';
+export const AUTH_TOKEN_KEY = 'redbay_auth_token';
 
 interface AuthState {
   user: AuthenticatedUser | null;
@@ -14,15 +14,49 @@ interface AuthState {
   loadStoredSession: () => void;
 }
 
+/**
+ * Validates JWT token structure and expiration
+ */
+export function isTokenValid(token: string | null): boolean {
+  if (!token || typeof token !== 'string' || token.trim().length === 0) {
+    return false;
+  }
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return false;
+    }
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const decoded = JSON.parse(jsonPayload);
+    if (decoded && decoded.exp) {
+      const isExpired = Date.now() >= decoded.exp * 1000;
+      if (isExpired) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const getStoredAuthState = () => {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
     try {
       const storedUser = localStorage.getItem(AUTH_USER_KEY);
       const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
-      if (storedUser) {
+      if (storedUser && storedToken && isTokenValid(storedToken)) {
         const user = JSON.parse(storedUser) as AuthenticatedUser;
-        return { user, token: storedToken || null, isAuthenticated: true };
+        return { user, token: storedToken, isAuthenticated: true };
       }
+      // If token is missing, expired, or invalid, clear localStorage to force password
+      localStorage.removeItem(AUTH_USER_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
     } catch (e) {
       console.warn('Failed to load initial session from localStorage', e);
     }
@@ -38,17 +72,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: initialAuth.isAuthenticated,
 
   setUser: (user: AuthenticatedUser, token?: string) => {
+    const valid = isTokenValid(token || null);
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       try {
-        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-        if (token) {
+        if (valid && token) {
+          localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
           localStorage.setItem(AUTH_TOKEN_KEY, token);
+        } else {
+          localStorage.removeItem(AUTH_USER_KEY);
+          localStorage.removeItem(AUTH_TOKEN_KEY);
         }
       } catch (e) {
         console.warn('Failed to persist session to localStorage', e);
       }
     }
-    set({ user, token: token || null, isAuthenticated: true });
+    set({ user: valid ? user : null, token: valid ? (token || null) : null, isAuthenticated: valid });
   },
 
   logout: () => {
@@ -65,8 +103,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loadStoredSession: () => {
     const stored = getStoredAuthState();
-    if (stored.isAuthenticated) {
-      set(stored);
-    }
+    set(stored);
   },
 }));

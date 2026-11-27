@@ -519,16 +519,47 @@ async function deletePackage(req, res) {
       });
     }
 
-    // Remove features first then package
-    await pool.request().input('id', sql.Int, packageId).query(`
-      DELETE FROM dbo.ServicePackageFeature WHERE PackageId = @id;
-      DELETE FROM dbo.ServicePackageMaster WHERE PackageId = @id;
-    `);
+    // Clean up dependent child tables first to avoid FK constraint errors
+    try {
+      await pool.request().input('id', sql.Int, packageId).query(`
+        DELETE FROM dbo.ServicePackageVehicleTypePrice WHERE PackageId = @id;
+      `);
+    } catch (e) {
+      console.warn('[deletePackage] clean vehicle prices warning:', e.message);
+    }
+
+    try {
+      await pool.request().input('id', sql.Int, packageId).query(`
+        DELETE FROM dbo.ServicePackageAddonMapping WHERE PackageId = @id;
+      `);
+    } catch (e) {
+      console.warn('[deletePackage] clean addon mappings warning:', e.message);
+    }
+
+    try {
+      await pool.request().input('id', sql.Int, packageId).query(`
+        DELETE FROM dbo.ServicePackageFeature WHERE PackageId = @id;
+      `);
+    } catch (e) {
+      console.warn('[deletePackage] clean features warning:', e.message);
+    }
+
+    // Attempt hard delete; if foreign key still blocks (e.g. historical audits), fallback to deactivation
+    try {
+      await pool.request().input('id', sql.Int, packageId).query(`
+        DELETE FROM dbo.ServicePackageMaster WHERE PackageId = @id;
+      `);
+    } catch (fkErr) {
+      console.warn('[deletePackage] Foreign key constraint found, deactivating instead:', fkErr.message);
+      await pool.request().input('id', sql.Int, packageId).query(`
+        UPDATE dbo.ServicePackageMaster SET IsActive = 0 WHERE PackageId = @id;
+      `);
+    }
 
     invalidatePackageCache();
     return res.status(200).json({
       success: true,
-      message: 'Package deleted successfully from database.',
+      message: 'Package removed successfully from database.',
     });
   } catch (err) {
     console.error('[deletePackage Error]', err);

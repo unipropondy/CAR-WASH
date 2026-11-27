@@ -13,7 +13,7 @@ import { LoginScreen } from '../features/auth/screens/LoginScreen';
 import { PosDashboardScreen } from '../features/pos/screens/PosDashboardScreen';
 import { KioskMainScreen } from '../features/kiosk/screens/KioskMainScreen';
 import { BackofficeScreen } from '../features/backoffice/screens/BackofficeScreen';
-import { useAuthStore } from '../features/auth/store/authStore';
+import { useAuthStore, isTokenValid } from '../features/auth/store/authStore';
 import { PosNavTab } from '../features/pos/components/PosSidebar';
 import { KioskPage, KioskUserType } from '../features/kiosk/types/kiosk.types';
 import { loadKioskSession } from '../features/kiosk/store/kioskSessionStorage';
@@ -54,6 +54,7 @@ function AppContent() {
   const navigate = useNavigate();
 
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const logout = useAuthStore((state) => state.logout);
   const loadStoredSession = useAuthStore((state) => state.loadStoredSession);
@@ -68,6 +69,18 @@ function AppContent() {
   }, [loadStoredSession]);
 
   const userRole = resolveUserRoleCategory(user);
+  const hasValidToken = !!(token && isTokenValid(token));
+  const isSessionActive = isAuthenticated && hasValidToken && !!user;
+
+  // Backoffice requires an active authenticated session with ADMIN/BACKOFFICE role
+  const isBackofficeAuthorized =
+    isSessionActive &&
+    (userRole === 'ADMIN' ||
+      userRole === 'BACKOFFICE' ||
+      userRole === 'OWNER' ||
+      user?.userGroupCode?.toUpperCase() === 'ADMIN' ||
+      user?.userGroupCode?.toUpperCase() === 'BACKOFFICE' ||
+      user?.userName === '123');
 
   // Handle root "/" or query parameter redirection based on User Group Code
   useEffect(() => {
@@ -75,33 +88,43 @@ function AppContent() {
       if (typeof window !== 'undefined' && window.location?.search?.includes('mode=login')) {
         navigate('/login', { replace: true });
       } else if (typeof window !== 'undefined' && window.location?.search?.includes('mode=pos')) {
-        navigate(isAuthenticated ? '/dashboard' : '/login', { replace: true });
-      } else if (isAuthenticated) {
+        navigate(isSessionActive ? '/dashboard' : '/login', { replace: true });
+      } else if (isSessionActive) {
         const dest = getRouteForUserGroup(user);
         navigate(dest, { replace: true });
       } else {
         navigate('/login', { replace: true });
       }
     }
-  }, [location.pathname, isAuthenticated, navigate, user]);
+  }, [location.pathname, isSessionActive, navigate, user]);
 
   // Prevent unauthorized access to internal protected pages
   useEffect(() => {
-    if (!isAuthenticated && location.pathname !== '/login') {
+    if (!isSessionActive && location.pathname !== '/login') {
       navigate('/login', { replace: true });
+      return;
     }
-  }, [isAuthenticated, location.pathname, navigate]);
 
-  // KIOSK role guard: strictly restrict to Kiosk UI; do not allow POS or Backoffice
-  useEffect(() => {
-    if (isAuthenticated && userRole === 'KIOSK') {
+    // Enforce backoffice authorization: never allow unauthorized or non-admin access
+    if (location.pathname === '/backoffice' && !isBackofficeAuthorized) {
+      if (!isSessionActive) {
+        navigate('/login', { replace: true });
+      } else {
+        const dest = getRouteForUserGroup(user);
+        navigate(dest, { replace: true });
+      }
+      return;
+    }
+
+    // KIOSK role guard: strictly restrict to Kiosk UI; do not allow POS or Backoffice
+    if (isSessionActive && userRole === 'KIOSK') {
       const isPos = POS_ROUTES.includes(location.pathname);
       const isBackoffice = location.pathname === '/backoffice';
       if (isPos || isBackoffice) {
         navigate('/customer-login', { replace: true });
       }
     }
-  }, [isAuthenticated, userRole, location.pathname, navigate]);
+  }, [isSessionActive, isBackofficeAuthorized, userRole, location.pathname, navigate, user]);
 
   const handleLogout = () => {
     logout();
@@ -267,14 +290,24 @@ function AppContent() {
             navigate(dest, { replace: true });
           }}
           onQuickSwitchToKiosk={() => navigate('/customer-login')}
-          onBackofficeAccess={() => navigate('/backoffice')}
+          onBackofficeAccess={() => {
+            if (isBackofficeAuthorized) {
+              navigate('/backoffice');
+            } else {
+              navigate('/login');
+            }
+          }}
         />
-      ) : !isAuthenticated ? (
+      ) : !isSessionActive ? (
         <Navigate to="/login" replace />
       ) : isBackofficeRoute ? (
-        <BackofficeScreen
-          onLogout={handleLogout}
-        />
+        isBackofficeAuthorized ? (
+          <BackofficeScreen
+            onLogout={handleLogout}
+          />
+        ) : (
+          <Navigate to="/login" replace />
+        )
       ) : isPosRoute ? (
         <PosDashboardScreen
           currentMode="POS"

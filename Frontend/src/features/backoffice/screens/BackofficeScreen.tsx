@@ -354,23 +354,52 @@ export interface BackofficeScreenProps {
 const VehiclePriceRow: React.FC<{
   row: VehicleTypePrice;
   onSave: (custPrice: number, dlrPrice: number) => Promise<void>;
+  onChange?: (custPrice: number, dlrPrice: number) => void;
   C: any;
   styles: any;
-}> = ({ row, onSave, C, styles }) => {
+}> = ({ row, onSave, onChange, C, styles }) => {
   const [cust, setCust] = React.useState(String(row.customerPrice.toFixed(2)));
   const [dlr, setDlr] = React.useState(String(row.dealerPrice.toFixed(2)));
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
 
+  React.useEffect(() => {
+    setCust(String(row.customerPrice.toFixed(2)));
+    setDlr(String(row.dealerPrice.toFixed(2)));
+  }, [row.customerPrice, row.dealerPrice]);
+
+  const handleCustChange = (val: string) => {
+    setCust(val);
+    if (onChange) {
+      const c = parseFloat(val.replace(/[^0-9.]/g, ''));
+      const d = parseFloat(dlr.replace(/[^0-9.]/g, ''));
+      if (!isNaN(c) && !isNaN(d)) onChange(c, d);
+    }
+  };
+
+  const handleDlrChange = (val: string) => {
+    setDlr(val);
+    if (onChange) {
+      const c = parseFloat(cust.replace(/[^0-9.]/g, ''));
+      const d = parseFloat(val.replace(/[^0-9.]/g, ''));
+      if (!isNaN(c) && !isNaN(d)) onChange(c, d);
+    }
+  };
+
   const handleSave = async () => {
-    const c = parseFloat(cust);
-    const d = parseFloat(dlr);
+    const c = parseFloat(cust.replace(/[^0-9.]/g, ''));
+    const d = parseFloat(dlr.replace(/[^0-9.]/g, ''));
     if (isNaN(c) || isNaN(d)) return;
     setSaving(true);
-    await onSave(c, d);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      await onSave(c, d);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.warn('Failed to save rate:', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -382,7 +411,7 @@ const VehiclePriceRow: React.FC<{
         <TextInput
           style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
           value={cust}
-          onChangeText={setCust}
+          onChangeText={handleCustChange}
           keyboardType="numeric"
         />
       </View>
@@ -390,7 +419,7 @@ const VehiclePriceRow: React.FC<{
         <TextInput
           style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
           value={dlr}
-          onChangeText={setDlr}
+          onChangeText={handleDlrChange}
           keyboardType="numeric"
         />
       </View>
@@ -1169,6 +1198,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [pkgVehiclePrices, setPkgVehiclePrices] = useState<VehicleTypePrice[]>([]);
   const [pkgVehiclePricesLoading, setPkgVehiclePricesLoading] = useState(false);
   const [pkgVehiclePricesSaving, setPkgVehiclePricesSaving] = useState(false);
+  const [pkgSaving, setPkgSaving] = useState(false);
 
   // Standalone Vehicle Rates Modal (opened directly from package row)
   const [ratesModalOpen, setRatesModalOpen] = useState(false);
@@ -1217,6 +1247,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [dPin, setDPin] = useState('1234');
   const [dLogo, setDLogo] = useState('');
   const [dActive, setDActive] = useState(true);
+  const [dealerSortAsc, setDealerSortAsc] = useState<boolean>(true);
+  const [dealerSortField, setDealerSortField] = useState<'code' | 'name'>('code');
 
   // 3e2. Account Types (AccountTypeMaster)
   const [accountTypesList, setAccountTypesList] = useState<AccountTypeOption[]>([]);
@@ -1566,14 +1598,20 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       showAlert('Validation Error', 'Package Code and Name are required.');
       return;
     }
-    if (isNaN(parseFloat(pPrice))) {
+    const cleanPrice = pPrice.replace(/[^0-9.]/g, '');
+    if (!cleanPrice || isNaN(parseFloat(cleanPrice))) {
       showAlert('Validation Error', 'Valid Package Price is required.');
       return;
     }
-    const parsedDealerPrice = pDealerPrice && !isNaN(parseFloat(pDealerPrice)) 
-      ? parseFloat(pDealerPrice) 
-      : parseFloat(pPrice);
+    const parsedPrice = parseFloat(cleanPrice);
+    const cleanDealerPrice = pDealerPrice ? pDealerPrice.replace(/[^0-9.]/g, '') : '';
+    const parsedDealerPrice = cleanDealerPrice && !isNaN(parseFloat(cleanDealerPrice)) 
+      ? parseFloat(cleanDealerPrice) 
+      : parsedPrice;
 
+    const catId = pCatId || (categories.length > 0 ? categories[0].serviceCategoryId : 1);
+
+    setPkgSaving(true);
     try {
       const featArray = pFeatures
         .split('\n')
@@ -1582,11 +1620,11 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
       if (editingPkg) {
         await updatePackage(editingPkg.packageId, {
-          serviceCategoryId: pCatId,
+          serviceCategoryId: catId,
           packageCode: pCode.trim(),
           packageName: pName.trim(),
           description: pDesc.trim(),
-          price: parseFloat(pPrice),
+          price: parsedPrice,
           dealerPrice: parsedDealerPrice,
           gstPercent: 0,
           isTaxInclusive: false,
@@ -1595,14 +1633,33 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           isActive: pActive,
           features: featArray,
         });
+
+        // Also save any edited vehicle-type prices
+        if (pkgVehiclePrices.length > 0) {
+          try {
+            await Promise.all(
+              pkgVehiclePrices.map((vp) =>
+                updateVehicleTypePrice(
+                  editingPkg.packageId,
+                  vp.vehicleTypeId,
+                  vp.customerPrice,
+                  vp.dealerPrice
+                )
+              )
+            );
+          } catch (e) {
+            console.warn('[handleSavePackage] Vehicle prices auto-save warning:', e);
+          }
+        }
+
         showAlert('Success', `Package "${pName}" updated.`);
       } else {
         await createPackage({
-          serviceCategoryId: pCatId,
+          serviceCategoryId: catId,
           packageCode: pCode.trim(),
           packageName: pName.trim(),
           description: pDesc.trim(),
-          price: parseFloat(pPrice),
+          price: parsedPrice,
           dealerPrice: parsedDealerPrice,
           gstPercent: 0,
           isTaxInclusive: false,
@@ -1617,22 +1674,27 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       loadSettingsData();
     } catch (err: any) {
       showAlert('Error', err.message || 'Operation failed');
+    } finally {
+      setPkgSaving(false);
     }
   };
 
   const handleDeletePackage = (id: number) => {
     showConfirm({
       title: 'Delete Service Package',
-      message: 'Are you sure you want to permanently delete this service package from database?',
-      confirmText: 'Delete Permanently',
+      message: 'Are you sure you want to permanently delete this service package?',
+      confirmText: 'Delete',
       confirmButtonColor: '#EF4444',
       onConfirm: async () => {
         try {
+          // Optimistically remove from state
+          setPackages((prev) => prev.filter((p) => p.packageId !== id));
           await deletePackage(id);
-          showAlert('Success', 'Package permanently deleted.');
+          showAlert('Success', 'Package deleted successfully.');
           loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete package');
+          loadSettingsData();
         }
       },
     });
@@ -1640,11 +1702,17 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
   const handleTogglePackageStatus = async (pkg: ServicePackageRecord) => {
     const nextStatus = !pkg.isActive;
+    // Optimistic UI update for snappy and reliable feel
+    setPackages((prev) =>
+      prev.map((p) => (p.packageId === pkg.packageId ? { ...p, isActive: nextStatus } : p))
+    );
     try {
       await updatePackage(pkg.packageId, { isActive: nextStatus });
-      showAlert('Success', `Package "${pkg.packageName}" is now ${nextStatus ? 'Active' : 'Inactive'}.`);
-      loadSettingsData();
     } catch (err: any) {
+      // Revert if failed
+      setPackages((prev) =>
+        prev.map((p) => (p.packageId === pkg.packageId ? { ...p, isActive: pkg.isActive } : p))
+      );
       showAlert('Error', err.message || 'Failed to update package status');
     }
   };
@@ -1655,12 +1723,14 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       showAlert('Validation Error', 'Add-on Code and Name are required.');
       return;
     }
-    if (isNaN(parseFloat(adCustomerPrice))) {
+    const cleanCustomerPrice = adCustomerPrice.replace(/[^0-9.]/g, '');
+    if (!cleanCustomerPrice || isNaN(parseFloat(cleanCustomerPrice))) {
       showAlert('Validation Error', 'Valid Customer Price is required.');
       return;
     }
-    const cPrice = parseFloat(adCustomerPrice);
-    const dPrice = isNaN(parseFloat(adDealerPrice)) ? cPrice * 0.75 : parseFloat(adDealerPrice);
+    const cPrice = parseFloat(cleanCustomerPrice);
+    const cleanDealerPrice = adDealerPrice.replace(/[^0-9.]/g, '');
+    const dPrice = cleanDealerPrice && !isNaN(parseFloat(cleanDealerPrice)) ? parseFloat(cleanDealerPrice) : cPrice * 0.75;
 
     try {
       if (editingAddon) {
@@ -1849,14 +1919,33 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       confirmButtonColor: '#EF4444',
       onConfirm: async () => {
         try {
+          setDealers((prev) => prev.filter((item) => (item.dealerId || item.uniqueCode) !== id));
           await deleteDealer(id);
           showAlert('Success', 'Dealer account deleted.');
           loadSettingsData();
         } catch (err: any) {
           showAlert('Error', err.message || 'Failed to delete dealer');
+          loadSettingsData();
         }
       },
     });
+  };
+
+  const handleToggleDealerStatus = async (dealer: DealerRecord) => {
+    const nextStatus = !dealer.isActive;
+    const dId = dealer.dealerId || dealer.uniqueCode;
+    // Optimistic UI update
+    setDealers((prev) =>
+      prev.map((d) => ((d.dealerId || d.uniqueCode) === dId ? { ...d, isActive: nextStatus } : d))
+    );
+    try {
+      await updateDealer(dId, { isActive: nextStatus });
+    } catch (err: any) {
+      setDealers((prev) =>
+        prev.map((d) => ((d.dealerId || d.uniqueCode) === dId ? { ...d, isActive: dealer.isActive } : d))
+      );
+      showAlert('Error', err.message || 'Failed to update dealer status');
+    }
   };
 
   // Account Type Save & Delete
@@ -3923,149 +4012,151 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </Pressable>
           </View>
 
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 1.2 }]}>CATEGORY</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 1.6 }]}>PACKAGE NAME</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 1.0 }]}>DEALER ($)</Text>
-            <TouchableOpacity
-              style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-              onPress={() => setPackageSortAsc((prev) => !prev)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
-              <Ionicons
-                name={packageSortAsc ? 'arrow-up' : 'arrow-down'}
-                size={13}
-                color={C.accent}
-              />
-            </TouchableOpacity>
-            <Text style={[styles.th, { flex: 1.3, textAlign: 'center' }]}>VEHICLE RATES</Text>
-            <Text style={[styles.th, { flex: 0.8 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 0.8 }]}>ACTIONS</Text>
-          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }} contentContainerStyle={{ minWidth: 1090, flexDirection: 'column' }}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { width: 140, paddingRight: 10 }]}>CATEGORY</Text>
+              <Text style={[styles.th, { width: 170, paddingRight: 10 }]}>CODE</Text>
+              <Text style={[styles.th, { width: 220, paddingRight: 10 }]}>PACKAGE NAME</Text>
+              <Text style={[styles.th, { width: 85, paddingRight: 8 }]}>PRICE ($)</Text>
+              <Text style={[styles.th, { width: 85, paddingRight: 8 }]}>DEALER ($)</Text>
+              <TouchableOpacity
+                style={{ width: 75, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => setPackageSortAsc((prev) => !prev)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
+                <Ionicons
+                  name={packageSortAsc ? 'arrow-up' : 'arrow-down'}
+                  size={13}
+                  color={C.accent}
+                />
+              </TouchableOpacity>
+              <Text style={[styles.th, { width: 130, textAlign: 'center', paddingRight: 8 }]}>VEHICLE RATES</Text>
+              <Text style={[styles.th, { width: 100, textAlign: 'center', paddingRight: 8 }]}>STATUS</Text>
+              <Text style={[styles.th, { width: 85, textAlign: 'center' }]}>ACTIONS</Text>
+            </View>
 
-          {[...packages]
-            .sort((a, b) => {
-              const orderA = a.displayOrder ?? 1;
-              const orderB = b.displayOrder ?? 1;
-              return packageSortAsc ? orderA - orderB : orderB - orderA;
-            })
-            .map((pkg) => (
-            <View key={pkg.packageId} style={styles.tableRow}>
-              <Text style={[styles.td, styles.textSec, { flex: 1.2 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
-              <Text style={[styles.td, styles.textAccent, { flex: 0.9, fontWeight: '700' }]}>{pkg.packageCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 1.6, fontWeight: '700' }]}>{pkg.packageName}</Text>
-              <Text style={[styles.td, { flex: 0.9, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
-              <Text style={[styles.td, { flex: 1.0, color: '#F59E0B', fontWeight: '800' }]}>
-                {pkg.dealerPrice != null ? `$${Number(pkg.dealerPrice).toFixed(2)}` : `$${pkg.price.toFixed(2)}`}
-              </Text>
-              <View style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 16 }]}>{pkg.displayOrder}</Text>
-                <View style={{ flexDirection: 'column', gap: 2 }}>
+            {[...packages]
+              .sort((a, b) => {
+                const orderA = a.displayOrder ?? 1;
+                const orderB = b.displayOrder ?? 1;
+                return packageSortAsc ? orderA - orderB : orderB - orderA;
+              })
+              .map((pkg) => (
+              <View key={pkg.packageId} style={styles.tableRow}>
+                <Text style={[styles.td, styles.textSec, { width: 140, paddingRight: 10 }]} numberOfLines={1}>{pkg.serviceCategoryName || 'Wash'}</Text>
+                <Text style={[styles.td, styles.textAccent, { width: 170, paddingRight: 10, fontWeight: '700' }]} numberOfLines={1}>{pkg.packageCode}</Text>
+                <Text style={[styles.td, styles.textWhite, { width: 220, paddingRight: 10, fontWeight: '700' }]} numberOfLines={2}>{pkg.packageName}</Text>
+                <Text style={[styles.td, { width: 85, paddingRight: 8, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
+                <Text style={[styles.td, { width: 85, paddingRight: 8, color: '#F59E0B', fontWeight: '800' }]}>
+                  {pkg.dealerPrice != null ? `$${Number(pkg.dealerPrice).toFixed(2)}` : `$${pkg.price.toFixed(2)}`}
+                </Text>
+                <View style={{ width: 75, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 16 }]}>{pkg.displayOrder}</Text>
+                  <View style={{ flexDirection: 'column', gap: 2 }}>
+                    <TouchableOpacity
+                      style={styles.orderSmallBtn}
+                      hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                      onPress={() => handleQuickReorderPackage(pkg, -1)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chevron-up" size={12} color={C.white} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.orderSmallBtn}
+                      hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                      onPress={() => handleQuickReorderPackage(pkg, 1)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chevron-down" size={12} color={C.white} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {/* Direct Vehicle Rates button */}
+                <View style={{ width: 130, paddingRight: 8, alignItems: 'center', justifyContent: 'center' }}>
                   <TouchableOpacity
-                    style={styles.orderSmallBtn}
-                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                    onPress={() => handleQuickReorderPackage(pkg, -1)}
                     activeOpacity={0.7}
+                    onPress={() => handleOpenVehicleRates(pkg)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 6,
+                      backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(59, 130, 246, 0.4)',
+                      cursor: 'pointer' as any,
+                    }}
                   >
-                    <Ionicons name="chevron-up" size={12} color={C.white} />
+                    <Ionicons name="car-sport" size={13} color="#60A5FA" />
+                    <Text style={{ color: '#60A5FA', fontSize: 11, fontWeight: '700' }}>Change Rates</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ width: 100, paddingRight: 8, alignItems: 'center', justifyContent: 'center' }}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={() => handleTogglePackageStatus(pkg)}
+                    style={[
+                      styles.statusBadge,
+                      pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                      { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minWidth: 80 } as any,
+                    ]}
+                  >
+                    <Ionicons
+                      name={pkg.isActive ? 'checkmark-circle' : 'close-circle'}
+                      size={12}
+                      color={pkg.isActive ? '#22C55E' : '#EF4444'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={[styles.statusBadgeText, pkg.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                      {pkg.isActive ? 'Active' : 'Inactive'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={[styles.actionRow, { width: 85, justifyContent: 'center' }]}>
+                  <TouchableOpacity
+                    style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => {
+                      setEditingPkg(pkg);
+                      setPCatId(pkg.serviceCategoryId);
+                      setPCode(pkg.packageCode);
+                      setPName(pkg.packageName);
+                      setPDesc(pkg.description || '');
+                      setPPrice(String(pkg.price));
+                      setPDealerPrice(pkg.dealerPrice != null ? String(pkg.dealerPrice) : String(pkg.price));
+                      setPDuration(String(pkg.durationMinutes || 20));
+                      setPOrder(String(pkg.displayOrder));
+                      setPActive(pkg.isActive);
+                      setPFeatures((pkg.features || []).join('\n'));
+                      // Load vehicle type prices
+                      setPkgVehiclePrices([]);
+                      setPkgVehiclePricesLoading(true);
+                      setPkgModalOpen(true);
+                      fetchVehicleTypePricesForPackage(pkg.packageId).then((rows) => {
+                        setPkgVehiclePrices(rows);
+                        setPkgVehiclePricesLoading(false);
+                      }).catch(() => setPkgVehiclePricesLoading(false));
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3B82F6" />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.orderSmallBtn}
-                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                    onPress={() => handleQuickReorderPackage(pkg, 1)}
+                    style={styles.btnAction}
                     activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => handleDeletePackage(pkg.packageId)}
                   >
-                    <Ionicons name="chevron-down" size={12} color={C.white} />
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
               </View>
-              {/* Direct Vehicle Rates button */}
-              <View style={{ flex: 1.3, alignItems: 'center', justifyContent: 'center' }}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => handleOpenVehicleRates(pkg)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 5,
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    borderRadius: 6,
-                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(59, 130, 246, 0.4)',
-                    cursor: 'pointer' as any,
-                  }}
-                >
-                  <Ionicons name="car-sport" size={13} color="#60A5FA" />
-                  <Text style={{ color: '#60A5FA', fontSize: 11, fontWeight: '700' }}>Change Rates</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={{ flex: 0.8 }}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  onPress={() => handleTogglePackageStatus(pkg)}
-                  style={[
-                    styles.statusBadge,
-                    pkg.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
-                    { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' } as any,
-                  ]}
-                >
-                  <Ionicons
-                    name={pkg.isActive ? 'checkmark-circle' : 'close-circle'}
-                    size={12}
-                    color={pkg.isActive ? '#22C55E' : '#EF4444'}
-                    style={{ marginRight: 4 }}
-                  />
-                  <Text style={[styles.statusBadgeText, pkg.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
-                    {pkg.isActive ? 'Active' : 'Inactive'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={[styles.actionRow, { flex: 0.8 }]}>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => {
-                    setEditingPkg(pkg);
-                    setPCatId(pkg.serviceCategoryId);
-                    setPCode(pkg.packageCode);
-                    setPName(pkg.packageName);
-                    setPDesc(pkg.description || '');
-                    setPPrice(String(pkg.price));
-                    setPDealerPrice(pkg.dealerPrice != null ? String(pkg.dealerPrice) : String(pkg.price));
-                    setPDuration(String(pkg.durationMinutes || 20));
-                    setPOrder(String(pkg.displayOrder));
-                    setPActive(pkg.isActive);
-                    setPFeatures((pkg.features || []).join('\n'));
-                    // Load vehicle type prices
-                    setPkgVehiclePrices([]);
-                    setPkgVehiclePricesLoading(true);
-                    setPkgModalOpen(true);
-                    fetchVehicleTypePricesForPackage(pkg.packageId).then((rows) => {
-                      setPkgVehiclePrices(rows);
-                      setPkgVehiclePricesLoading(false);
-                    }).catch(() => setPkgVehiclePricesLoading(false));
-                  }}
-                >
-                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => handleDeletePackage(pkg.packageId)}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+            ))}
+          </ScrollView>
         </View>
       )}
 
@@ -4564,101 +4655,184 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </Pressable>
           </View>
 
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 0.8 }]}>LOGO</Text>
-            <Text style={[styles.th, { flex: 1.1 }]}>UNIQUE ID</Text>
-            <Text style={[styles.th, { flex: 1.8 }]}>DEALER NAME</Text>
-            <Text style={[styles.th, { flex: 1.3 }]}>CONTACT NO</Text>
-            <Text style={[styles.th, { flex: 2.2 }]}>ADDRESS</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>PIN</Text>
-            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
-          </View>
-
-          {dealers.map((d) => (
-            <View key={d.dealerId || d.uniqueCode} style={styles.tableRow}>
-              {/* Logo Column */}
-              <View style={{ flex: 0.8, justifyContent: 'center' }}>
-                <BackofficeImageThumb
-                  uri={d.logoUrl}
-                  fallbackKey={d.dealerName}
-                  type="dealer"
-                  style={styles.tableThumb}
-                  resizeMode="contain"
+          <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }} contentContainerStyle={{ minWidth: 980, flexDirection: 'column' }}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { width: 70, paddingRight: 8 }]}>LOGO</Text>
+              <TouchableOpacity
+                style={{ width: 120, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => {
+                  if (dealerSortField === 'code') {
+                    setDealerSortAsc((prev) => !prev);
+                  } else {
+                    setDealerSortField('code');
+                    setDealerSortAsc(true);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.th, { color: dealerSortField === 'code' ? C.accent : C.textMuted, fontWeight: '800' }]}>
+                  UNIQUE ID
+                </Text>
+                <Ionicons
+                  name={
+                    dealerSortField === 'code'
+                      ? dealerSortAsc
+                        ? 'arrow-up'
+                        : 'arrow-down'
+                      : 'swap-vertical-outline'
+                  }
+                  size={13}
+                  color={dealerSortField === 'code' ? C.accent : C.textMuted}
                 />
-              </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ width: 200, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => {
+                  if (dealerSortField === 'name') {
+                    setDealerSortAsc((prev) => !prev);
+                  } else {
+                    setDealerSortField('name');
+                    setDealerSortAsc(true);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.th, { color: dealerSortField === 'name' ? C.accent : C.textMuted, fontWeight: '800' }]}>
+                  DEALER NAME
+                </Text>
+                <Ionicons
+                  name={
+                    dealerSortField === 'name'
+                      ? dealerSortAsc
+                        ? 'arrow-up'
+                        : 'arrow-down'
+                      : 'swap-vertical-outline'
+                  }
+                  size={13}
+                  color={dealerSortField === 'name' ? C.accent : C.textMuted}
+                />
+              </TouchableOpacity>
+              <Text style={[styles.th, { width: 130, paddingRight: 8 }]}>CONTACT NO</Text>
+              <Text style={[styles.th, { flex: 1, minWidth: 200, paddingRight: 8 }]}>ADDRESS</Text>
+              <Text style={[styles.th, { width: 80, paddingRight: 8 }]}>PIN</Text>
+              <Text style={[styles.th, { width: 95, textAlign: 'center', paddingRight: 8 }]}>STATUS</Text>
+              <Text style={[styles.th, { width: 85, textAlign: 'center' }]}>ACTIONS</Text>
+            </View>
 
-              {/* Unique ID */}
-              <Text style={[styles.td, styles.textAccent, { flex: 1.1, fontWeight: '800' }]}>
-                {d.uniqueCode}
-              </Text>
+            {[...dealers]
+              .sort((a, b) => {
+                if (dealerSortField === 'code') {
+                  const codeA = (a.uniqueCode || '').trim();
+                  const codeB = (b.uniqueCode || '').trim();
+                  const cmp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+                  return dealerSortAsc ? cmp : -cmp;
+                } else {
+                  const nameA = (a.dealerName || '').trim();
+                  const nameB = (b.dealerName || '').trim();
+                  const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+                  return dealerSortAsc ? cmp : -cmp;
+                }
+              })
+              .map((d) => (
+              <View key={d.dealerId || d.uniqueCode} style={styles.tableRow}>
+                {/* Logo Column */}
+                <View style={{ width: 70, justifyContent: 'center', paddingRight: 8 }}>
+                  <BackofficeImageThumb
+                    uri={d.logoUrl}
+                    fallbackKey={d.dealerName}
+                    type="dealer"
+                    style={styles.tableThumb}
+                    resizeMode="contain"
+                  />
+                </View>
 
-              {/* Dealer Name */}
-              <View style={{ flex: 1.8, justifyContent: 'center' }}>
-                <Text style={[styles.td, styles.textWhite, { fontWeight: '700' }]}>{d.dealerName}</Text>
-                {d.contactPerson ? (
-                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                    Attn: {d.contactPerson}
-                  </Text>
-                ) : null}
-              </View>
+                {/* Unique ID */}
+                <Text style={[styles.td, styles.textAccent, { width: 120, paddingRight: 8, fontWeight: '800' }]} numberOfLines={1}>
+                  {d.uniqueCode}
+                </Text>
 
-              {/* Contact Number */}
-              <Text style={[styles.td, styles.textSec, { flex: 1.3 }]}>
-                {d.contactNumber || '-'}
-              </Text>
+                {/* Dealer Name */}
+                <View style={{ width: 200, justifyContent: 'center', paddingRight: 8 }}>
+                  <Text style={[styles.td, styles.textWhite, { fontWeight: '700' }]} numberOfLines={1}>{d.dealerName}</Text>
+                  {d.contactPerson ? (
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }} numberOfLines={1}>
+                      Attn: {d.contactPerson}
+                    </Text>
+                  ) : null}
+                </View>
 
-              {/* Address */}
-              <Text style={[styles.td, styles.textSec, { flex: 2.2 }]} numberOfLines={2}>
-                {d.address || '-'}
-              </Text>
+                {/* Contact Number */}
+                <Text style={[styles.td, styles.textSec, { width: 130, paddingRight: 8 }]} numberOfLines={1}>
+                  {d.contactNumber || '-'}
+                </Text>
 
-              {/* Security PIN */}
-              <Text style={[styles.td, styles.textSec, { flex: 0.9, letterSpacing: 2, fontFamily: 'monospace' }]}>
-                {d.securityPin || '1234'}
-              </Text>
+                {/* Address */}
+                <Text style={[styles.td, styles.textSec, { flex: 1, minWidth: 200, paddingRight: 8 }]} numberOfLines={2}>
+                  {d.address || '-'}
+                </Text>
 
-              {/* Status */}
-              <View style={{ flex: 1 }}>
-                <View style={[styles.statusBadge, d.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
-                  <Text style={[styles.statusBadgeText, d.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
-                    {d.isActive ? 'Active' : 'Inactive'}
-                  </Text>
+                {/* Security PIN */}
+                <Text style={[styles.td, styles.textSec, { width: 80, paddingRight: 8, letterSpacing: 2, fontFamily: 'monospace' }]}>
+                  {d.securityPin || '1234'}
+                </Text>
+
+                {/* Status Toggle Button */}
+                <View style={{ width: 95, paddingRight: 8, alignItems: 'center', justifyContent: 'center' }}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={() => handleToggleDealerStatus(d)}
+                    style={[
+                      styles.statusBadge,
+                      d.isActive ? styles.statusBadgeOn : styles.statusBadgeOff,
+                      { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minWidth: 78 } as any,
+                    ]}
+                  >
+                    <Ionicons
+                      name={d.isActive ? 'checkmark-circle' : 'close-circle'}
+                      size={12}
+                      color={d.isActive ? '#22C55E' : '#EF4444'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={[styles.statusBadgeText, d.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
+                      {d.isActive ? 'Active' : 'Inactive'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Actions */}
+                <View style={[styles.actionRow, { width: 85, justifyContent: 'center' }]}>
+                  <TouchableOpacity
+                    style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => {
+                      setEditingDealer(d);
+                      setDCode(d.uniqueCode);
+                      setDName(d.dealerName);
+                      setDPhone(d.contactNumber || '');
+                      setDContactPerson(d.contactPerson || '');
+                      setDAddress(d.address || '');
+                      setDPin(d.securityPin || '1234');
+                      setDLogo(d.logoUrl || '');
+                      setDActive(d.isActive);
+                      setDealerModalOpen(true);
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3B82F6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.btnAction}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => handleDeleteDealer(d.dealerId || d.uniqueCode)}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
               </View>
-
-              {/* Actions */}
-              <View style={[styles.actionRow, { flex: 1 }]}>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => {
-                    setEditingDealer(d);
-                    setDCode(d.uniqueCode);
-                    setDName(d.dealerName);
-                    setDPhone(d.contactNumber || '');
-                    setDContactPerson(d.contactPerson || '');
-                    setDAddress(d.address || '');
-                    setDPin(d.securityPin || '1234');
-                    setDLogo(d.logoUrl || '');
-                    setDActive(d.isActive);
-                    setDealerModalOpen(true);
-                  }}
-                >
-                  <Ionicons name="create-outline" size={16} color="#3B82F6" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.btnAction}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => handleDeleteDealer(d.dealerId)}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+            ))}
+          </ScrollView>
 
           {dealers.length === 0 && !settingsLoading && (
             <View style={{ padding: 30, alignItems: 'center' }}>
@@ -5321,6 +5495,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                         <VehiclePriceRow
                           key={row.vehicleTypeId}
                           row={row}
+                          onChange={(custPrice, dlrPrice) => {
+                            setPkgVehiclePrices((prev) =>
+                              prev.map((r) =>
+                                r.vehicleTypeId === row.vehicleTypeId
+                                  ? { ...r, customerPrice: custPrice, dealerPrice: dlrPrice }
+                                  : r
+                              )
+                            );
+                          }}
                           onSave={async (custPrice, dlrPrice) => {
                             setPkgVehiclePricesSaving(true);
                             try {
@@ -5382,7 +5565,17 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             </ScrollView>
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPkgModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
-              <Pressable style={styles.btnPrimary} onPress={handleSavePackage}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+              <Pressable
+                style={[styles.btnPrimary, pkgSaving && { opacity: 0.6 }]}
+                disabled={pkgSaving}
+                onPress={handleSavePackage}
+              >
+                {pkgSaving ? (
+                  <ActivityIndicator size="small" color={C.white} />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>Save</Text>
+                )}
+              </Pressable>
             </View>
           </View>
         </View>
@@ -5440,6 +5633,15 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     <VehiclePriceRow
                       key={row.vehicleTypeId}
                       row={row}
+                      onChange={(custPrice, dlrPrice) => {
+                        setRatesList((prev) =>
+                          prev.map((r) =>
+                            r.vehicleTypeId === row.vehicleTypeId
+                              ? { ...r, customerPrice: custPrice, dealerPrice: dlrPrice }
+                              : r
+                          )
+                        );
+                      }}
                       onSave={async (custPrice, dlrPrice) => {
                         if (!ratesPkg) return;
                         setRatesSaving(true);
@@ -5469,13 +5671,37 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 <Text style={styles.btnSecondaryText}>Close</Text>
               </Pressable>
               <Pressable
-                style={styles.btnPrimary}
-                onPress={() => {
-                  showAlert('Saved', 'All vehicle-type rates are configured in the database.');
+                style={[styles.btnPrimary, ratesSaving && { opacity: 0.6 }]}
+                disabled={ratesSaving}
+                onPress={async () => {
+                  if (ratesPkg && ratesList.length > 0) {
+                    setRatesSaving(true);
+                    try {
+                      await Promise.all(
+                        ratesList.map((r) =>
+                          updateVehicleTypePrice(
+                            ratesPkg.packageId,
+                            r.vehicleTypeId,
+                            r.customerPrice,
+                            r.dealerPrice
+                          )
+                        )
+                      );
+                      showAlert('Success', 'All vehicle-type rates saved successfully.');
+                    } catch (err: any) {
+                      showAlert('Error', 'Failed to save some rates.');
+                    } finally {
+                      setRatesSaving(false);
+                    }
+                  }
                   setRatesModalOpen(false);
                 }}
               >
-                <Text style={styles.btnPrimaryText}>Done</Text>
+                {ratesSaving ? (
+                  <ActivityIndicator size="small" color={C.white} />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>Save & Close</Text>
+                )}
               </Pressable>
             </View>
           </View>
