@@ -12,13 +12,20 @@ if (!fs.existsSync(distDir)) {
   process.exit(1);
 }
 
-// 1. Copy index.html to 404.html
+// 1. Ensure HTTPS redirect in index.html and copy to 404.html
 const indexHtmlPath = path.join(distDir, 'index.html');
 const notFoundHtmlPath = path.join(distDir, '404.html');
 
 if (fs.existsSync(indexHtmlPath)) {
-  fs.copyFileSync(indexHtmlPath, notFoundHtmlPath);
-  console.log('✓ Created dist/404.html (exact replica of index.html for instant SPA routing)');
+  let html = fs.readFileSync(indexHtmlPath, 'utf8');
+  const httpsRedirectScript = `<script>if(location.protocol==='http:'&&!location.hostname.match(/^(localhost|127\\.0\\.0\\.1|\\d+\\.\\d+\\.\\d+\\.\\d+)$/)){location.replace('https://'+location.host+location.pathname+location.search+location.hash);}</script>`;
+  if (!html.includes('location.protocol===\'http:\'')) {
+    html = html.replace('<head>', '<head>\n    ' + httpsRedirectScript);
+    fs.writeFileSync(indexHtmlPath, html, 'utf8');
+    console.log('✓ Injected automatic HTTPS upgrade script into dist/index.html');
+  }
+  fs.writeFileSync(notFoundHtmlPath, html, 'utf8');
+  console.log('✓ Created dist/404.html (exact replica of index.html with HTTPS upgrade)');
 } else {
   console.warn('! dist/index.html was not found.');
 }
