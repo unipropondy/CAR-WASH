@@ -1,6 +1,5 @@
 name = "carwash-pos-v2"
 compatibility_date = "2024-11-01"
-main = "Frontend/dist/_worker.js"
 
 [assets]
 directory = "Frontend/dist"

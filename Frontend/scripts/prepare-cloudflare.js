@@ -28,37 +28,15 @@ const redirectsContent = '/*    /index.html   200\n';
 fs.writeFileSync(path.join(distDir, '_redirects'), redirectsContent, 'utf8');
 console.log('✓ Created dist/_redirects (/* -> /index.html 200 rule for Cloudflare)');
 
-// 3. Ensure _worker.js in dist
-const workerScript = `export default {
-  async fetch(request, env) {
-    try {
-      const url = new URL(request.url);
+// 3. Remove _worker.js if present to prevent Cloudflare Worker asset error
+const workerJsPath = path.join(distDir, '_worker.js');
+if (fs.existsSync(workerJsPath)) {
+  fs.unlinkSync(workerJsPath);
+}
 
-      if (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
-        let response = await env.ASSETS.fetch(request);
-
-        // If 404 and not a static asset with file extension, fallback to /index.html
-        if (response.status === 404 && !url.pathname.includes('.')) {
-          const indexRequest = new Request(new URL('/index.html', url.origin), request);
-          response = await env.ASSETS.fetch(indexRequest);
-        }
-
-        return response;
-      }
-
-      return fetch(request);
-    } catch (err) {
-      if (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
-        return env.ASSETS.fetch(new URL('/index.html', request.url));
-      }
-      return new Response('SPA Routing Error', { status: 500 });
-    }
-  }
-};
-`;
-
-fs.writeFileSync(path.join(distDir, '_worker.js'), workerScript, 'utf8');
-console.log('✓ Created dist/_worker.js (Worker request interceptor)');
+// 4. Create .assetsignore
+const assetsIgnoreContent = '_worker.js\n.assetsignore\n';
+fs.writeFileSync(path.join(distDir, '.assetsignore'), assetsIgnoreContent, 'utf8');
 
 // Also sync to public directory so future exports retain them
 if (!fs.existsSync(publicDir)) {
@@ -68,6 +46,10 @@ if (fs.existsSync(indexHtmlPath)) {
   fs.copyFileSync(indexHtmlPath, path.join(publicDir, '404.html'));
 }
 fs.writeFileSync(path.join(publicDir, '_redirects'), redirectsContent, 'utf8');
-fs.writeFileSync(path.join(publicDir, '_worker.js'), workerScript, 'utf8');
+fs.writeFileSync(path.join(publicDir, '.assetsignore'), assetsIgnoreContent, 'utf8');
+const publicWorkerJs = path.join(publicDir, '_worker.js');
+if (fs.existsSync(publicWorkerJs)) {
+  fs.unlinkSync(publicWorkerJs);
+}
 
 console.log('[Cloudflare SPA Setup] Successfully prepared Cloudflare distribution files!');
