@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { PosSidebar, PosNavTab } from '../components/PosSidebar';
 import { PosTopNavbar } from '../components/PosTopNavbar';
-import { OrderQueueTable } from '../components/OrderQueueTable';
+import { OrderQueueTable, FilterTabKey } from '../components/OrderQueueTable';
 import { BayOverviewCards } from '../components/BayOverviewCards';
 import { PosSettingsView } from '../components/PosSettingsView';
 import { BayMasterManagementView } from '../components/BayMasterManagementView';
@@ -102,6 +102,44 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
   const [loadingOrders, setLoadingOrders] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [orderTableFilter, setOrderTableFilter] = useState<FilterTabKey>('ALL');
+  const mainScrollRef = useRef<ScrollView>(null);
+  const bayOverviewYRef = useRef<number>(0);
+
+  const handleShowAllOrders = () => {
+    if (activeTab !== 'ORDERS') {
+      handleSelectTab('ORDERS');
+    }
+    setOrderTableFilter('ALL');
+    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const handleScrollToBays = () => {
+    if (activeTab !== 'ORDERS') {
+      handleSelectTab('ORDERS');
+    }
+    setTimeout(() => {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const el = document.getElementById('pos-bay-overview-section');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+      mainScrollRef.current?.scrollToEnd({ animated: true });
+    }, 60);
+  };
+
+  const handleShowClosedOrders = () => {
+    if (activeTab !== 'ORDERS') {
+      handleSelectTab('ORDERS');
+    }
+    setOrderTableFilter('CLOSED');
+  };
+
+  const handleShowSalesReport = () => {
+    handleSelectTab('REPORTS');
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [customerRefreshTrigger, setCustomerRefreshTrigger] = useState<number>(0);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState<number>(0);
@@ -197,7 +235,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
       id: String(api.orderId),
       orderId: api.orderId,
       orderNumber: api.orderNo,
-      customerName: api.customerName,
+      customerName: (!api.customerName || api.customerName.trim().toLowerCase() === 'walk-in customer' || api.customerName.trim().toLowerCase() === 'walk in customer' || api.customerName.trim().toLowerCase() === 'walk-in' || api.customerName.trim().toLowerCase() === 'walk in' || api.customerName.trim().toLowerCase() === 'walkin') ? 'Walk-in' : api.customerName.trim(),
       customerMobile: api.mobileNumber,
       vehiclePlate: api.vehicleNumber,
       vehicleTypeName: api.vehicleTypeName || vt?.name,
@@ -415,22 +453,27 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
         });
 
         if (newlyCreated.length > 0) {
-          const firstNew = newlyCreated[0];
-          setLatestOrderAlert({
-            orderId: firstNew.orderId,
-            orderNo: firstNew.orderNumber,
-            customerName: firstNew.customerName,
-            vehiclePlate: firstNew.vehiclePlate,
-            vehicleType: firstNew.vehicleTypeName || firstNew.vehicleCategory,
-            packageName: firstNew.packageName,
-            amount: firstNew.totalAmount,
-            payMode: firstNew.payMode || 'CASH',
-            payStatus: String(firstNew.paymentStatus),
-            isDealer: Boolean(firstNew.isDealer),
-            dealerName: firstNew.dealerName,
-            timestamp: new Date().toISOString(),
+          newlyCreated.forEach((ord, idx) => {
+            const key = String(ord.orderId || ord.id || ord.orderNumber);
+            knownOrderKeysRef.current.add(key);
+            setTimeout(() => {
+              setLatestOrderAlert({
+                orderId: ord.orderId,
+                orderNo: ord.orderNumber,
+                customerName: ord.customerName,
+                vehiclePlate: ord.vehiclePlate,
+                vehicleType: ord.vehicleTypeName || ord.vehicleCategory,
+                packageName: ord.packageName,
+                amount: ord.totalAmount,
+                payMode: ord.payMode || 'CASH',
+                payStatus: String(ord.paymentStatus),
+                isDealer: Boolean(ord.isDealer),
+                dealerName: ord.dealerName,
+                timestamp: new Date().toISOString(),
+              });
+              playOrderAlertSound();
+            }, idx * 400);
           });
-          playOrderAlertSound();
         }
       }
 
@@ -518,7 +561,9 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
     // Real-time listener for instant new kiosk orders placed across tabs/kiosk
     const unsubscribeKioskOrders = subscribeToKioskOrders((newOrder) => {
-      knownOrderKeysRef.current.add(String(newOrder.orderId || newOrder.orderNo));
+      const orderKey = String(newOrder.orderId || newOrder.orderNo);
+      if (knownOrderKeysRef.current.has(orderKey)) return;
+      knownOrderKeysRef.current.add(orderKey);
       setLatestOrderAlert(newOrder);
       playOrderAlertSound();
       loadOrders(true);
@@ -991,6 +1036,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           ) : undefined
         }
         onLogout={onLogout} 
+        onBack={activeTab !== 'ORDERS' ? () => handleSelectTab('ORDERS') : undefined}
         onSearch={setSearchQuery}
         showSearch={activeTab === 'ORDERS'}
         showDayStatus={activeTab === 'ORDERS'}
@@ -1203,6 +1249,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
 
       {/* Main Scrollable Content Area */}
       <ScrollView
+        ref={mainScrollRef}
         style={styles.mainPane}
         contentContainerStyle={[styles.mainContent, isMobile && { padding: 12, paddingBottom: 32 }]}
         nestedScrollEnabled={true}
@@ -1217,6 +1264,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
           <BayMasterManagementView
             bays={rawBayMaster}
             onRefresh={() => loadOrders(false)}
+            onBackToOrders={() => handleSelectTab('ORDERS')}
           />
         ) : activeTab === 'REPORTS' ? (
           <PosReportsView
@@ -1274,9 +1322,21 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
               </View>
             )}
 
-            {/* 2. Four Summary Cards */}
+            {/* 2. Four Interactive Summary Cards */}
             <View style={styles.summaryCardsRow}>
-              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+              {/* Card 1: TOTAL ORDERS -> Filters table to show all orders */}
+              <TouchableOpacity
+                style={[
+                  styles.summaryCard,
+                  styles.summaryCardClickable,
+                  orderTableFilter === 'ALL' && styles.summaryCardActiveFilter,
+                  isMobile && { minWidth: '47%', flexGrow: 1 }
+                ]}
+                onPress={handleShowAllOrders}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Show all orders"
+              >
                 <View style={styles.summaryTopRow}>
                   <Text style={styles.summaryCardLabel}>TOTAL ORDERS</Text>
                   <View style={[styles.summaryIconBadge, { backgroundColor: '#FEF2F2' }]}>
@@ -1284,9 +1344,20 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                   </View>
                 </View>
                 <Text style={styles.summaryCardValue}>{totalOrdersCount}</Text>
-              </View>
+              </TouchableOpacity>
 
-              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+              {/* Card 2: IN SERVICE -> Smooth scroll down to Bay Overview screen */}
+              <TouchableOpacity
+                style={[
+                  styles.summaryCard,
+                  styles.summaryCardClickable,
+                  isMobile && { minWidth: '47%', flexGrow: 1 }
+                ]}
+                onPress={handleScrollToBays}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Scroll down to Bay Overview screen"
+              >
                 <View style={styles.summaryTopRow}>
                   <Text style={styles.summaryCardLabel}>IN SERVICE</Text>
                   <View style={[styles.summaryIconBadge, { backgroundColor: '#EFF6FF' }]}>
@@ -1294,9 +1365,21 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                   </View>
                 </View>
                 <Text style={styles.summaryCardValue}>{inServiceCount}</Text>
-              </View>
+              </TouchableOpacity>
 
-              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+              {/* Card 3: CLOSED -> Filters table to show closed orders */}
+              <TouchableOpacity
+                style={[
+                  styles.summaryCard,
+                  styles.summaryCardClickable,
+                  orderTableFilter === 'CLOSED' && styles.summaryCardActiveFilter,
+                  isMobile && { minWidth: '47%', flexGrow: 1 }
+                ]}
+                onPress={handleShowClosedOrders}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Show closed orders"
+              >
                 <View style={styles.summaryTopRow}>
                   <Text style={styles.summaryCardLabel}>CLOSED</Text>
                   <View style={[styles.summaryIconBadge, { backgroundColor: '#ECFDF5' }]}>
@@ -1304,9 +1387,20 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                   </View>
                 </View>
                 <Text style={styles.summaryCardValue}>{closedCount}</Text>
-              </View>
+              </TouchableOpacity>
 
-              <View style={[styles.summaryCard, isMobile && { minWidth: '47%', flexGrow: 1 }]}>
+              {/* Card 4: REVENUE -> Opens Sales Report screen */}
+              <TouchableOpacity
+                style={[
+                  styles.summaryCard,
+                  styles.summaryCardClickable,
+                  isMobile && { minWidth: '47%', flexGrow: 1 }
+                ]}
+                onPress={handleShowSalesReport}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Open Sales Report screen"
+              >
                 <View style={styles.summaryTopRow}>
                   <Text style={styles.summaryCardLabel}>REVENUE</Text>
                   <View style={[styles.summaryIconBadge, { backgroundColor: '#FFFBEB' }]}>
@@ -1314,13 +1408,15 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                   </View>
                 </View>
                 <Text style={styles.summaryCardValue}>${totalRevenue.toFixed(2)}</Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* 3. Order Queue Section with Real SQL Server Data & Actions */}
             <OrderQueueTable
               orders={orders}
               searchQuery={searchQuery}
+              currentFilter={orderTableFilter}
+              onFilterChange={setOrderTableFilter}
               onAssignOrder={handleOpenAssignModal}
               onViewOrder={handleOpenViewModal}
               onPayOrder={handlePayOrder}
@@ -1334,12 +1430,20 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
             />
 
             {/* 4. Bay Overview Section: Exactly 5 Washing Bays synced with SQL Server */}
-            <BayOverviewCards
-              bays={bays}
-              vehicleTypes={vehicleTypes}
-              onSelectBay={handleSelectBay}
-              onManageBays={handleManageBays}
-            />
+            <View
+              nativeID="pos-bay-overview-section"
+              {...({ id: 'pos-bay-overview-section' } as any)}
+              onLayout={(event) => {
+                bayOverviewYRef.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <BayOverviewCards
+                bays={bays}
+                vehicleTypes={vehicleTypes}
+                onSelectBay={handleSelectBay}
+                onManageBays={handleManageBays}
+              />
+            </View>
           </View>
         )}
       </ScrollView>
@@ -1597,7 +1701,7 @@ export const PosDashboardScreen: React.FC<PosDashboardScreenProps> = ({
                           activeOpacity={0.8}
                         >
                           <Ionicons name="card-outline" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
-                          <Text style={styles.completeWashText}>💳 Collect Payment / YeahPay ($ {selectedOrderForView.totalAmount.toFixed(2)})</Text>
+                          <Text style={styles.completeWashText}>Collect Payment</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -2279,6 +2383,49 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: -0.5,
+  },
+  summaryCardClickable: {
+    cursor: 'pointer' as any,
+    borderColor: '#BFDBFE',
+  },
+  summaryCardValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bayButtonBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderWidth: 1,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  bayButtonBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#2563EB',
+    letterSpacing: 0.3,
+  },
+  summaryCardHintPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryCardHintPillText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  summaryCardActiveFilter: {
+    borderColor: RED_BAY_COLORS.primary,
+    borderWidth: 1.5,
   },
   // Modal
   modalOverlay: {

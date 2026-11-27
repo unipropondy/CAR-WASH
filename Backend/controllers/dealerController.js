@@ -1457,7 +1457,7 @@ async function getDealerVehicleHistorySummary(req, res) {
  */
 async function getDealerDetailedVisits(req, res) {
   try {
-    const { dealerId, search } = req.query;
+    const { dealerId, search, fromDate, toDate, status } = req.query;
     const dId = dealerId ? parseInt(dealerId, 10) : null;
 
     try {
@@ -1481,11 +1481,36 @@ async function getDealerDetailedVisits(req, res) {
         )`);
       }
 
+      if (fromDate && fromDate.trim()) {
+        request.input('fromDate', sql.NVarChar(50), `${fromDate.trim()} 00:00:00`);
+        whereConditions.push(`o.CreatedDate >= @fromDate`);
+      }
+
+      if (toDate && toDate.trim()) {
+        request.input('toDate', sql.NVarChar(50), `${toDate.trim()} 23:59:59.997`);
+        whereConditions.push(`o.CreatedDate <= @toDate`);
+      }
+
+      if (status && status.trim() && status.trim().toUpperCase() !== 'ALL') {
+        const normStatus = status.trim().toUpperCase();
+        if (normStatus === 'PAID') {
+          whereConditions.push(`(o.CreditStatus = 'PAID' OR (ISNULL(o.OutstandingAmount, 0) <= 0 AND ISNULL(o.PaidAmount, 0) > 0))`);
+        } else if (normStatus === 'PENDING') {
+          whereConditions.push(`(o.CreditStatus = 'PENDING' OR o.CreditStatus = 'PARTIALLY_PAID' OR ISNULL(o.OutstandingAmount, 0) > 0)`);
+        } else {
+          request.input('creditStatus', sql.NVarChar(50), normStatus);
+          whereConditions.push(`o.CreditStatus = @creditStatus`);
+        }
+      }
+
       const query = `
         SELECT 
           o.OrderId,
           o.OrderNo,
           o.CreatedDate,
+          o.CompletedDate,
+          o.ClosedDate,
+          o.PaidDate,
           o.DealerId,
           dm.DealerName,
           dm.UniqueCode AS DealerCode,
@@ -1512,6 +1537,9 @@ async function getDealerDetailedVisits(req, res) {
       const visits = result.recordset.map((r) => ({
         orderId: r.OrderId,
         visitDateTime: r.CreatedDate,
+        inTime: r.CreatedDate,
+        outTime: r.CompletedDate || r.ClosedDate || r.PaidDate || null,
+        paidDate: r.PaidDate || null,
         billNumber: r.OrderNo,
         dealerId: r.DealerId,
         dealerName: r.DealerName,
@@ -1540,6 +1568,9 @@ async function getDealerDetailedVisits(req, res) {
     let visits = (store.bills || []).map((b) => ({
       orderId: b.orderId,
       visitDateTime: b.orderDateTime,
+      inTime: b.orderDateTime,
+      outTime: b.completedDate || b.closedDate || null,
+      paidDate: b.paidDate || null,
       billNumber: b.billNumber,
       dealerId: b.dealerId,
       dealerName: b.dealerName,
@@ -1556,6 +1587,30 @@ async function getDealerDetailedVisits(req, res) {
     }));
 
     if (dId) visits = visits.filter((v) => v.dealerId === dId);
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      visits = visits.filter((v) =>
+        (v.billNumber && v.billNumber.toLowerCase().includes(q)) ||
+        (v.vehicleNumber && v.vehicleNumber.toLowerCase().includes(q)) ||
+        (v.dealerName && v.dealerName.toLowerCase().includes(q))
+      );
+    }
+    if (fromDate && fromDate.trim()) {
+      const fDate = new Date(`${fromDate.trim()}T00:00:00`);
+      visits = visits.filter((v) => new Date(v.visitDateTime) >= fDate);
+    }
+    if (toDate && toDate.trim()) {
+      const tDate = new Date(`${toDate.trim()}T23:59:59.999`);
+      visits = visits.filter((v) => new Date(v.visitDateTime) <= tDate);
+    }
+    if (status && status.trim() && status.trim().toUpperCase() !== 'ALL') {
+      const norm = status.trim().toUpperCase();
+      if (norm === 'PAID') {
+        visits = visits.filter((v) => v.paymentStatus === 'PAID' || v.outstandingAmount <= 0);
+      } else if (norm === 'PENDING') {
+        visits = visits.filter((v) => v.paymentStatus === 'PENDING' || v.outstandingAmount > 0);
+      }
+    }
 
     return res.json({
       success: true,

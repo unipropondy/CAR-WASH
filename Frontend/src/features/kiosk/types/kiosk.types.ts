@@ -79,6 +79,8 @@ export interface ServicePackage {
   isActive?: boolean;
   description: string;
   features: string[];
+  /** Vehicle-type-specific prices loaded from ServicePackageVehicleTypePrice table */
+  vehicleTypePrices?: import('../../../services/packageApi').VehicleTypePrice[];
 }
 
 export interface CustomerDetails {

@@ -228,6 +228,18 @@ export const BayMasterManagementView: React.FC<BayMasterManagementViewProps> = (
       {/* Top Controls Toolbar: Filter Tabs on Left, Actions on Right */}
       <View style={[styles.filterRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {onBackToOrders && (
+            <TouchableOpacity
+              style={styles.backToOrdersBtn}
+              onPress={onBackToOrders}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Return to Orders screen"
+            >
+              <Ionicons name="arrow-back" size={15} color="#0F172A" />
+              <Text style={styles.backToOrdersBtnText}>Back to Orders</Text>
+            </TouchableOpacity>
+          )}
           {(['ALL', 'AVAILABLE', 'IN_SERVICE', 'MAINTENANCE'] as const).map((tab) => (
             <TouchableOpacity
               key={tab}
@@ -1013,6 +1025,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: '#FFFFFF',
+  },
+  backToOrdersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+    borderWidth: 1.5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginRight: 6,
+    cursor: 'pointer' as any,
+  },
+  backToOrdersBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
   },
 });
 

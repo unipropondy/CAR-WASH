@@ -168,6 +168,22 @@ const parseAddonsString = (raw?: string | null): ParsedAddonItem[] => {
     });
 };
 
+const cleanCustomerDisplayName = (name?: string | null): string => {
+  if (!name || !name.trim()) return 'Walk-in';
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === 'walk-in customer' ||
+    lower === 'walk in customer' ||
+    lower === 'walk-in' ||
+    lower === 'walk in' ||
+    lower === 'walkin'
+  ) {
+    return 'Walk-in';
+  }
+  return trimmed;
+};
+
 const formatISOToDDMMYYYY = (isoStr: string): string => {
   if (!isoStr) return '';
   const clean = isoStr.split('T')[0];
@@ -1301,7 +1317,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       lines.push(`Order ID,Order No,Vehicle Plate,Customer Name,Package,A La Carte / Add-ons,Total Amount ($),Status,Date & Time`);
       washes.forEach((w: any) => {
         lines.push(
-          `"${w.orderId || ''}","${w.orderNo || ''}","${w.vehicleNumber || w.plateNumber || ''}","${(w.customerName || '').replace(/"/g, '""')}","${(w.packageName || w.serviceName || '').replace(/"/g, '""')}","${(w.additionalServices || '').replace(/"/g, '""')}",$${Number(w.totalAmount || w.amount || 0).toFixed(2)},"${w.statusName || w.status || ''}","${w.createdDate || w.completedDate || w.startedDate || ''}"`
+          `"${w.orderId || ''}","${w.orderNo || ''}","${w.vehicleNumber || w.plateNumber || ''}","${cleanCustomerDisplayName(w.customerName).replace(/"/g, '""')}","${(w.packageName || w.serviceName || '').replace(/"/g, '""')}","${(w.additionalServices || '').replace(/"/g, '""')}",$${Number(w.totalAmount || w.amount || 0).toFixed(2)},"${w.statusName || w.status || ''}","${w.createdDate || w.completedDate || w.startedDate || ''}"`
         );
       });
 
@@ -1344,7 +1360,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
           <tr>
             <td><strong>#${w.orderNo || w.orderId}</strong></td>
             <td><span class="plate-badge">${w.vehicleNumber || w.plateNumber || '—'}</span></td>
-            <td>${(w.customerName && w.customerName !== 'Walk-in Customer') ? w.customerName : 'Walk-in'}</td>
+            <td>${cleanCustomerDisplayName(w.customerName)}</td>
             <td>
               <div><strong>${w.packageName || w.serviceName || 'Standard Wash'}</strong></div>
               ${w.additionalServices ? `<div style="font-size: 10px; color: #DC2626; margin-top: 2px;">+ ${w.additionalServices}</div>` : ''}
@@ -1709,6 +1725,28 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     : null;
   const totalDistWashes = filteredServiceDistributionList.reduce((acc, s) => acc + (s.totalWashes || 0), 0) || 1;
 
+  // Service Distribution pagination (3 per page, with Next/Prev buttons)
+  const SERVICE_DIST_PAGE_SIZE = 3;
+  const [serviceDistPage, setServiceDistPage] = useState<number>(1);
+
+  useEffect(() => {
+    setServiceDistPage(1);
+    setActiveServiceIdx(null);
+  }, [serviceCategoryFilter, selectedPeriodTab, customStartDate, customEndDate, anchorDate]);
+
+  const totalServiceDistCount = filteredServiceDistributionList.length;
+  const totalServiceDistPages = Math.max(1, Math.ceil(totalServiceDistCount / SERVICE_DIST_PAGE_SIZE));
+
+  useEffect(() => {
+    if (serviceDistPage > totalServiceDistPages) {
+      setServiceDistPage(totalServiceDistPages);
+    }
+  }, [totalServiceDistPages, serviceDistPage]);
+
+  const startServiceDistIndex = (serviceDistPage - 1) * SERVICE_DIST_PAGE_SIZE;
+  const endServiceDistIndex = Math.min(startServiceDistIndex + SERVICE_DIST_PAGE_SIZE, totalServiceDistCount);
+  const pagedServiceDistribution = filteredServiceDistributionList.slice(startServiceDistIndex, endServiceDistIndex);
+
   // Ranked Top Using Packages List
   const topPackagesList = useMemo(() => {
     return [...serviceDistributionList].sort(
@@ -1723,6 +1761,27 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
   const totalPackageWashes = useMemo(() => {
     return topPackagesList.reduce((acc, p) => acc + (p.totalWashes || 0), 0);
   }, [topPackagesList]);
+
+  // Top Packages pagination (4 per page, with Next/Prev buttons, no scroll)
+  const TOP_PACKAGES_PAGE_SIZE = 4;
+  const [pkgPage, setPkgPage] = useState<number>(1);
+
+  useEffect(() => {
+    setPkgPage(1);
+  }, [selectedPeriodTab, customStartDate, customEndDate, anchorDate]);
+
+  const totalPackagesCount = topPackagesList.length;
+  const totalPkgPages = Math.max(1, Math.ceil(totalPackagesCount / TOP_PACKAGES_PAGE_SIZE));
+
+  useEffect(() => {
+    if (pkgPage > totalPkgPages) {
+      setPkgPage(totalPkgPages);
+    }
+  }, [totalPkgPages, pkgPage]);
+
+  const startPkgIndex = (pkgPage - 1) * TOP_PACKAGES_PAGE_SIZE;
+  const endPkgIndex = Math.min(startPkgIndex + TOP_PACKAGES_PAGE_SIZE, totalPackagesCount);
+  const pagedPackages = topPackagesList.slice(startPkgIndex, endPkgIndex);
 
   const maxTrendWashes = Math.max(10, ...washTrendList.map(w => w.completedWashes || 0));
   const maxTrendRevenue = Math.max(100, ...washTrendList.map(w => w.dailyRevenue || 0));
@@ -1913,11 +1972,16 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
     },
   ];
 
-  const { width } = useWindowDimensions();
-  const isMobile = width < 768;
-  const isTablet = width >= 768 && width < 1024;
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  // In portrait on phones/small tablets, stack vertically
+  // If landscape or wide tablet/desktop, keep multi-column row layout
+  const isMobile = width < 768 && !isLandscape;
+  const isTablet = (width >= 768 && width < 1024) || (isLandscape && width < 1024);
   const nativeSvgHeight = isMobile
     ? Math.max(140, Math.min(220, Math.round(((width - 72) * 270) / 560)))
+    : isTablet
+    ? 220
     : 270;
 
   return (
@@ -2106,7 +2170,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       <View style={[styles.kpiRowFour, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Card 1: Total Washes (Red Gradient) */}
-        <View style={[styles.kpiCardRedGradient, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.kpiCardRedGradient, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: '47%' } : {}]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleWhite}>
               <Ionicons name="car-sport" size={20} color="#ED0712" />
@@ -2123,7 +2187,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Total Revenue (White with red wave) */}
-        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.kpiCardWhite, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: '47%' } : {}]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="cash-outline" size={20} color="#ED0712" />
@@ -2138,7 +2202,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Total Customers (White with red wave) */}
-        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.kpiCardWhite, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: '47%' } : {}]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="people-outline" size={20} color="#ED0712" />
@@ -2153,7 +2217,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 4: Total Vehicles (White with red wave) */}
-        <View style={[styles.kpiCardWhite, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.kpiCardWhite, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: '47%' } : {}]}>
           <View style={styles.kpiTopRow}>
             <View style={styles.iconCircleRedSoft}>
               <Ionicons name="car-outline" size={20} color="#ED0712" />
@@ -2173,11 +2237,16 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       <View style={[styles.threeCardsRow, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
         {/* Card 1: Bay Utilization (Moved to Left Side) */}
-        <View style={[styles.cardFlexOne, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.cardFlexOne, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: 260 } : {}]}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTitle}>Bay Utilization</Text>
-              <Text style={styles.cardSubtitle}>Service bay usage & availability</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="pie-chart" size={17} color="#ED0712" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle} numberOfLines={1}>Bay Utilization</Text>
+                <Text style={styles.cardSubtitle} numberOfLines={1}>Service bay usage & availability</Text>
+              </View>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
@@ -2250,15 +2319,15 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Wash Trend (Paired Bar Chart - Elevated SaaS Design) */}
-        <View style={[styles.cardFlexOnePointTwo, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.cardFlexOnePointTwo, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: 320 } : {}]}>
           <View style={styles.cardHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
                 <Ionicons name="trending-up" size={17} color="#ED0712" />
               </View>
-              <View>
-                <Text style={styles.cardTitle}>Wash Trend</Text>
-                <Text style={styles.cardSubtitle}>Timeline comparison of washes and revenue</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle} numberOfLines={1}>Wash Trend</Text>
+                <Text style={styles.cardSubtitle} numberOfLines={1}>Timeline comparison of washes and revenue</Text>
               </View>
             </View>
             <View style={styles.smallDropdownPill}>
@@ -2467,80 +2536,20 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Service Distribution (Elevated Segmented Donut Analytics Card) */}
-        <View style={[styles.cardFlexOne, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' }]}>
+        <View style={[styles.cardFlexOne, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : isTablet ? { minWidth: 260 } : {}]}>
           <View style={styles.cardHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#FEF2F2' }]}>
                 <Ionicons name="pie-chart" size={17} color="#ED0712" />
               </View>
-              <View>
-                <Text style={styles.cardTitle}>Service Distribution</Text>
-                <Text style={styles.cardSubtitle}>Wash packages & add-ons by volume & share</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle} numberOfLines={1}>Service Distribution</Text>
+                <Text style={styles.cardSubtitle} numberOfLines={1}>Wash packages & add-ons by volume & share</Text>
               </View>
             </View>
             <View style={styles.smallDropdownPill}>
               <Text style={styles.smallDropdownText}>{selectedPeriodTab}</Text>
             </View>
-          </View>
-
-          {/* Service Category Filter Tabs: All, Packages, Add-ons */}
-          <View style={styles.serviceFilterTabsRow}>
-            <TouchableOpacity
-              style={[
-                styles.serviceFilterTabBtn,
-                serviceCategoryFilter === 'ALL' && styles.serviceFilterTabBtnActive,
-              ]}
-              onPress={() => {
-                setServiceCategoryFilter('ALL');
-                setActiveServiceIdx(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.serviceFilterTabText,
-                serviceCategoryFilter === 'ALL' && styles.serviceFilterTabTextActive,
-              ]}>
-                All ({serviceDistributionList.length})
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.serviceFilterTabBtn,
-                serviceCategoryFilter === 'PACKAGES' && styles.serviceFilterTabBtnActive,
-              ]}
-              onPress={() => {
-                setServiceCategoryFilter('PACKAGES');
-                setActiveServiceIdx(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.serviceFilterTabText,
-                serviceCategoryFilter === 'PACKAGES' && styles.serviceFilterTabTextActive,
-              ]}>
-                Packages ({packageCount})
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.serviceFilterTabBtn,
-                serviceCategoryFilter === 'ADDONS' && styles.serviceFilterTabBtnActive,
-              ]}
-              onPress={() => {
-                setServiceCategoryFilter('ADDONS');
-                setActiveServiceIdx(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.serviceFilterTabText,
-                serviceCategoryFilter === 'ADDONS' && styles.serviceFilterTabTextActive,
-              ]}>
-                Add-ons ({addonCount})
-              </Text>
-            </TouchableOpacity>
           </View>
 
           {/* Interactive Segmented Donut SVG Chart */}
@@ -2640,20 +2649,21 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             })}
           </View>
 
-          {/* Breakdown List of Cards */}
+          {/* Breakdown List of Cards (Top 3 per page) */}
           <View style={styles.serviceBreakdownList}>
-            {filteredServiceDistributionList.length > 0 ? (
-              filteredServiceDistributionList.slice(0, 6).map((item, idx) => {
-                const theme = SERVICE_THEMES[idx % SERVICE_THEMES.length];
-                const isActive = activeServiceIdx === idx;
+            {pagedServiceDistribution.length > 0 ? (
+              pagedServiceDistribution.map((item, idx) => {
+                const globalIdx = startServiceDistIndex + idx;
+                const theme = SERVICE_THEMES[globalIdx % SERVICE_THEMES.length];
+                const isActive = activeServiceIdx === globalIdx;
                 return (
                   <TouchableOpacity
-                    key={item.packageId || idx}
+                    key={item.packageId || globalIdx}
                     activeOpacity={0.85}
-                    onPress={() => setActiveServiceIdx(activeServiceIdx === idx ? null : idx)}
+                    onPress={() => setActiveServiceIdx(activeServiceIdx === globalIdx ? null : globalIdx)}
                     {...(Platform.OS === 'web'
                       ? ({
-                          onMouseEnter: () => setActiveServiceIdx(idx),
+                          onMouseEnter: () => setActiveServiceIdx(globalIdx),
                           onMouseLeave: () => setActiveServiceIdx(null),
                         } as any)
                       : {})}
@@ -2717,22 +2727,46 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             )}
           </View>
 
-          {/* Service Summary Footer */}
-          {filteredServiceDistributionList.length > 0 && (
-            <View style={styles.serviceSummaryFooter}>
-              <View style={styles.serviceFooterLeft}>
-                <Ionicons name="sparkles" size={13} color="#ED0712" />
-                <Text style={styles.serviceFooterTopText} numberOfLines={1}>
-                  Top:{' '}
-                  <Text style={styles.serviceFooterTopBold}>
-                    {topServiceItem?.packageName || 'N/A'} ({topServiceItem?.washSharePercentage || 0}%)
-                  </Text>
-                </Text>
-              </View>
-              <View style={styles.serviceFooterBadge}>
-                <Text style={styles.serviceFooterBadgeText}>
-                  {filteredServiceDistributionList.length} Active {serviceCategoryFilter === 'ADDONS' ? 'Add-ons' : 'Tiers'}
-                </Text>
+          {/* Service Distribution Pagination Controls (Top 3 with Prev / Next Buttons) */}
+          {totalServiceDistPages > 1 && (
+            <View style={styles.serviceDistPaginationRow}>
+              <Text style={styles.serviceDistPaginationInfo}>
+                Showing <Text style={styles.serviceDistPaginationInfoBold}>{startServiceDistIndex + 1}–{endServiceDistIndex}</Text> of{' '}
+                <Text style={styles.serviceDistPaginationInfoBold}>{totalServiceDistCount}</Text>
+              </Text>
+
+              <View style={styles.serviceDistPaginationControls}>
+                <TouchableOpacity
+                  style={[styles.serviceDistNavBtn, serviceDistPage === 1 && styles.serviceDistNavBtnDisabled]}
+                  onPress={() => {
+                    setServiceDistPage((p) => Math.max(1, p - 1));
+                    setActiveServiceIdx(null);
+                  }}
+                  disabled={serviceDistPage === 1}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Previous services"
+                >
+                  <Ionicons name="chevron-back" size={13} color={serviceDistPage === 1 ? '#94A3B8' : '#0F172A'} />
+                  <Text style={[styles.serviceDistNavBtnText, serviceDistPage === 1 && styles.serviceDistNavBtnTextDisabled]}>Prev</Text>
+                </TouchableOpacity>
+
+                <View style={styles.serviceDistPagePill}>
+                  <Text style={styles.serviceDistPagePillText}>{serviceDistPage} / {totalServiceDistPages}</Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.serviceDistNavBtn, serviceDistPage === totalServiceDistPages && styles.serviceDistNavBtnDisabled]}
+                  onPress={() => {
+                    setServiceDistPage((p) => Math.min(totalServiceDistPages, p + 1));
+                    setActiveServiceIdx(null);
+                  }}
+                  disabled={serviceDistPage === totalServiceDistPages}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Next services"
+                >
+                  <Text style={[styles.serviceDistNavBtnText, serviceDistPage === totalServiceDistPages && styles.serviceDistNavBtnTextDisabled]}>Next</Text>
+                  <Ionicons name="chevron-forward" size={13} color={serviceDistPage === totalServiceDistPages ? '#94A3B8' : '#0F172A'} />
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -2749,6 +2783,8 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             styles.rowThreeCard,
             isMobile
               ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }
+              : isTablet
+              ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', marginBottom: 16 }
               : { flex: 1.35, minWidth: 440 },
           ]}
         >
@@ -3608,7 +3644,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                   };
                   const color = colorMap[c.paymentChannel] || '#7C3AED';
                   return (
-                    <View key={c.paymentChannel} style={[styles.channelInfographicCard, isMobile && { width: '48%' }, { borderTopColor: color }]}>
+                    <View key={c.paymentChannel} style={[styles.channelInfographicCard, (isMobile || isTablet) && { width: '48%' }, { borderTopColor: color }]}>
                       {/* Row 1: Mode Dot + Full Payment Name */}
                       <View style={styles.channelCardRow1}>
                         <View style={[styles.channelDot, { backgroundColor: color }]} />
@@ -3640,7 +3676,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 2: Key Metrics (4 Essential KPIs - Modern 2x2 Scorecard Grid) */}
-        <View style={[styles.rowThreeCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }]}>
+        <View style={[styles.rowThreeCard, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' } : isTablet ? { flex: 1, minWidth: 320 } : {}]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#EEF2FF' }]}>
@@ -3741,7 +3777,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
 
         {/* Card 3: Top Using Packages List (Executive Edition) */}
-        <View style={[styles.rowThreeCardWide, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' }]}>
+        <View style={[styles.rowThreeCardWide, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', justifyContent: 'flex-start' } : isTablet ? { flex: 1, minWidth: 320 } : {}]}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.sectionHeaderIconBox, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0', borderWidth: 1 }]}>
@@ -3760,32 +3796,33 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             </View>
           </View>
 
-          {/* Top Packages Cards List */}
+          {/* Top Packages Cards List (4 items per page, no scroll) */}
           <View style={styles.topPkgCardsList}>
-            {topPackagesList.length > 0 ? (
-              topPackagesList.map((p, idx) => {
-                const theme = PACKAGE_THEMES[idx % PACKAGE_THEMES.length];
+            {pagedPackages.length > 0 ? (
+              pagedPackages.map((p, idx) => {
+                const globalIdx = startPkgIndex + idx;
+                const theme = PACKAGE_THEMES[globalIdx % PACKAGE_THEMES.length];
                 const pct = totalPackageWashes > 0
                   ? (((p.totalWashes || 0) / totalPackageWashes) * 100).toFixed(1)
                   : String(p.washSharePercentage || 0);
 
                 return (
                   <View
-                    key={p.packageId || idx}
+                    key={p.packageId || globalIdx}
                     style={[
                       styles.topPkgItemCard,
                       {
                         backgroundColor: theme.cardBg,
                         borderColor: theme.cardBorder,
                       },
-                      theme.isLeader && styles.topPkgItemCardLeader,
+                      globalIdx === 0 && styles.topPkgItemCardLeader,
                     ]}
                   >
                     {/* Top Row: Rank pill + Full Package Name + Revenue */}
                     <View style={styles.topPkgItemHeader}>
                       <View style={styles.topPkgItemTitleCol}>
                         <View style={[styles.topPkgRankBadge, { backgroundColor: theme.rankBg, borderColor: theme.rankBorder }]}>
-                          <Text style={[styles.topPkgRankText, { color: theme.rankText }]}>{theme.rank}</Text>
+                          <Text style={[styles.topPkgRankText, { color: theme.rankText }]}>#{globalIdx + 1}</Text>
                         </View>
                         <Text style={styles.topPkgItemTitle} numberOfLines={2}>
                           {p.packageName}
@@ -3844,6 +3881,44 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
             )}
           </View>
 
+          {/* Top Packages Pagination Controls (Prev / Next Buttons) */}
+          {totalPkgPages > 1 && (
+            <View style={styles.topPkgPaginationRow}>
+              <Text style={styles.topPkgPaginationInfo}>
+                Showing <Text style={styles.topPkgPaginationInfoBold}>{startPkgIndex + 1}–{endPkgIndex}</Text> of{' '}
+                <Text style={styles.topPkgPaginationInfoBold}>{totalPackagesCount}</Text>
+              </Text>
+
+              <View style={styles.topPkgPaginationControls}>
+                <TouchableOpacity
+                  style={[styles.topPkgNavBtn, pkgPage === 1 && styles.topPkgNavBtnDisabled]}
+                  onPress={() => setPkgPage((p) => Math.max(1, p - 1))}
+                  disabled={pkgPage === 1}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Previous packages"
+                >
+                  <Ionicons name="chevron-back" size={13} color={pkgPage === 1 ? '#94A3B8' : '#0F172A'} />
+                  <Text style={[styles.topPkgNavBtnText, pkgPage === 1 && styles.topPkgNavBtnTextDisabled]}>Prev</Text>
+                </TouchableOpacity>
+
+                <View style={styles.topPkgPagePill}>
+                  <Text style={styles.topPkgPagePillText}>{pkgPage} / {totalPkgPages}</Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.topPkgNavBtn, pkgPage === totalPkgPages && styles.topPkgNavBtnDisabled]}
+                  onPress={() => setPkgPage((p) => Math.min(totalPkgPages, p + 1))}
+                  disabled={pkgPage === totalPkgPages}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Next packages"
+                >
+                  <Text style={[styles.topPkgNavBtnText, pkgPage === totalPkgPages && styles.topPkgNavBtnTextDisabled]}>Next</Text>
+                  <Ionicons name="chevron-forward" size={13} color={pkgPage === totalPkgPages ? '#94A3B8' : '#0F172A'} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {/* Bottom Summary Footer */}
           <View style={styles.topPkgFooter}>
             <View style={styles.topPkgFooterLeft}>
@@ -3864,9 +3939,9 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
       {/* ============================================================== */}
       {/* 6. ROW 4: RECENT WASHES TABLE & RECENT TRANSACTIONS FEED */}
       {/* ============================================================== */}
-      <View style={[styles.bottomRow, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }]}>
+      <View style={[styles.bottomRow, isMobile && { flexDirection: 'column', flexWrap: 'nowrap', width: '100%', alignSelf: 'stretch' }, isTablet && { flexDirection: 'column' }]}>
         {/* Left: Recent Washes Table matching reference design */}
-        <View style={[styles.recentWashesCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 }]}>
+        <View style={[styles.recentWashesCard, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 } : isTablet ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', marginBottom: 16 } : {}]}>
           <View style={{ flex: 1, minHeight: 0 }}>
             <View style={styles.cardHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -3954,31 +4029,16 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                         <View style={[styles.customerCell, styles.tableColName]}>
                           <View style={[styles.customerAvatarBox, { backgroundColor: avatarStyle.bg, borderColor: avatarStyle.border }]}>
                             <Text style={[styles.customerAvatarText, { color: avatarStyle.text }]}>
-                              {(row.customerName || 'CU').slice(0, 2).toUpperCase()}
+                              {cleanCustomerDisplayName(row.customerName).slice(0, 2).toUpperCase()}
                             </Text>
                           </View>
                           <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                             <Text style={styles.customerNameText} numberOfLines={1} ellipsizeMode="tail">
-                              {row.customerName || 'Walk-in'}
+                              {cleanCustomerDisplayName(row.customerName)}
                             </Text>
-                            {(() => {
-                              const rowAddons = parseAddonsString(row.additionalServices);
-                              return (
-                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 1 }}>
-                                  <Text style={styles.customerSubText} numberOfLines={1} ellipsizeMode="tail">
-                                    {row.packageName || 'Standard Wash'}
-                                  </Text>
-                                  {rowAddons.length > 0 && (
-                                    <View style={styles.tableAddonBadge}>
-                                      <Ionicons name="sparkles" size={9} color="#DC2626" />
-                                      <Text style={styles.tableAddonBadgeText} numberOfLines={1}>
-                                        {rowAddons.length === 1 ? `+ ${rowAddons[0].name}` : `+ ${rowAddons.length} Add-ons`}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
-                              );
-                            })()}
+                            <Text style={styles.customerSubText} numberOfLines={1} ellipsizeMode="tail">
+                              {row.packageName || 'Standard Wash'}
+                            </Text>
                           </View>
                         </View>
 
@@ -4042,7 +4102,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
         </View>
         {renderWashesPagination()}
       </View>
-        <View style={[styles.recentTransactionsCard, isMobile && { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 }]}>
+        <View style={[styles.recentTransactionsCard, isMobile ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch', padding: 14 } : isTablet ? { width: '100%', minWidth: 0, flex: 0, alignSelf: 'stretch' } : {}]}>
           <View style={{ flex: 1, minHeight: 0 }}>
             <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -4153,7 +4213,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
                     <View style={styles.txInfoCol}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={styles.txCustomerName} numberOfLines={1}>
-                          {(tx.customerName && tx.customerName !== 'Walk-in Customer') ? tx.customerName : 'Walk-in'}
+                          {cleanCustomerDisplayName(tx.customerName)}
                         </Text>
                         <Text style={styles.txOrderTag}>#{formatOrderNo(tx.orderNo)}</Text>
                       </View>
@@ -4254,7 +4314,7 @@ export const PosReportsView: React.FC<PosReportsViewProps> = ({
               <View style={[styles.modalKeyCard, { borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }]}>
                 <Text style={styles.modalKeyLabel}>CUSTOMER NAME</Text>
                 <Text style={styles.modalKeyValueBold} numberOfLines={1}>
-                  {(selectedWashOrder?.customerName && selectedWashOrder.customerName !== 'Walk-in Customer') ? selectedWashOrder.customerName : 'Walk-in'}
+                  {cleanCustomerDisplayName(selectedWashOrder?.customerName)}
                 </Text>
                 <Text style={styles.modalKeySub}>Retail Walk-in</Text>
               </View>
@@ -5302,6 +5362,8 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#EDF2F7',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   cardFlexOnePointTwo: {
@@ -5312,6 +5374,8 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#EDF2F7',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)' } as any) : { elevation: 2 }),
   },
   nativeGaugeOuter: {
@@ -5404,8 +5468,9 @@ const styles = StyleSheet.create({
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 14,
+    minHeight: 40,
   },
   cardTitle: {
     fontSize: 16,
@@ -5557,6 +5622,67 @@ const styles = StyleSheet.create({
   serviceTrackFill: {
     height: '100%',
     borderRadius: 2,
+  },
+  serviceDistPaginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 5,
+    paddingHorizontal: 2,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 6,
+  },
+  serviceDistPaginationInfo: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  serviceDistPaginationInfoBold: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  serviceDistPaginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  serviceDistNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 7,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  serviceDistNavBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#F1F5F9',
+    opacity: 0.45,
+    ...(Platform.OS === 'web' ? ({ cursor: 'default' } as any) : {}),
+  },
+  serviceDistNavBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  serviceDistNavBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  serviceDistPagePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
+  },
+  serviceDistPagePillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
   },
   serviceSummaryFooter: {
     flexDirection: 'row',
@@ -5738,13 +5864,14 @@ const styles = StyleSheet.create({
   },
   chartWrapper: {
     flexDirection: 'row',
-    height: 200,
+    height: 250,
     width: '100%',
     position: 'relative',
+    marginVertical: 4,
   },
   yAxisCol: {
     width: 36,
-    height: 165,
+    height: 215,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     paddingRight: 8,
@@ -5771,7 +5898,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 195,
+    height: 245,
   },
   barsScrollContent: {
     flexDirection: 'row',
@@ -5811,7 +5938,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 3,
-    height: 145,
+    height: 195,
   },
   barRedPrimary: {
     width: 10,
@@ -5988,8 +6115,10 @@ const styles = StyleSheet.create({
   /* BAY UTILIZATION */
   /* Centered Diagram & Underneath Breakdown Styles */
   verticalDiagramCardContent: {
+    flex: 1,
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'space-between',
     width: '100%',
     marginTop: 8,
   },
@@ -5997,12 +6126,13 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 6,
+    marginVertical: 10,
   },
   breakdownListUnder: {
     width: '100%',
-    marginTop: 12,
-    gap: 9,
+    marginTop: 'auto',
+    paddingTop: 10,
+    gap: 12,
   },
   underItemRow: {
     flexDirection: 'row',
@@ -6239,14 +6369,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   keyMetricsGrid: {
+    flex: 1,
     flexDirection: 'column',
-    gap: 10,
-    marginTop: 12,
+    justifyContent: 'center',
+    gap: 12,
+    marginVertical: 14,
     width: '100%',
   },
   kpiGridRow: {
+    flex: 1,
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     width: '100%',
   },
   kpiTile: {
@@ -6256,7 +6389,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 12,
+    padding: 13,
     justifyContent: 'space-between',
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)' } as any) : { elevation: 1 }),
   },
@@ -6580,13 +6713,75 @@ const styles = StyleSheet.create({
   topPkgCardsList: {
     flexDirection: 'column',
     justifyContent: 'flex-start',
-    marginVertical: 10,
-    gap: 10,
+    gap: 9,
+    marginVertical: 6,
+    overflow: 'hidden',
+  },
+  topPkgPaginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 6,
+  },
+  topPkgPaginationInfo: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  topPkgPaginationInfoBold: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  topPkgPaginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  topPkgNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  topPkgNavBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#F1F5F9',
+    opacity: 0.45,
+    ...(Platform.OS === 'web' ? ({ cursor: 'default' } as any) : {}),
+  },
+  topPkgNavBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  topPkgNavBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  topPkgPagePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
+  },
+  topPkgPagePillText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
   },
   topPkgItemCard: {
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
     borderWidth: 1,
     justifyContent: 'center',
     ...(Platform.OS === 'web'
@@ -6640,8 +6835,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: '#F1F5F9',
-    marginTop: 8,
-    marginBottom: 7,
+    marginTop: 6,
+    marginBottom: 6,
     overflow: 'hidden',
     width: '100%',
   },

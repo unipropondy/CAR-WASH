@@ -16,7 +16,7 @@ import { KioskTopHeader } from '../components/KioskTopHeader';
 import { KioskBackground } from '../components/KioskBackground';
 import { ServiceCategory, ServicePackage, DealerOption, VehicleOption } from '../types/kiosk.types';
 import { fetchServiceCategories, getCachedServiceCategories } from '../../../services/categoryApi';
-import { fetchPackagesByCategory, getCachedPackages } from '../../../services/packageApi';
+import { fetchPackagesByCategory, getCachedPackages, fetchAllPackageVehicleTypePrices, getVehicleSpecificPrice, VehicleTypePrice } from '../../../services/packageApi';
 import { getCachedGstRate } from '../../../services/companySettingsApi';
 import { useKioskLanguageStore } from '../store/kioskLanguageStore';
 import { KIOSK_TRANSLATIONS } from '../data/kioskTranslations';
@@ -111,19 +111,34 @@ interface Page3ServiceScreenProps {
 }
 
 function getPackageFeatures(pkg: ServicePackage): string[] {
+  // 1. Prioritize database description from ServicePackageMaster
+  const desc = (pkg.description || '').trim();
+  if (desc) {
+    if (desc.includes('•')) {
+      const parts = desc.split('•').map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) return parts;
+    }
+    if (desc.includes('\n')) {
+      const parts = desc.split('\n').map((s) => s.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean);
+      if (parts.length > 0) return parts;
+    }
+    if (desc.includes(';')) {
+      const parts = desc.split(';').map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) return parts;
+    }
+    if (desc.includes(',')) {
+      const parts = desc.split(',').map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 2) return parts;
+    }
+    return [desc];
+  }
+
+  // 2. Fallback to package features array
   if (Array.isArray(pkg.features) && pkg.features.length > 0) {
     return pkg.features;
   }
-  if (pkg.description) {
-    if (pkg.description.includes(',')) {
-      const parts = pkg.description.split(',').map((s) => s.trim()).filter(Boolean);
-      if (parts.length >= 2) return parts.slice(0, 3);
-    }
-    if (pkg.description.includes('.')) {
-      const parts = pkg.description.split('.').map((s) => s.trim()).filter(Boolean);
-      if (parts.length >= 2) return parts.slice(0, 3);
-    }
-  }
+
+  // 3. Fallback package presets by code/name
   const code = (pkg.packageCode || pkg.name || '').toUpperCase();
   if (code.includes('FOAM') || code.includes('EXPRESS')) {
     return ['High-density snow foam shampoo', 'Wheel face degreasing', 'Clean soft chamois hand dry'];
@@ -133,9 +148,6 @@ function getPackageFeatures(pkg: ServicePackage): string[] {
   }
   if (code.includes('HYDRO') || code.includes('WAX') || code.includes('PREMIUM')) {
     return ['Hydrophobic protective wax coat', 'Deep exterior foam wash', 'Tire shine & wheel degreasing'];
-  }
-  if (pkg.description) {
-    return [pkg.description];
   }
   return ['Professional express wash', 'Hand chamois dry', 'Quality satisfaction guaranteed'];
 }
@@ -283,6 +295,40 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
     };
   }, []);
 
+  // ── Vehicle-Type Pricing: load all vehicle type prices on mount ──────────
+  const [allVehicleTypePrices, setAllVehicleTypePrices] = useState<Record<number, VehicleTypePrice[]>>({});
+  useEffect(() => {
+    let active = true;
+    fetchAllPackageVehicleTypePrices()
+      .then((map) => { if (active) setAllVehicleTypePrices(map); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  /**
+   * Returns the display price for a package card, taking into account:
+   * 1. Vehicle-type-specific pricing (from ServicePackageVehicleTypePrice)
+   * 2. Dealer discount (dealerPrice)
+   * 3. Fallback to package base price
+   */
+  const getPkgDisplayPrice = (pkg: ServicePackage): number => {
+    const vtPrices = allVehicleTypePrices[pkg.packageId ?? -1] || pkg.vehicleTypePrices;
+    const vtPrice = getVehicleSpecificPrice(vtPrices, vehicle?.vehicleTypeId, vehicle?.vehicleTypeCode || vehicle?.name);
+    if (vtPrice) {
+      return isDealer ? vtPrice.dealerPrice : vtPrice.customerPrice;
+    }
+    return isDealer && pkg.dealerPrice != null ? pkg.dealerPrice : pkg.price;
+  };
+
+  /**
+   * Returns the VehicleTypePrice row for a given package (for order total calculation).
+   */
+  const getPkgVehicleTypePrice = (pkg?: ServicePackage): VehicleTypePrice | undefined => {
+    if (!pkg) return undefined;
+    const vtPrices = allVehicleTypePrices[pkg.packageId ?? -1] || pkg.vehicleTypePrices;
+    return getVehicleSpecificPrice(vtPrices, vehicle?.vehicleTypeId, vehicle?.vehicleTypeCode || vehicle?.name);
+  };
+
   const togglePendingAddon = (id: string) => {
     setPendingAddonIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -428,9 +474,14 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
       setShowALaCarteModal(false);
       const cat = selectedCategory || initialCategory || (categories.length > 0 ? categories[0] : undefined);
       if (cat) {
+        // Apply vehicle-type-specific price to the package before passing forward
+        const vtPrice = getPkgVehicleTypePrice(pkg);
+        const pkgWithVtPrice: ServicePackage = vtPrice
+          ? { ...pkg, price: vtPrice.customerPrice, dealerPrice: vtPrice.dealerPrice }
+          : pkg;
         onContinue(
           cat,
-          pkg,
+          pkgWithVtPrice,
           selectedServiceCategoryId || cat.serviceCategoryId,
           undefined,
           0
@@ -468,9 +519,15 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
       0
     );
 
+    // Apply vehicle-type-specific price to the package before passing forward
+    const vtPrice = getPkgVehicleTypePrice(selectedPackage);
+    const pkgWithVtPrice: ServicePackage = vtPrice
+      ? { ...selectedPackage, price: vtPrice.customerPrice, dealerPrice: vtPrice.dealerPrice }
+      : selectedPackage;
+
     onContinue(
       selectedCategory,
-      selectedPackage,
+      pkgWithVtPrice,
       selectedServiceCategoryId,
       addonsStr || undefined,
       addonsTotal
@@ -508,9 +565,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
   ).length;
 
   const aLaCarteBasePkgPrice = selectedPackage
-    ? isDealer && selectedPackage.dealerPrice != null
-      ? selectedPackage.dealerPrice
-      : selectedPackage.price
+    ? getPkgDisplayPrice(selectedPackage)
     : 0;
   const aLaCarteAddonsTotal = aLaCarteActiveAddons.reduce(
     (sum, a) => sum + (isDealer ? a.dealerPrice : a.customerPrice),
@@ -1079,8 +1134,7 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                       selectedPackage?.packageId === pkg.packageId ||
                       selectedPackage?.id === pkg.id;
                     const features = getPackageFeatures(pkg);
-                    const pkgDisplayPrice =
-                      isDealer && pkg.dealerPrice != null ? pkg.dealerPrice : pkg.price;
+                    const pkgDisplayPrice = getPkgDisplayPrice(pkg);
                     const hasDealerDiscount =
                       isDealer && pkg.dealerPrice != null && pkg.dealerPrice < pkg.price;
 
@@ -1114,6 +1168,13 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
                             <Text style={[styles.priceAmount, isSelected && styles.priceAmountSelected]}>
                               ${pkgDisplayPrice.toFixed(2)}
                             </Text>
+                            {vehicle?.name ? (
+                              <View style={[styles.dealerDiscountBadge, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)', borderWidth: 1 }]}>
+                                <Text style={[styles.dealerDiscountBadgeText, { color: RED_BAY_COLORS.primary }]}>
+                                  {vehicle.name.toUpperCase()}
+                                </Text>
+                              </View>
+                            ) : null}
                             {hasDealerDiscount && (
                               <View style={styles.dealerDiscountBadge}>
                                 <Text style={styles.dealerDiscountBadgeText}>DEALER (20% OFF)</Text>
@@ -1126,16 +1187,17 @@ export const Page3ServiceScreen: React.FC<Page3ServiceScreenProps> = ({
 
                         {/* Features list */}
                         <View style={styles.pkgFeatureList}>
-                          {features.slice(0, 4).map((feat, fIdx) => (
+                          {features.map((feat, fIdx) => (
                             <View key={fIdx} style={styles.pkgFeatureItem}>
                               <Ionicons
                                 name="checkmark-circle"
                                 size={14}
                                 color={isSelected ? RED_BAY_COLORS.primary : '#10B981'}
+                                style={{ marginTop: 2 }}
                               />
                               <Text
                                 style={[styles.pkgFeatureText, isSelected && styles.pkgFeatureTextSelected]}
-                                numberOfLines={2}
+                                numberOfLines={3}
                               >
                                 {feat}
                               </Text>
@@ -1549,7 +1611,7 @@ const styles = StyleSheet.create({
   },
   pkgFeatureItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
   },
   pkgFeatureText: {

@@ -4,6 +4,8 @@
  * notifications directly to the POS Cashier dashboard.
  */
 
+const socketService = require('../utils/socketService');
+
 // In-memory store for active help requests (fast, zero DB schema disruption)
 let activeHelpRequests = [];
 
@@ -32,6 +34,9 @@ function requestHelp(req, res) {
 
     // Keep at most 20 recent requests, newest first
     activeHelpRequests = [newRequest, ...activeHelpRequests.filter(r => r.status === 'PENDING')].slice(0, 20);
+
+    // Broadcast immediately in real-time to all connected POS screens
+    socketService.broadcastEvent('HELP_REQUEST', newRequest);
 
     return res.status(201).json({
       success: true,
@@ -87,6 +92,9 @@ function resolveHelpRequest(req, res) {
     // Filter out resolved
     activeHelpRequests = activeHelpRequests.filter(r => r.id !== id);
 
+    // Broadcast resolution event to all POS screens
+    socketService.broadcastEvent('HELP_RESOLVED', { id });
+
     return res.status(200).json({
       success: true,
       message: 'Help request marked as resolved',
@@ -109,6 +117,7 @@ function resolveHelpRequest(req, res) {
 function clearAllHelpRequests(req, res) {
   try {
     activeHelpRequests = [];
+    socketService.broadcastEvent('HELP_CLEARED', {});
     return res.status(200).json({
       success: true,
       message: 'All help requests cleared',

@@ -338,6 +338,9 @@ export async function fetchDealerVehicleHistorySummary(): Promise<DealerVehicleH
 export interface DealerDetailedVisit {
   orderId: number;
   visitDateTime: string;
+  inTime?: string;
+  outTime?: string | null;
+  paidDate?: string | null;
   billNumber: string;
   dealerId: number;
   dealerName: string;
@@ -388,10 +391,19 @@ export async function fetchDealerPaymodes(): Promise<PayModeOption[]> {
   return fallbackModes;
 }
 
-export async function fetchDealerDetailedVisits(dealerId?: number, search?: string): Promise<DealerDetailedVisit[]> {
+export async function fetchDealerDetailedVisits(
+  dealerId?: number,
+  search?: string,
+  fromDate?: string,
+  toDate?: string,
+  status?: string
+): Promise<DealerDetailedVisit[]> {
   const q = new URLSearchParams();
   if (dealerId) q.append('dealerId', String(dealerId));
   if (search) q.append('search', search);
+  if (fromDate) q.append('fromDate', fromDate);
+  if (toDate) q.append('toDate', toDate);
+  if (status && status !== 'ALL') q.append('status', status);
 
   const res = await apiFetch(`/api/dealers/history/visits?${q.toString()}`);
   if (!res.ok) {

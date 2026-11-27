@@ -1,6 +1,131 @@
 import { ServicePackage } from '../features/kiosk/types/kiosk.types';
 import { apiFetch } from './apiConfig';
 
+// ── Vehicle-Type Pricing ────────────────────────────────────────────────────
+export interface VehicleTypePrice {
+  priceId?: number;
+  packageId: number;
+  vehicleTypeId: number;
+  vehicleTypeCode: string;
+  vehicleTypeName: string;
+  vehicleDisplayOrder?: number;
+  customerPrice: number;
+  dealerPrice: number;
+  isActive?: boolean;
+}
+
+/**
+ * Fetch vehicle-type prices for a single package.
+ * Also auto-seeds from the base package price if no rows exist yet.
+ */
+export async function fetchVehicleTypePricesForPackage(packageId: number): Promise<VehicleTypePrice[]> {
+  try {
+    const res = await apiFetch(`/api/service-packages/${packageId}/vehicle-prices`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json?.data) ? json.data : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch ALL vehicle-type prices for ALL packages in one request.
+ * Returns a map: packageId -> VehicleTypePrice[]
+ */
+export async function fetchAllPackageVehicleTypePrices(): Promise<Record<number, VehicleTypePrice[]>> {
+  try {
+    const res = await apiFetch('/api/service-packages/all-vehicle-prices');
+    if (!res.ok) return {};
+    const json = await res.json();
+    const list: VehicleTypePrice[] = Array.isArray(json?.data) ? json.data : [];
+    const map: Record<number, VehicleTypePrice[]> = {};
+    for (const item of list) {
+      if (!map[item.packageId]) map[item.packageId] = [];
+      map[item.packageId].push(item);
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Upsert a vehicle-type price row for a package.
+ */
+export async function updateVehicleTypePrice(
+  packageId: number,
+  vehicleTypeId: number,
+  customerPrice: number,
+  dealerPrice: number
+): Promise<boolean> {
+  try {
+    const res = await apiFetch(`/api/service-packages/${packageId}/vehicle-prices/${vehicleTypeId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerPrice, dealerPrice }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Given a package's vehicleTypePrices array and the current vehicle's typeId/typeName/typeCode,
+ * return the matching VehicleTypePrice row (or undefined if not found).
+ */
+export function getVehicleSpecificPrice(
+  vehicleTypePrices: VehicleTypePrice[] | undefined,
+  vehicleTypeId?: number,
+  vehicleTypeName?: string
+): VehicleTypePrice | undefined {
+  if (!vehicleTypePrices || vehicleTypePrices.length === 0) return undefined;
+  if (vehicleTypeId) {
+    const byId = vehicleTypePrices.find((v) => v.vehicleTypeId === vehicleTypeId);
+    if (byId) return byId;
+  }
+  if (vehicleTypeName) {
+    const norm = vehicleTypeName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    // 1. Direct or substring matching against code or name
+    const byName = vehicleTypePrices.find((v) => {
+      const vCode = v.vehicleTypeCode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const vName = v.vehicleTypeName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      return vCode === norm || vName === norm || (norm.length > 2 && (vCode.includes(norm) || norm.includes(vCode)));
+    });
+    if (byName) return byName;
+
+    // 2. Synonyms mapping
+    if (norm.includes('van') || norm.includes('bigmpv')) {
+      const van = vehicleTypePrices.find(
+        (v) => v.vehicleTypeCode.toUpperCase() === 'BIG_MPV' || v.vehicleTypeName.toUpperCase().includes('BIG MPV')
+      );
+      if (van) return van;
+    }
+    if (norm.includes('suv')) {
+      const suv = vehicleTypePrices.find((v) => v.vehicleTypeCode.toUpperCase() === 'SUV');
+      if (suv) return suv;
+    }
+    if (norm.includes('mpv')) {
+      const mpv = vehicleTypePrices.find((v) => v.vehicleTypeCode.toUpperCase() === 'MPV');
+      if (mpv) return mpv;
+    }
+    if (norm.includes('hatchback')) {
+      const hatch = vehicleTypePrices.find((v) => v.vehicleTypeCode.toUpperCase() === 'HATCHBACK');
+      if (hatch) return hatch;
+    }
+    if (norm.includes('sedan') || norm.includes('saloon')) {
+      const sedan = vehicleTypePrices.find((v) => v.vehicleTypeCode.toUpperCase() === 'SEDAN');
+      if (sedan) return sedan;
+    }
+    if (norm.includes('coupe')) {
+      const coupe = vehicleTypePrices.find((v) => v.vehicleTypeCode.toUpperCase() === 'COUPE');
+      if (coupe) return coupe;
+    }
+  }
+  return undefined;
+}
+
 export interface ServicePackageDto {
   packageId: number;
   serviceCategoryId: number;
@@ -199,24 +324,39 @@ export async function fetchPackagesByCategory(
       ? json.data
       : [];
 
-    const mapped: ServicePackage[] = list.map((item) => ({
-      id: String(item.packageId),
-      packageId: item.packageId,
-      serviceCategoryId: item.serviceCategoryId,
-      packageCode: item.packageCode,
-      categoryId: String(item.serviceCategoryId),
-      name: item.packageName,
-      description: item.description || '',
-      price: Number(item.price),
-      dealerPrice: item.dealerPrice != null ? Number(item.dealerPrice) : Number(item.price),
-      currencyCode: item.currencyCode || 'SGD',
-      gstPercent: Number(item.gstPercent || 0),
-      isTaxInclusive: false,
-      durationMinutes: item.durationMinutes,
-      displayOrder: item.displayOrder,
-      isActive: item.isActive,
-      features: Array.isArray(item.features) ? item.features : [],
-    }));
+    const mapped: ServicePackage[] = list.map((item) => {
+      let feats: string[] = Array.isArray(item.features) && item.features.length > 0 ? item.features : [];
+      const desc = (item.description || '').trim();
+      if (desc && (desc.includes('•') || desc.includes('\n'))) {
+        const parts = desc.includes('•')
+          ? desc.split('•').map((s) => s.trim()).filter(Boolean)
+          : desc.split('\n').map((s) => s.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean);
+        if (parts.length > 0) {
+          feats = parts;
+        }
+      } else if (desc && feats.length === 0) {
+        feats = [desc];
+      }
+
+      return {
+        id: String(item.packageId),
+        packageId: item.packageId,
+        serviceCategoryId: item.serviceCategoryId,
+        packageCode: item.packageCode,
+        categoryId: String(item.serviceCategoryId),
+        name: item.packageName,
+        description: desc,
+        price: Number(item.price),
+        dealerPrice: item.dealerPrice != null ? Number(item.dealerPrice) : Number(item.price),
+        currencyCode: item.currencyCode || 'SGD',
+        gstPercent: Number(item.gstPercent || 0),
+        isTaxInclusive: false,
+        durationMinutes: item.durationMinutes,
+        displayOrder: item.displayOrder,
+        isActive: item.isActive,
+        features: feats,
+      };
+    });
 
     if (mapped.length > 0) {
       setCachedPackages(serviceCategoryId, mapped);

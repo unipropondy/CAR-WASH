@@ -1,6 +1,27 @@
 const { getPool, sql } = require('../config/db');
 
 /**
+ * Normalizes customer name so that 'Walk-in Customer' or empty/whitespace values
+ * are consistently returned as 'Walk-in'.
+ */
+function cleanCustomerName(val) {
+  if (!val || typeof val !== 'string') return 'Walk-in';
+  const trimmed = val.trim();
+  const lower = trimmed.toLowerCase();
+  if (
+    !trimmed ||
+    lower === 'walk-in customer' ||
+    lower === 'walk in customer' ||
+    lower === 'walk-in' ||
+    lower === 'walk in' ||
+    lower === 'walkin'
+  ) {
+    return 'Walk-in';
+  }
+  return trimmed;
+}
+
+/**
  * Helper to get the active or most recent Business Date from dbo.CarWashDayMaster
  */
 async function getEffectiveBusinessDate(pool) {
@@ -470,7 +491,7 @@ async function getRecentWashes(req, res) {
     const data = records.map((r) => ({
       orderId: r.OrderId,
       orderNo: r.OrderNo,
-      customerName: r.CustomerName,
+      customerName: cleanCustomerName(r.CustomerName),
       vehicleNumber: r.VehicleNumber,
       vehicleTypeName: r.VehicleTypeName || 'Standard Vehicle',
       packageName: r.PackageName || 'Wash Package',
@@ -571,7 +592,7 @@ async function getRecentTransactions(req, res) {
     const data = records.map((r) => ({
       orderId: r.OrderId,
       orderNo: r.OrderNo,
-      customerName: r.CustomerName,
+      customerName: cleanCustomerName(r.CustomerName),
       vehicleNumber: r.VehicleNumber,
       packageName: r.PackageName,
       additionalServices: r.AdditionalServices || null,
@@ -736,7 +757,7 @@ async function getFullDashboard(req, res) {
         rawTransactions.push({
           OrderId: w.OrderId,
           OrderNo: w.OrderNo,
-          CustomerName: w.CustomerName,
+          CustomerName: cleanCustomerName(w.CustomerName),
           VehicleNumber: w.VehicleNumber,
           PackageName: w.PackageName,
           AdditionalServices: w.AdditionalServices,
@@ -821,7 +842,7 @@ async function getFullDashboard(req, res) {
       recentWashes: rawWashes.map((r) => ({
         orderId: r.OrderId,
         orderNo: r.OrderNo,
-        customerName: r.CustomerName,
+        customerName: cleanCustomerName(r.CustomerName),
         vehicleNumber: r.VehicleNumber,
         vehicleTypeName: r.VehicleTypeName || 'Standard Vehicle',
         packageName: r.PackageName || 'Wash Package',
@@ -843,7 +864,7 @@ async function getFullDashboard(req, res) {
       recentTransactions: rawTransactions.map((r) => ({
         orderId: r.OrderId,
         orderNo: r.OrderNo,
-        customerName: r.CustomerName,
+        customerName: cleanCustomerName(r.CustomerName),
         vehicleNumber: r.VehicleNumber,
         packageName: r.PackageName,
         additionalServices: r.AdditionalServices || null,

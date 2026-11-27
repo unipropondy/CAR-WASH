@@ -10,12 +10,15 @@ if (typeof Promise.withResolvers !== 'function') {
   };
 }
 
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
+
+const socketService = require('./utils/socketService');
 
 const authRoutes = require('./routes/authRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
@@ -199,8 +202,12 @@ app.use((err, req, res, next) => {
 // Start Server - Listen immediately for instant health checks
 async function startServer() {
   const HOST = process.env.HOST || '0.0.0.0';
+  const server = http.createServer(app);
 
-  app.listen(PORT, HOST, async () => {
+  // Initialize real-time WebSocket notifications
+  socketService.initWebSocket(server);
+
+  server.listen(PORT, HOST, async () => {
     const localUrl = `http://localhost:${PORT}`;
     const detectedIp = logger.getNetworkIp();
     const networkUrl = detectedIp ? `http://${detectedIp}:${PORT}` : null;

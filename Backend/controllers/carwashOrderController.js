@@ -1,4 +1,5 @@
 const { getPool, sql } = require('../config/db');
+const socketService = require('../utils/socketService');
 
 // Status code constants
 const STATUS_CODES = {
@@ -215,8 +216,26 @@ async function createOrder(req, res) {
     const isCreditOrder = (payMode && String(payMode).trim().toUpperCase() === 'CREDIT') || isDealerByInfo;
 
     // Official pricing calculations - All prices are treated as GST Exclusive by default
-    const standardPrice = Number(officialPkg.Price);
-    const officialDealerPrice = officialPkg.DealerPrice != null ? Number(officialPkg.DealerPrice) : standardPrice;
+    let standardPrice = Number(officialPkg.Price);
+    let officialDealerPrice = officialPkg.DealerPrice != null ? Number(officialPkg.DealerPrice) : standardPrice;
+
+    // Check if vehicle-type specific pricing exists in ServicePackageVehicleTypePrice
+    if (vehicleTypeId) {
+      const vtPriceReq = new sql.Request(transaction);
+      vtPriceReq.input('pkgId', sql.Int, parseInt(packageId, 10));
+      vtPriceReq.input('vtId', sql.Int, parseInt(vehicleTypeId, 10));
+      const vtPriceResult = await vtPriceReq.query(`
+        SELECT CustomerPrice, DealerPrice 
+        FROM dbo.ServicePackageVehicleTypePrice 
+        WHERE PackageId = @pkgId AND VehicleTypeId = @vtId AND IsActive = 1;
+      `);
+      if (vtPriceResult.recordset.length > 0) {
+        const vtRow = vtPriceResult.recordset[0];
+        standardPrice = Number(vtRow.CustomerPrice);
+        officialDealerPrice = vtRow.DealerPrice != null ? Number(vtRow.DealerPrice) : standardPrice;
+      }
+    }
+
     const currencyCode = (officialPkg.CurrencyCode || 'SGD').trim();
 
     // Use dealer price if this is a dealer credit order, otherwise standard customer price
@@ -388,6 +407,26 @@ async function createOrder(req, res) {
 
     // Commit Transaction
     await transaction.commit();
+
+    // Broadcast real-time order alert to all connected POS screens immediately
+    try {
+      socketService.broadcastEvent('NEW_KIOSK_ORDER', {
+        orderId,
+        orderNo: createdOrder.OrderNo,
+        customerName: safeCustomerName,
+        vehiclePlate: safeVehicleNumber,
+        vehicleType: officialPkg.VehicleTypeName || null,
+        packageName: officialPkg.PackageName,
+        amount: finalTotalAmount,
+        payMode: finalPayMode || 'CASH',
+        payStatus: finalPaymentStatus || 'PENDING',
+        isDealer: Boolean(dealerId),
+        dealerName: isCreditOrder ? safeCustomerName : null,
+        timestamp: createdOrder.CreatedDate ? new Date(createdOrder.CreatedDate).toISOString() : new Date().toISOString(),
+      });
+    } catch (bcErr) {
+      console.warn('[carwashOrderController] broadcastEvent error:', bcErr.message);
+    }
 
     return res.status(201).json({
       success: true,

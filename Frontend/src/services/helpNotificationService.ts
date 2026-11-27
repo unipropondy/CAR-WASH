@@ -1,6 +1,7 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 import { NOTIFICATION_SOUND_URI, NOTIFICATION_SOUND_BASE64 } from './notificationSoundAsset';
 import { getApiBaseUrl, apiFetch } from './apiConfig';
+import { realtimeNotificationClient } from './realtimeNotificationClient';
 
 const getBackendUrl = (): string => `${getApiBaseUrl()}/api/carwash`;
 
@@ -103,6 +104,25 @@ if (Platform.OS === 'web' && typeof window !== 'undefined') {
   });
 }
 
+// Real-time WebSocket event listener for cross-device help notifications (Kiosk -> POS)
+realtimeNotificationClient.on('HELP_REQUEST', (payload) => {
+  if (payload && payload.id) {
+    addHelpRequestToStoredList(payload);
+    notifyHelpRequestListeners(payload);
+  }
+});
+
+realtimeNotificationClient.on('HELP_RESOLVED', (payload) => {
+  if (payload && payload.id) {
+    removeHelpRequestFromStoredList(payload.id);
+    notifyHelpResolvedListeners(payload.id);
+  }
+});
+
+realtimeNotificationClient.on('HELP_CLEARED', () => {
+  clearAllHelpRequests();
+});
+
 function notifyHelpRequestListeners(item: HelpRequestItem) {
   helpListeners.forEach((fn) => {
     try {
@@ -184,8 +204,20 @@ if (Platform.OS === 'web' && typeof window !== 'undefined') {
 
 /**
  * Play user custom notification sound (Frontend/assets/Audio/sound.wav)
+ * Uses native Android audio engine on APK, or Web Audio API / HTML5 Audio on Web
  */
 export function playNotificationChime() {
+  if (Platform.OS === 'android') {
+    try {
+      if (NativeModules && NativeModules.NotificationSoundModule) {
+        NativeModules.NotificationSoundModule.playNotificationSound('help');
+        return;
+      }
+    } catch (e) {
+      console.warn('[helpNotificationService] Native sound error:', e);
+    }
+  }
+
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
   let html5Played = false;

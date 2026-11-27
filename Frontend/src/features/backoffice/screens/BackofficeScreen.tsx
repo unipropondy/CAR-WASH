@@ -102,6 +102,12 @@ import {
 } from '../../../services/masterApi';
 
 import {
+  fetchVehicleTypePricesForPackage,
+  updateVehicleTypePrice,
+  VehicleTypePrice,
+} from '../../../services/packageApi';
+
+import {
   fetchCompanySettings,
   updateCompanySettings,
   CompanySettings,
@@ -343,6 +349,67 @@ type SettingsSubTab = 'VEHICLES' | 'CATEGORIES' | 'PACKAGES' | 'ADDONS' | 'BAYS'
 export interface BackofficeScreenProps {
   onLogout?: () => void;
 }
+
+/** Inline editable row for one vehicle type's customer + dealer price in the package modal */
+const VehiclePriceRow: React.FC<{
+  row: VehicleTypePrice;
+  onSave: (custPrice: number, dlrPrice: number) => Promise<void>;
+  C: any;
+  styles: any;
+}> = ({ row, onSave, C, styles }) => {
+  const [cust, setCust] = React.useState(String(row.customerPrice.toFixed(2)));
+  const [dlr, setDlr] = React.useState(String(row.dealerPrice.toFixed(2)));
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  const handleSave = async () => {
+    const c = parseFloat(cust);
+    const d = parseFloat(dlr);
+    if (isNaN(c) || isNaN(d)) return;
+    setSaving(true);
+    await onSave(c, d);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: C.divider }}>
+      <Text style={[styles.td, { flex: 1.6, fontWeight: '700', color: C.white }]} numberOfLines={1}>
+        {row.vehicleTypeName}
+      </Text>
+      <View style={{ flex: 1.2, paddingHorizontal: 4 }}>
+        <TextInput
+          style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
+          value={cust}
+          onChangeText={setCust}
+          keyboardType="numeric"
+        />
+      </View>
+      <View style={{ flex: 1.2, paddingHorizontal: 4 }}>
+        <TextInput
+          style={[styles.fieldInput, { textAlign: 'center', paddingVertical: 4, fontSize: 13 }]}
+          value={dlr}
+          onChangeText={setDlr}
+          keyboardType="numeric"
+        />
+      </View>
+      <Pressable
+        style={{ flex: 0.8, alignItems: 'center', justifyContent: 'center' }}
+        onPress={handleSave}
+        disabled={saving}
+      >
+        {saving ? (
+          <ActivityIndicator size="small" color={C.accent} />
+        ) : saved ? (
+          <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+        ) : (
+          <Ionicons name="save-outline" size={18} color="#3B82F6" />
+        )}
+      </Pressable>
+    </View>
+  );
+};
 
 export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) => {
   const { width } = useWindowDimensions();
@@ -1011,6 +1078,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [vOrder, setVOrder] = useState('1');
   const [vActive, setVActive] = useState(true);
   const [vImage, setVImage] = useState('');
+  const [vehicleSortAsc, setVehicleSortAsc] = useState<boolean>(true);
 
   // 3b. Categories
   const [categories, setCategories] = useState<ServiceCategoryRecord[]>([]);
@@ -1095,6 +1163,19 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [pOrder, setPOrder] = useState('1');
   const [pActive, setPActive] = useState(true);
   const [pFeatures, setPFeatures] = useState('');
+  const [packageSortAsc, setPackageSortAsc] = useState<boolean>(true);
+
+  // Vehicle-type pricing rows for the edit/add package modal
+  const [pkgVehiclePrices, setPkgVehiclePrices] = useState<VehicleTypePrice[]>([]);
+  const [pkgVehiclePricesLoading, setPkgVehiclePricesLoading] = useState(false);
+  const [pkgVehiclePricesSaving, setPkgVehiclePricesSaving] = useState(false);
+
+  // Standalone Vehicle Rates Modal (opened directly from package row)
+  const [ratesModalOpen, setRatesModalOpen] = useState(false);
+  const [ratesPkg, setRatesPkg] = useState<ServicePackageRecord | null>(null);
+  const [ratesList, setRatesList] = useState<VehicleTypePrice[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [ratesSaving, setRatesSaving] = useState(false);
 
   // 3c2. À La Carte Add-ons
   const [addonsList, setAddonsList] = useState<ServiceAddonRecord[]>([]);
@@ -1112,6 +1193,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
   const [addonSearch, setAddonSearch] = useState('');
   const [addonCategoryFilter, setAddonCategoryFilter] = useState<'ALL' | 'INTERIOR' | 'EXTERIOR'>('ALL');
   const [addonPackageFilter, setAddonPackageFilter] = useState<string>('ALL');
+  const [addonSortAsc, setAddonSortAsc] = useState<boolean>(true);
 
   // 3d. Bays
   const [bays, setBays] = useState<BayMasterRecord[]>([]);
@@ -1399,6 +1481,82 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
       loadSettingsData();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to reorder category');
+    }
+  };
+
+  const handleQuickReorderVehicle = async (veh: VehicleTypeRecord, direction: number) => {
+    const currentOrder = veh.displayOrder ?? 1;
+    const newOrder = Math.max(1, currentOrder + direction);
+    if (newOrder === currentOrder) return;
+    try {
+      await updateVehicleType(veh.vehicleTypeId, {
+        vehicleTypeCode: veh.vehicleTypeCode,
+        vehicleTypeName: veh.vehicleTypeName,
+        description: veh.description || '',
+        displayOrder: newOrder,
+        isActive: veh.isActive,
+      });
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to reorder vehicle type');
+    }
+  };
+
+  const handleQuickReorderPackage = async (pkg: ServicePackageRecord, direction: number) => {
+    const currentOrder = pkg.displayOrder ?? 1;
+    const newOrder = Math.max(1, currentOrder + direction);
+    if (newOrder === currentOrder) return;
+    try {
+      await updatePackage(pkg.packageId, {
+        serviceCategoryId: pkg.serviceCategoryId,
+        packageCode: pkg.packageCode,
+        packageName: pkg.packageName,
+        description: pkg.description || '',
+        price: pkg.price,
+        dealerPrice: pkg.dealerPrice,
+        displayOrder: newOrder,
+        isActive: pkg.isActive,
+      });
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to reorder package');
+    }
+  };
+
+  const handleQuickReorderAddon = async (addon: ServiceAddonRecord, direction: number) => {
+    const currentOrder = addon.displayOrder ?? 1;
+    const newOrder = Math.max(1, currentOrder + direction);
+    if (newOrder === currentOrder) return;
+    try {
+      await updateAddon(addon.addonId, {
+        addonCode: addon.addonCode,
+        addonName: addon.addonName,
+        category: addon.category,
+        customerPrice: addon.customerPrice,
+        dealerPrice: addon.dealerPrice,
+        description: addon.description || '',
+        displayOrder: newOrder,
+        isActive: addon.isActive,
+        packageIds: addon.packageIds,
+      });
+      loadSettingsData();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to reorder add-on');
+    }
+  };
+
+  const handleOpenVehicleRates = async (pkg: ServicePackageRecord) => {
+    setRatesPkg(pkg);
+    setRatesList([]);
+    setRatesLoading(true);
+    setRatesModalOpen(true);
+    try {
+      const rows = await fetchVehicleTypePricesForPackage(pkg.packageId);
+      setRatesList(rows);
+    } catch {
+      setRatesList([]);
+    } finally {
+      setRatesLoading(false);
     }
   };
 
@@ -3505,12 +3663,29 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
             <Text style={[styles.th, { flex: 1.5 }]}>TYPE NAME</Text>
             <Text style={[styles.th, { flex: 2 }]}>DESCRIPTION</Text>
-            <Text style={[styles.th, { flex: 0.8 }]}>ORDER</Text>
+            <TouchableOpacity
+              style={{ flex: 0.8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              onPress={() => setVehicleSortAsc((prev) => !prev)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
+              <Ionicons
+                name={vehicleSortAsc ? 'arrow-up' : 'arrow-down'}
+                size={13}
+                color={C.accent}
+              />
+            </TouchableOpacity>
             <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 1 }]}>ACTIONS</Text>
           </View>
 
-          {vehicles.map((v) => (
+          {[...vehicles]
+            .sort((a, b) => {
+              const orderA = a.displayOrder ?? 1;
+              const orderB = b.displayOrder ?? 1;
+              return vehicleSortAsc ? orderA - orderB : orderB - orderA;
+            })
+            .map((v) => (
             <View key={v.vehicleTypeId} style={styles.tableRow}>
               <View style={{ flex: 0.8, justifyContent: 'center' }}>
                 <BackofficeImageThumb
@@ -3524,7 +3699,27 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
               <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{v.vehicleTypeCode}</Text>
               <Text style={[styles.td, styles.textWhite, { flex: 1.5, fontWeight: '700' }]}>{v.vehicleTypeName}</Text>
               <Text style={[styles.td, styles.textSec, { flex: 2 }]}>{v.description || '-'}</Text>
-              <Text style={[styles.td, styles.textSec, { flex: 0.8 }]}>{v.displayOrder}</Text>
+              <View style={{ flex: 0.8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 16 }]}>{v.displayOrder}</Text>
+                <View style={{ flexDirection: 'column', gap: 2 }}>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderVehicle(v, -1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-up" size={12} color={C.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderVehicle(v, 1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-down" size={12} color={C.white} />
+                  </TouchableOpacity>
+                </View>
+              </View>
               <View style={{ flex: 1 }}>
                 <View style={[styles.statusBadge, v.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                   <Text style={[styles.statusBadgeText, v.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
@@ -3718,6 +3913,8 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 setPOrder('1');
                 setPActive(true);
                 setPFeatures('');
+                setPkgVehiclePrices([]);
+                setPkgVehiclePricesLoading(false);
                 setPkgModalOpen(true);
               }}
             >
@@ -3727,25 +3924,87 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
           </View>
 
           <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 1.4 }]}>CATEGORY</Text>
-            <Text style={[styles.th, { flex: 1 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 1.8 }]}>PACKAGE NAME</Text>
-            <Text style={[styles.th, { flex: 1.1 }]}>PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 1.2 }]}>DEALER PRICE ($)</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 0.9 }]}>ACTIONS</Text>
+            <Text style={[styles.th, { flex: 1.2 }]}>CATEGORY</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 1.6 }]}>PACKAGE NAME</Text>
+            <Text style={[styles.th, { flex: 0.9 }]}>PRICE ($)</Text>
+            <Text style={[styles.th, { flex: 1.0 }]}>DEALER ($)</Text>
+            <TouchableOpacity
+              style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              onPress={() => setPackageSortAsc((prev) => !prev)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
+              <Ionicons
+                name={packageSortAsc ? 'arrow-up' : 'arrow-down'}
+                size={13}
+                color={C.accent}
+              />
+            </TouchableOpacity>
+            <Text style={[styles.th, { flex: 1.3, textAlign: 'center' }]}>VEHICLE RATES</Text>
+            <Text style={[styles.th, { flex: 0.8 }]}>STATUS</Text>
+            <Text style={[styles.th, { flex: 0.8 }]}>ACTIONS</Text>
           </View>
 
-          {packages.map((pkg) => (
+          {[...packages]
+            .sort((a, b) => {
+              const orderA = a.displayOrder ?? 1;
+              const orderB = b.displayOrder ?? 1;
+              return packageSortAsc ? orderA - orderB : orderB - orderA;
+            })
+            .map((pkg) => (
             <View key={pkg.packageId} style={styles.tableRow}>
-              <Text style={[styles.td, styles.textSec, { flex: 1.4 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
-              <Text style={[styles.td, styles.textAccent, { flex: 1, fontWeight: '700' }]}>{pkg.packageCode}</Text>
-              <Text style={[styles.td, styles.textWhite, { flex: 1.8, fontWeight: '700' }]}>{pkg.packageName}</Text>
-              <Text style={[styles.td, { flex: 1.1, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
-              <Text style={[styles.td, { flex: 1.2, color: '#F59E0B', fontWeight: '800' }]}>
+              <Text style={[styles.td, styles.textSec, { flex: 1.2 }]}>{pkg.serviceCategoryName || 'Wash'}</Text>
+              <Text style={[styles.td, styles.textAccent, { flex: 0.9, fontWeight: '700' }]}>{pkg.packageCode}</Text>
+              <Text style={[styles.td, styles.textWhite, { flex: 1.6, fontWeight: '700' }]}>{pkg.packageName}</Text>
+              <Text style={[styles.td, { flex: 0.9, color: '#22C55E', fontWeight: '800' }]}>${pkg.price.toFixed(2)}</Text>
+              <Text style={[styles.td, { flex: 1.0, color: '#F59E0B', fontWeight: '800' }]}>
                 {pkg.dealerPrice != null ? `$${Number(pkg.dealerPrice).toFixed(2)}` : `$${pkg.price.toFixed(2)}`}
               </Text>
-              <View style={{ flex: 0.9 }}>
+              <View style={{ flex: 0.9, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 16 }]}>{pkg.displayOrder}</Text>
+                <View style={{ flexDirection: 'column', gap: 2 }}>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderPackage(pkg, -1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-up" size={12} color={C.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.orderSmallBtn}
+                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                    onPress={() => handleQuickReorderPackage(pkg, 1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-down" size={12} color={C.white} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {/* Direct Vehicle Rates button */}
+              <View style={{ flex: 1.3, alignItems: 'center', justifyContent: 'center' }}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => handleOpenVehicleRates(pkg)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 6,
+                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(59, 130, 246, 0.4)',
+                    cursor: 'pointer' as any,
+                  }}
+                >
+                  <Ionicons name="car-sport" size={13} color="#60A5FA" />
+                  <Text style={{ color: '#60A5FA', fontSize: 11, fontWeight: '700' }}>Change Rates</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flex: 0.8 }}>
                 <TouchableOpacity
                   activeOpacity={0.7}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -3767,7 +4026,7 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                   </Text>
                 </TouchableOpacity>
               </View>
-              <View style={[styles.actionRow, { flex: 0.9 }]}>
+              <View style={[styles.actionRow, { flex: 0.8 }]}>
                 <TouchableOpacity
                   style={styles.btnAction}
                   activeOpacity={0.7}
@@ -3784,7 +4043,14 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     setPOrder(String(pkg.displayOrder));
                     setPActive(pkg.isActive);
                     setPFeatures((pkg.features || []).join('\n'));
+                    // Load vehicle type prices
+                    setPkgVehiclePrices([]);
+                    setPkgVehiclePricesLoading(true);
                     setPkgModalOpen(true);
+                    fetchVehicleTypePricesForPackage(pkg.packageId).then((rows) => {
+                      setPkgVehiclePrices(rows);
+                      setPkgVehiclePricesLoading(false);
+                    }).catch(() => setPkgVehiclePricesLoading(false));
                   }}
                 >
                   <Ionicons name="create-outline" size={16} color="#3B82F6" />
@@ -3964,16 +4230,34 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
 
           <View style={styles.tableHeader}>
             <Text style={[styles.th, { flex: 0.8, paddingRight: 6 }]}>CATEGORY</Text>
-            <Text style={[styles.th, { flex: 1.3, paddingRight: 10 }]}>CODE</Text>
-            <Text style={[styles.th, { flex: 1.6, paddingRight: 10 }]}>SERVICE NAME</Text>
-            <Text style={[styles.th, { flex: 2.3, paddingRight: 10 }]}>APPLICABLE PACKAGES</Text>
-            <Text style={[styles.th, { flex: 0.9, paddingRight: 6 }]}>CUSTOMER ($)</Text>
-            <Text style={[styles.th, { flex: 0.9, paddingRight: 6 }]}>DEALER ($)</Text>
+            <Text style={[styles.th, { flex: 1.2, paddingRight: 8 }]}>CODE</Text>
+            <Text style={[styles.th, { flex: 1.5, paddingRight: 8 }]}>SERVICE NAME</Text>
+            <Text style={[styles.th, { flex: 2.1, paddingRight: 8 }]}>APPLICABLE PACKAGES</Text>
+            <Text style={[styles.th, { flex: 0.8, paddingRight: 4 }]}>CUSTOMER ($)</Text>
+            <Text style={[styles.th, { flex: 0.8, paddingRight: 4 }]}>DEALER ($)</Text>
+            <TouchableOpacity
+              style={{ flex: 0.8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              onPress={() => setAddonSortAsc((prev) => !prev)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.th, { color: C.accent, fontWeight: '800' }]}>ORDER</Text>
+              <Ionicons
+                name={addonSortAsc ? 'arrow-up' : 'arrow-down'}
+                size={13}
+                color={C.accent}
+              />
+            </TouchableOpacity>
             <Text style={[styles.th, { flex: 0.7, paddingRight: 6 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 0.7 }]}>ACTIONS</Text>
           </View>
 
-          {filteredAddons.map((addon) => {
+          {[...filteredAddons]
+            .sort((a, b) => {
+              const orderA = a.displayOrder ?? 1;
+              const orderB = b.displayOrder ?? 1;
+              return addonSortAsc ? orderA - orderB : orderB - orderA;
+            })
+            .map((addon) => {
             const isAllPackages = packages.length > 0 && (addon.packageIds?.length || 0) >= packages.length;
             const packageCount = addon.packageNames?.length || 0;
 
@@ -4081,12 +4365,33 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                     </View>
                   )}
                 </View>
-                <Text style={[styles.td, { flex: 0.9, color: '#22C55E', fontWeight: '800', paddingRight: 6 }]}>
+                <Text style={[styles.td, { flex: 0.8, color: '#22C55E', fontWeight: '800', paddingRight: 4 }]}>
                   ${addon.customerPrice.toFixed(2)}
                 </Text>
-                <Text style={[styles.td, { flex: 0.9, color: '#F59E0B', fontWeight: '800', paddingRight: 6 }]}>
+                <Text style={[styles.td, { flex: 0.8, color: '#F59E0B', fontWeight: '800', paddingRight: 4 }]}>
                   ${addon.dealerPrice.toFixed(2)}
                 </Text>
+                <View style={{ flex: 0.8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={[styles.td, styles.textWhite, { fontWeight: '800', minWidth: 16 }]}>{addon.displayOrder}</Text>
+                  <View style={{ flexDirection: 'column', gap: 2 }}>
+                    <TouchableOpacity
+                      style={styles.orderSmallBtn}
+                      hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                      onPress={() => handleQuickReorderAddon(addon, -1)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chevron-up" size={12} color={C.white} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.orderSmallBtn}
+                      hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                      onPress={() => handleQuickReorderAddon(addon, 1)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chevron-down" size={12} color={C.white} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
                 <View style={{ flex: 0.7, paddingRight: 6 }}>
                   <View style={[styles.statusBadge, addon.isActive ? styles.statusBadgeOn : styles.statusBadgeOff]}>
                     <Text style={[styles.statusBadgeText, addon.isActive ? { color: '#22C55E' } : { color: '#EF4444' }]}>
@@ -4986,6 +5291,61 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
                 <Text style={styles.fieldLabel}>FEATURES (one per line)</Text>
                 <TextInput style={[styles.fieldInput, { height: 70 }]} value={pFeatures} onChangeText={setPFeatures} multiline />
               </View>
+
+              {/* Vehicle-Type Pricing Section */}
+              {editingPkg && (
+                <View style={styles.formGroup}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                    <Ionicons name="car-outline" size={16} color={C.textSec} />
+                    <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>VEHICLE-TYPE PRICING</Text>
+                    {pkgVehiclePricesLoading && <ActivityIndicator size="small" color={C.accent} />}
+                  </View>
+
+                  {pkgVehiclePrices.length === 0 && !pkgVehiclePricesLoading && (
+                    <Text style={[styles.textSec, { fontSize: 12, fontStyle: 'italic' }]}>
+                      No vehicle types found. Prices will be seeded from vehicle type master on first load.
+                    </Text>
+                  )}
+
+                  {pkgVehiclePrices.length > 0 && (
+                    <>
+                      {/* Table header */}
+                      <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderRadius: 6, paddingVertical: 6, paddingHorizontal: 8, marginBottom: 4 }}>
+                        <Text style={[styles.th, { flex: 1.6 }]}>VEHICLE TYPE</Text>
+                        <Text style={[styles.th, { flex: 1.2, textAlign: 'center' }]}>CUST PRICE ($)</Text>
+                        <Text style={[styles.th, { flex: 1.2, textAlign: 'center' }]}>DEALER PRICE ($)</Text>
+                        <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>SAVE</Text>
+                      </View>
+
+                      {pkgVehiclePrices.map((row, idx) => (
+                        <VehiclePriceRow
+                          key={row.vehicleTypeId}
+                          row={row}
+                          onSave={async (custPrice, dlrPrice) => {
+                            setPkgVehiclePricesSaving(true);
+                            try {
+                              const ok = await updateVehicleTypePrice(row.packageId, row.vehicleTypeId, custPrice, dlrPrice);
+                              if (ok) {
+                                setPkgVehiclePrices((prev) =>
+                                  prev.map((r) =>
+                                    r.vehicleTypeId === row.vehicleTypeId
+                                      ? { ...r, customerPrice: custPrice, dealerPrice: dlrPrice }
+                                      : r
+                                  )
+                                );
+                              }
+                            } finally {
+                              setPkgVehiclePricesSaving(false);
+                            }
+                          }}
+                          C={C}
+                          styles={styles}
+                        />
+                      ))}
+                    </>
+                  )}
+                </View>
+              )}
               <View style={styles.formGroup}>
                 <Text style={styles.fieldLabel}>STATUS</Text>
                 <View style={styles.groupPickerRow}>
@@ -5023,6 +5383,100 @@ export const BackofficeScreen: React.FC<BackofficeScreenProps> = ({ onLogout }) 
             <View style={styles.modalFooter}>
               <Pressable style={styles.btnSecondary} onPress={() => setPkgModalOpen(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.btnPrimary} onPress={handleSavePackage}><Text style={styles.btnPrimaryText}>Save</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Standalone Vehicle Rates Modal */}
+      <Modal visible={ratesModalOpen} transparent animationType="fade" onRequestClose={() => setRatesModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxWidth: 650 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="car-sport" size={20} color={C.accent} />
+                <View>
+                  <Text style={styles.modalTitle}>
+                    {ratesPkg ? `${ratesPkg.packageName} — Rates` : 'Vehicle-Type Pricing'}
+                  </Text>
+                  {ratesPkg?.packageCode ? (
+                    <Text style={{ color: C.textSec, fontSize: 12 }}>
+                      Code: {ratesPkg.packageCode} | Category: {ratesPkg.serviceCategoryName || 'Wash'}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <Pressable onPress={() => setRatesModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalScrollBody} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              {ratesLoading ? (
+                <View style={{ padding: 40, alignItems: 'center', justifyContent: 'center' }}>
+                  <ActivityIndicator size="large" color={C.accent} />
+                  <Text style={[styles.textSec, { marginTop: 12 }]}>Loading rates from database...</Text>
+                </View>
+              ) : ratesList.length === 0 ? (
+                <View style={{ padding: 30, alignItems: 'center' }}>
+                  <Text style={[styles.textSec, { fontStyle: 'italic' }]}>
+                    No vehicle rates configured for this package yet.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ marginTop: 4 }}>
+                  <Text style={[styles.textSec, { fontSize: 12, marginBottom: 12 }]}>
+                    Configure separate walk-in Customer Price and Dealer Price for each vehicle type. Changes take effect on Kiosk and POS immediately.
+                  </Text>
+                  {/* Table Header */}
+                  <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6 }}>
+                    <Text style={[styles.th, { flex: 1.8 }]}>VEHICLE TYPE</Text>
+                    <Text style={[styles.th, { flex: 1.2, textAlign: 'center' }]}>CUSTOMER ($)</Text>
+                    <Text style={[styles.th, { flex: 1.2, textAlign: 'center' }]}>DEALER ($)</Text>
+                    <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>ACTION</Text>
+                  </View>
+
+                  {ratesList.map((row) => (
+                    <VehiclePriceRow
+                      key={row.vehicleTypeId}
+                      row={row}
+                      onSave={async (custPrice, dlrPrice) => {
+                        if (!ratesPkg) return;
+                        setRatesSaving(true);
+                        try {
+                          await updateVehicleTypePrice(ratesPkg.packageId, row.vehicleTypeId, custPrice, dlrPrice);
+                          setRatesList((prev) =>
+                            prev.map((r) =>
+                              r.vehicleTypeId === row.vehicleTypeId
+                                ? { ...r, customerPrice: custPrice, dealerPrice: dlrPrice }
+                                : r
+                            )
+                          );
+                        } finally {
+                          setRatesSaving(false);
+                        }
+                      }}
+                      C={C}
+                      styles={styles}
+                    />
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <Pressable style={styles.btnSecondary} onPress={() => setRatesModalOpen(false)}>
+                <Text style={styles.btnSecondaryText}>Close</Text>
+              </Pressable>
+              <Pressable
+                style={styles.btnPrimary}
+                onPress={() => {
+                  showAlert('Saved', 'All vehicle-type rates are configured in the database.');
+                  setRatesModalOpen(false);
+                }}
+              >
+                <Text style={styles.btnPrimaryText}>Done</Text>
+              </Pressable>
             </View>
           </View>
         </View>

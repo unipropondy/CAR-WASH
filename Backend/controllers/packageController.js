@@ -98,26 +98,44 @@ async function getPackages(req, res) {
       });
     }
 
-    const packages = pkgResult.recordset.map((row) => ({
-      packageId: row.PackageId,
-      serviceCategoryId: row.ServiceCategoryId,
-      serviceCategoryName: (row.ServiceCategoryName || '').trim(),
-      serviceCategoryCode: (row.ServiceCategoryCode || '').trim(),
-      packageCode: (row.PackageCode || '').trim(),
-      packageName: (row.PackageName || '').trim(),
-      description: row.Description ? row.Description.trim() : '',
-      price: Number(row.Price),
-      dealerPrice: row.DealerPrice != null ? Number(row.DealerPrice) : Number(row.Price),
-      currencyCode: (row.CurrencyCode || 'SGD').trim(),
-      gstPercent: Number(row.GSTPercent || 0),
-      isTaxInclusive: false,
-      durationMinutes: row.DurationMinutes,
-      displayOrder: row.DisplayOrder ?? 0,
-      isActive: Boolean(row.IsActive),
-      createdDate: row.CreatedDate,
-      features: (featuresByPkg[row.PackageId] || []).map((f) => f.featureName),
-      featureList: featuresByPkg[row.PackageId] || [],
-    }));
+    const packages = pkgResult.recordset.map((row) => {
+      let features = (featuresByPkg[row.PackageId] || []).map((f) => f.featureName);
+      const desc = row.Description ? row.Description.trim() : '';
+
+      // If Description is set in ServicePackageMaster, parse bullet points into features
+      if (desc) {
+        if (desc.includes('•')) {
+          const parts = desc.split('•').map((s) => s.trim()).filter(Boolean);
+          if (parts.length > 0) features = parts;
+        } else if (desc.includes('\n')) {
+          const parts = desc.split('\n').map((s) => s.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean);
+          if (parts.length > 0) features = parts;
+        } else if (features.length === 0) {
+          features = [desc];
+        }
+      }
+
+      return {
+        packageId: row.PackageId,
+        serviceCategoryId: row.ServiceCategoryId,
+        serviceCategoryName: (row.ServiceCategoryName || '').trim(),
+        serviceCategoryCode: (row.ServiceCategoryCode || '').trim(),
+        packageCode: (row.PackageCode || '').trim(),
+        packageName: (row.PackageName || '').trim(),
+        description: desc,
+        price: Number(row.Price),
+        dealerPrice: row.DealerPrice != null ? Number(row.DealerPrice) : Number(row.Price),
+        currencyCode: (row.CurrencyCode || 'SGD').trim(),
+        gstPercent: Number(row.GSTPercent || 0),
+        isTaxInclusive: false,
+        durationMinutes: row.DurationMinutes,
+        displayOrder: row.DisplayOrder ?? 0,
+        isActive: Boolean(row.IsActive),
+        createdDate: row.CreatedDate,
+        features: features,
+        featureList: featuresByPkg[row.PackageId] || [],
+      };
+    });
 
     const responsePayload = {
       success: true,
@@ -522,10 +540,221 @@ async function deletePackage(req, res) {
   }
 }
 
+/**
+ * 6. GET /api/service-packages/:packageId/vehicle-prices
+ * Returns all vehicle-type pricing rows for a given package.
+ * Auto-seeds rows from VehicleTypeMaster if none exist yet.
+ */
+async function getPackageVehicleTypePrices(req, res) {
+  try {
+    const packageId = parseInt(req.params.packageId, 10);
+    if (isNaN(packageId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Package ID' });
+    }
+
+    const pool = await getPool();
+
+    // Fetch existing vehicle type prices for this package
+    const existing = await pool.request()
+      .input('pkgId', sql.Int, packageId)
+      .query(`
+        SELECT
+          vp.PriceId,
+          vp.PackageId,
+          vp.VehicleTypeId,
+          vt.VehicleTypeCode,
+          vt.VehicleTypeName,
+          vt.DisplayOrder AS VehicleDisplayOrder,
+          vp.CustomerPrice,
+          vp.DealerPrice,
+          vp.IsActive
+        FROM dbo.ServicePackageVehicleTypePrice vp
+        INNER JOIN dbo.VehicleTypeMaster vt ON vp.VehicleTypeId = vt.VehicleTypeId
+        WHERE vp.PackageId = @pkgId
+        ORDER BY vt.DisplayOrder ASC, vt.VehicleTypeId ASC;
+      `);
+
+    // If no rows exist yet, auto-seed from VehicleTypeMaster using package's base price
+    if (existing.recordset.length === 0) {
+      const pkgResult = await pool.request()
+        .input('pkgId', sql.Int, packageId)
+        .query(`SELECT Price, DealerPrice FROM dbo.ServicePackageMaster WHERE PackageId = @pkgId`);
+
+      const vtResult = await pool.request()
+        .query(`SELECT VehicleTypeId, VehicleTypeCode, VehicleTypeName, DisplayOrder FROM dbo.VehicleTypeMaster WHERE IsActive = 1 ORDER BY DisplayOrder ASC`);
+
+      if (pkgResult.recordset.length > 0 && vtResult.recordset.length > 0) {
+        const basePkg = pkgResult.recordset[0];
+        const baseCustomer = Number(basePkg.Price);
+        const baseDealer = basePkg.DealerPrice != null ? Number(basePkg.DealerPrice) : baseCustomer;
+
+        // Insert seed rows in a transaction
+        const seedTx = new sql.Transaction(pool);
+        await seedTx.begin();
+        try {
+          for (const vt of vtResult.recordset) {
+            const r = new sql.Request(seedTx);
+            r.input('pkgId', sql.Int, packageId);
+            r.input('vtId', sql.Int, vt.VehicleTypeId);
+            r.input('custPrice', sql.Decimal(10, 2), baseCustomer);
+            r.input('dlrPrice', sql.Decimal(10, 2), baseDealer);
+            await r.query(`
+              IF NOT EXISTS (SELECT 1 FROM dbo.ServicePackageVehicleTypePrice WHERE PackageId = @pkgId AND VehicleTypeId = @vtId)
+              INSERT INTO dbo.ServicePackageVehicleTypePrice (PackageId, VehicleTypeId, CustomerPrice, DealerPrice, IsActive, CreatedDate)
+              VALUES (@pkgId, @vtId, @custPrice, @dlrPrice, 1, GETDATE());
+            `);
+          }
+          await seedTx.commit();
+        } catch (seedErr) {
+          try { await seedTx.rollback(); } catch {}
+          console.warn('[getPackageVehicleTypePrices] Seed failed (non-fatal):', seedErr.message);
+        }
+
+        // Re-fetch after seeding
+        const refetch = await pool.request()
+          .input('pkgId', sql.Int, packageId)
+          .query(`
+            SELECT
+              vp.PriceId,
+              vp.PackageId,
+              vp.VehicleTypeId,
+              vt.VehicleTypeCode,
+              vt.VehicleTypeName,
+              vt.DisplayOrder AS VehicleDisplayOrder,
+              vp.CustomerPrice,
+              vp.DealerPrice,
+              vp.IsActive
+            FROM dbo.ServicePackageVehicleTypePrice vp
+            INNER JOIN dbo.VehicleTypeMaster vt ON vp.VehicleTypeId = vt.VehicleTypeId
+            WHERE vp.PackageId = @pkgId
+            ORDER BY vt.DisplayOrder ASC, vt.VehicleTypeId ASC;
+          `);
+
+        return res.status(200).json({
+          success: true,
+          seeded: true,
+          count: refetch.recordset.length,
+          data: refetch.recordset.map(mapVehicleTypePrice),
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: existing.recordset.length,
+      data: existing.recordset.map(mapVehicleTypePrice),
+    });
+  } catch (err) {
+    console.error('[getPackageVehicleTypePrices Error]', err);
+    return res.status(500).json({ success: false, message: 'Failed to get vehicle type prices.', error: err.message });
+  }
+}
+
+function mapVehicleTypePrice(row) {
+  return {
+    priceId: row.PriceId,
+    packageId: row.PackageId,
+    vehicleTypeId: row.VehicleTypeId,
+    vehicleTypeCode: (row.VehicleTypeCode || '').trim(),
+    vehicleTypeName: (row.VehicleTypeName || '').trim(),
+    vehicleDisplayOrder: row.VehicleDisplayOrder,
+    customerPrice: Number(row.CustomerPrice),
+    dealerPrice: Number(row.DealerPrice),
+    isActive: Boolean(row.IsActive),
+  };
+}
+
+/**
+ * 7. PUT /api/service-packages/:packageId/vehicle-prices/:vehicleTypeId
+ * Upsert a vehicle type price row for a package.
+ */
+async function upsertPackageVehicleTypePrice(req, res) {
+  try {
+    const packageId = parseInt(req.params.packageId, 10);
+    const vehicleTypeId = parseInt(req.params.vehicleTypeId, 10);
+    if (isNaN(packageId) || isNaN(vehicleTypeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Package ID or Vehicle Type ID' });
+    }
+
+    const { customerPrice, dealerPrice } = req.body || {};
+    const custPrice = parseFloat(customerPrice);
+    const dlrPrice = dealerPrice != null && !isNaN(parseFloat(dealerPrice)) ? parseFloat(dealerPrice) : custPrice;
+
+    if (isNaN(custPrice)) {
+      return res.status(400).json({ success: false, message: 'Valid customerPrice is required.' });
+    }
+
+    const pool = await getPool();
+    await pool.request()
+      .input('pkgId', sql.Int, packageId)
+      .input('vtId', sql.Int, vehicleTypeId)
+      .input('custPrice', sql.Decimal(10, 2), custPrice)
+      .input('dlrPrice', sql.Decimal(10, 2), dlrPrice)
+      .query(`
+        MERGE dbo.ServicePackageVehicleTypePrice AS target
+        USING (SELECT @pkgId AS PackageId, @vtId AS VehicleTypeId) AS source
+          ON target.PackageId = source.PackageId AND target.VehicleTypeId = source.VehicleTypeId
+        WHEN MATCHED THEN
+          UPDATE SET CustomerPrice = @custPrice, DealerPrice = @dlrPrice, IsActive = 1
+        WHEN NOT MATCHED THEN
+          INSERT (PackageId, VehicleTypeId, CustomerPrice, DealerPrice, IsActive, CreatedDate)
+          VALUES (@pkgId, @vtId, @custPrice, @dlrPrice, 1, GETDATE());
+      `);
+
+    invalidatePackageCache();
+    return res.status(200).json({
+      success: true,
+      message: 'Vehicle type price updated successfully.',
+      data: { packageId, vehicleTypeId, customerPrice: custPrice, dealerPrice: dlrPrice },
+    });
+  } catch (err) {
+    console.error('[upsertPackageVehicleTypePrice Error]', err);
+    return res.status(500).json({ success: false, message: 'Failed to update vehicle type price.', error: err.message });
+  }
+}
+
+/**
+ * 8. GET /api/service-packages/all-vehicle-prices
+ * Returns ALL vehicle type prices for ALL packages in one shot (for kiosk startup preload).
+ */
+async function getAllPackageVehicleTypePrices(req, res) {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT
+        vp.PriceId,
+        vp.PackageId,
+        vp.VehicleTypeId,
+        vt.VehicleTypeCode,
+        vt.VehicleTypeName,
+        vt.DisplayOrder AS VehicleDisplayOrder,
+        vp.CustomerPrice,
+        vp.DealerPrice,
+        vp.IsActive
+      FROM dbo.ServicePackageVehicleTypePrice vp
+      INNER JOIN dbo.VehicleTypeMaster vt ON vp.VehicleTypeId = vt.VehicleTypeId
+      WHERE vp.IsActive = 1
+      ORDER BY vp.PackageId ASC, vt.DisplayOrder ASC;
+    `);
+
+    return res.status(200).json({
+      success: true,
+      count: result.recordset.length,
+      data: result.recordset.map(mapVehicleTypePrice),
+    });
+  } catch (err) {
+    console.error('[getAllPackageVehicleTypePrices Error]', err);
+    return res.status(500).json({ success: false, message: 'Failed to get all vehicle type prices.', error: err.message });
+  }
+}
+
 module.exports = {
   getPackages,
   getPackageFeatures,
   createPackage,
   updatePackage,
   deletePackage,
+  getPackageVehicleTypePrices,
+  upsertPackageVehicleTypePrice,
+  getAllPackageVehicleTypePrices,
 };

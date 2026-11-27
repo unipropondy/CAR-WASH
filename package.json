@@ -5,7 +5,10 @@
   "scripts": {
     "start": "node Backend/Server.js",
     "backend": "cd Backend && node Server.js",
-    "frontend": "cd Frontend && npm run start"
+    "frontend": "cd Frontend && npm run start",
+    "build": "cd Frontend && npm install && npm run build:web",
+    "build:frontend": "cd Frontend && npm install && npm run build:web",
+    "deploy:frontend": "cd Frontend && npm run deploy"
   }
 }
 

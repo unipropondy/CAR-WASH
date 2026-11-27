@@ -1,5 +1,6 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 import { NOTIFICATION_SOUND_URI, NOTIFICATION_SOUND_BASE64 } from './notificationSoundAsset';
+import { realtimeNotificationClient } from './realtimeNotificationClient';
 
 export interface KioskOrderNotification {
   orderId?: number;
@@ -49,6 +50,13 @@ if (Platform.OS === 'web' && typeof window !== 'undefined') {
     }
   });
 }
+
+// Real-time WebSocket event listener for cross-device orders (Kiosk -> POS)
+realtimeNotificationClient.on('NEW_KIOSK_ORDER', (payload) => {
+  if (payload && payload.orderNo) {
+    notifyOrderListeners(payload);
+  }
+});
 
 function notifyOrderListeners(order: KioskOrderNotification) {
   orderListeners.forEach((cb) => {
@@ -153,9 +161,20 @@ function playSynthesizedOrderChime() {
 }
 
 /**
- * Play order notification sound: uses instant Web Audio synth bell chime and pre-warmed audio element
+ * Play order notification sound: uses native Android audio engine on APK, or Web Audio synth bell chime on Web
  */
 export function playOrderAlertSound() {
+  if (Platform.OS === 'android') {
+    try {
+      if (NativeModules && NativeModules.NotificationSoundModule) {
+        NativeModules.NotificationSoundModule.playNotificationSound('order');
+        return;
+      }
+    } catch (e) {
+      console.warn('[kioskOrderNotificationService] Native sound error:', e);
+    }
+  }
+
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
   // 1. Play synthesized bell chime (always 0ms instant, works offline, no network/file decode lag)

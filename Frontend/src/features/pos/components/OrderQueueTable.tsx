@@ -32,6 +32,8 @@ export type FilterTabKey =
 interface OrderQueueTableProps {
   orders: PosOrder[];
   searchQuery?: string;
+  currentFilter?: FilterTabKey;
+  onFilterChange?: (filter: FilterTabKey) => void;
   onAssignOrder: (order: PosOrder) => void;
   onViewOrder: (order: PosOrder) => void;
   onPayOrder: (order: PosOrder) => void;
@@ -79,6 +81,8 @@ const getInitials = (name?: string): string => {
 export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
   orders,
   searchQuery = '',
+  currentFilter,
+  onFilterChange,
   onAssignOrder,
   onViewOrder,
   onPayOrder,
@@ -90,7 +94,12 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
 }) => {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
-  const [activeFilter, setActiveFilter] = useState<FilterTabKey>('ALL');
+  const [internalFilter, setInternalFilter] = useState<FilterTabKey>(currentFilter || 'ALL');
+  const activeFilter = currentFilter !== undefined ? currentFilter : internalFilter;
+  const setActiveFilter = (filter: FilterTabKey) => {
+    setInternalFilter(filter);
+    onFilterChange?.(filter);
+  };
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   // Helper to identify dealer / commercial account credit orders
@@ -861,7 +870,7 @@ export const OrderQueueTable: React.FC<OrderQueueTableProps> = ({
                               </View>
                               <View style={styles.customerInfoBlock}>
                                 <Text style={styles.customerNameText} numberOfLines={1}>
-                                  {order.customerName || 'Customer'}
+                                  {(!order.customerName || order.customerName.trim().toLowerCase() === 'walk-in customer' || order.customerName.trim().toLowerCase() === 'walk in customer' || order.customerName.trim().toLowerCase() === 'walk-in' || order.customerName.trim().toLowerCase() === 'walk in' || order.customerName.trim().toLowerCase() === 'walkin') ? 'Walk-in' : order.customerName}
                                 </Text>
                                 <Text
                                   style={[styles.customerSubText, isDealer && styles.dealerSubText]}

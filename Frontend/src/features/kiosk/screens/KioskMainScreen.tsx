@@ -102,6 +102,15 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
 
   const inactivityTimerRef = useRef<any>(null);
   const countdownTimerRef = useRef<any>(null);
+  const handleResetSessionRef = useRef<() => void>(() => {});
+  const isIdleActiveRef = useRef<boolean>(isIdleActive);
+  isIdleActiveRef.current = isIdleActive;
+  const showInactivityModalRef = useRef<boolean>(showInactivityModal);
+  showInactivityModalRef.current = showInactivityModal;
+  const currentPageRef = useRef<KioskPage>(currentPage);
+  currentPageRef.current = currentPage;
+  const isPaymentProcessingRef = useRef<boolean>(isPaymentProcessing);
+  isPaymentProcessingRef.current = isPaymentProcessing;
 
   // Clear countdown timer utility
   const clearCountdownTimer = useCallback(() => {
@@ -114,7 +123,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
   // Universal Inactivity Timer Handler (1 Minute = 60,000ms)
   const resetInactivityTimer = useCallback(() => {
     // If confirmation modal is currently visible, let the countdown handle auto-cancel
-    if (showInactivityModal) return;
+    if (showInactivityModalRef.current) return;
 
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current);
@@ -122,64 +131,75 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     }
 
     // If promotional slideshow is currently covering the screen, no background timer needed
-    if (isIdleActive) return;
+    if (isIdleActiveRef.current) return;
 
     inactivityTimerRef.current = setTimeout(() => {
       // CASE 1: Kiosk Idle Screen (Customer Login / Welcome)
-      if (currentPage === 'PAGE_1_USER_TYPE') {
+      if (currentPageRef.current === 'PAGE_1_USER_TYPE') {
         setIsIdleActive(true);
         return;
       }
 
       // CASE 2: Order Success Screen
-      if (currentPage === 'PAGE_6_SUCCESS') {
-        handleResetSession();
+      if (currentPageRef.current === 'PAGE_6_SUCCESS') {
+        handleResetSessionRef.current();
         return;
       }
 
       // CASE 3: Customer is placing an order (Vehicles, Services, Details, Payment, Dealer)
       // Never interrupt active payment terminal / card processing
-      if (isPaymentProcessing) {
+      if (isPaymentProcessingRef.current) {
         resetInactivityTimer();
         return;
       }
 
       // Pause ordering screen and display confirmation popup
       setShowInactivityModal(true);
-      setInactivityCountdown(30);
-
-      clearCountdownTimer();
-      countdownTimerRef.current = setInterval(() => {
-        setInactivityCountdown((prev) => {
-          if (prev <= 1) {
-            clearCountdownTimer();
-            setShowInactivityModal(false);
-            handleResetSession();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
     }, 60000);
-  }, [isIdleActive, showInactivityModal, currentPage, isPaymentProcessing, clearCountdownTimer]);
+  }, []);
+
+  // Dedicated effect to run the countdown whenever the inactivity modal opens
+  useEffect(() => {
+    if (!showInactivityModal) {
+      clearCountdownTimer();
+      return;
+    }
+
+    setInactivityCountdown(30);
+    clearCountdownTimer();
+
+    countdownTimerRef.current = setInterval(() => {
+      setInactivityCountdown((prev) => {
+        if (prev <= 1) {
+          clearCountdownTimer();
+          setShowInactivityModal(false);
+          handleResetSessionRef.current();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearCountdownTimer();
+    };
+  }, [showInactivityModal, clearCountdownTimer]);
 
   // Handle customer continuing their existing order from the inactivity popup
   const handleContinueOrderFromInactivity = () => {
-    clearCountdownTimer();
     setShowInactivityModal(false);
     resetInactivityTimer();
   };
 
   // Handle customer cancelling their order from the inactivity popup
   const handleCancelOrderFromInactivity = () => {
-    clearCountdownTimer();
     setShowInactivityModal(false);
-    handleResetSession();
+    handleResetSessionRef.current();
   };
 
   // Any screen touch/interaction resets the inactivity timer
   const handleScreenTouchActivity = () => {
-    if (!showInactivityModal) {
+    if (!showInactivityModalRef.current) {
       resetInactivityTimer();
     }
   };
@@ -201,9 +221,8 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     }
     return () => {
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-      clearCountdownTimer();
     };
-  }, [isIdleActive, currentPage, resetInactivityTimer, clearCountdownTimer]);
+  }, [isIdleActive, currentPage, resetInactivityTimer]);
 
   const handleOpenStaffLogin = () => {
     setIsStaffLoginModalOpen(true);
@@ -714,6 +733,7 @@ export const KioskMainScreen: React.FC<KioskMainScreenProps> = ({
     navigateToPage('PAGE_1_USER_TYPE', '/customer-login');
     setIsIdleActive(true);
   };
+  handleResetSessionRef.current = handleResetSession;
 
   return (
     <View
